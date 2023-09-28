@@ -19,7 +19,7 @@ using std::string;
 //An extension of Fomitchev and Ruppert's linked list that allows concurrent insertions of the same node.
 
 //Additional status used when a ListNode's successor is an insert descriptor node.
-uint64_t InsFlag = 3; 
+const uint64_t InsFlag = 3; 
 
 //Definition of the Insert Descriptor Node object.
 class InsertDescNode{

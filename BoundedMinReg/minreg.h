@@ -6,6 +6,7 @@
 #include <bit>
 #include <mutex>
 using std::cout;
+#pragma once
 
 //2 ^ Floor log_2 function 
 //Function for rounding down to the next smallest power of 2.
