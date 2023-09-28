@@ -8,18 +8,10 @@
 #include <iterator>
 #include <atomic>
 #include <cassert>
-#include "../setbench/common/recordmgr/record_manager.h"
-#include "../common.h"
-
-
 #include "ListNode.h"
 #pragma once
 using std::string;
-
-
-
 //An implementation of Eric Ruppert and Michhail Fomitchev's Lock-Free Linked List
-
 
 //Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert
 //With an additional extension.
@@ -124,9 +116,8 @@ class LinkedList{
             uintptr_t succ = curr->successor;
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
-            while(1){
+            while(compNode((ListNode*)next, node) > 0){
                 if(state == Normal){
-                    if(compNode((ListNode*)next, node) > 0)return;
                     if((ListNode*)next != node){ //Advance...
                         curr = (ListNode*)next;
                         succ = curr->successor;
@@ -143,9 +134,6 @@ class LinkedList{
                         next = succ & NEXT_MASK;
                         state = succ & STATUS_MASK;
                     }
-                }
-                else if(compNode((ListNode*)next, node) > 0){
-                    return;
                 }
                 else if(state == DelFlag){
                     succ = helpRemove(curr, (ListNode*)next);

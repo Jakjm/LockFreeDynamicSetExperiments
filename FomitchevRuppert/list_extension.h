@@ -30,7 +30,7 @@ class InsertDescNode{
 
     }
 };
-typedef record_manager<reclaimer_debra<>, allocator_new<>, pool_none<>, InsertDescNode> recordMgr_t;
+typedef record_manager<reclaimer_debra<>, allocator_new<>, pool_none<>, InsertDescNode> InsertDescManager;
 
 //Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert
 //With an additional extension.
@@ -39,17 +39,17 @@ template <int(*compare)(ListNode*, ListNode*)>
 class LinkedList_FRE {
     public:
         ListNode tail, head; //Head, tail of the linked list. 
-        recordMgr_t *const recordMgr; //Record manager used to allocate insert_descriptor nodes.
+        InsertDescManager *const descMgr; //Record manager used to allocate insert_descriptor nodes.
     public:
-        LinkedList_FRE() : tail(), head(), recordMgr(new recordMgr_t(NUM_THREADS)){
+        LinkedList_FRE() : tail(), head(), descMgr(new InsertDescManager(NUM_THREADS)){
             head.successor.store((uintptr_t)&tail);
         }
         ~LinkedList_FRE(){ 
             //Deinitialize all threads.
             for(int i = 0;i < NUM_THREADS;++i){
-                recordMgr->deinitThread(i);
+                descMgr->deinitThread(i);
             }
-            delete recordMgr;
+            delete descMgr;
         }
 
         uintptr_t helpInsert(ListNode *prev, InsertDescNode *desc){
@@ -65,7 +65,7 @@ class LinkedList_FRE {
                 //Attempt to CAS to remove descriptor.
                 prev->successor.compare_exchange_strong(result, (uintptr_t)desc->next);
                 if(result == expected){
-                    recordMgr->retire(threadID(), desc);
+                    descMgr->retire(threadID(), desc);
                 }
             }
             else{
@@ -74,7 +74,7 @@ class LinkedList_FRE {
                 //Attempt to complete insertion of insert node.
                 prev->successor.compare_exchange_strong(result, (uintptr_t)desc->newNode);
                 if(result == expected){
-                    recordMgr->retire(threadID(), desc);
+                    descMgr->retire(threadID(), desc);
                 }
             }
             return result;
@@ -129,14 +129,14 @@ class LinkedList_FRE {
         void insert(ListNode *node){
             if((node->successor & STATUS_MASK) == Marked)return;
 
-            recordMgr->initThread(threadID());
-            auto guard = recordMgr->getGuard(threadID());
+            descMgr->initThread(threadID());
+            auto guard = descMgr->getGuard(threadID());
 
             ListNode *curr = &head;
             uintptr_t succ = curr->successor;
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
-            InsertDescNode *newDesc = recordMgr->template allocate<InsertDescNode>(threadID(), node);
+            InsertDescNode *newDesc = descMgr->template allocate<InsertDescNode>(threadID(), node);
             while(next != (uintptr_t)node){
                 if(state == Normal){
                     if(compNode((ListNode*)next,node) <= 0){ //node should be placed further along in the list if next <= node
@@ -184,8 +184,8 @@ class LinkedList_FRE {
             }
         }
         void remove(ListNode *node){
-            recordMgr->initThread(threadID());
-            auto guard = recordMgr->getGuard(threadID());
+            descMgr->initThread(threadID());
+            auto guard = descMgr->getGuard(threadID());
 
             ListNode *curr = &head;
             uintptr_t succ = curr->successor;
@@ -247,8 +247,8 @@ class LinkedList_FRE {
             return next(&head);
         }
         ListNode *next(ListNode *node){
-            recordMgr->initThread(threadID());
-            auto guard = recordMgr->getGuard(threadID());
+            descMgr->initThread(threadID());
+            auto guard = descMgr->getGuard(threadID());
             
             uintptr_t succ = node->successor;
             uintptr_t next = succ & NEXT_MASK;
@@ -265,8 +265,8 @@ class LinkedList_FRE {
         }
 
         ListNode *next(ListNode *node, uint64_t &state){
-            recordMgr->initThread(threadID());
-            auto guard = recordMgr->getGuard(threadID());
+            descMgr->initThread(threadID());
+            auto guard = descMgr->getGuard(threadID());
             
             uintptr_t succ = node->successor;
             uintptr_t next = succ & NEXT_MASK;

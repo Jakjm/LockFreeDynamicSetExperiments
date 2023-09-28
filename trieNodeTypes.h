@@ -9,11 +9,6 @@ using std::string;
 enum TYPE {INS, DEL};
 enum STATUS {INACTIVE, ACTIVE, STALE};
 
-int compareKey(int64_t val1, int64_t val2){
-    if(val1 > val2)return 1;
-    else if(val1 < val2)return -1;
-    else return 0;
-}
 
 class UpdateNode;
 class PredecessorNode;
@@ -45,25 +40,21 @@ class UpdateNode : public ListNode{
         }
         virtual void retire(NodeRecordManager &recordMgr) = 0;
         virtual ~UpdateNode(){}
-        virtual TYPE type() = 0; 
+        TYPE type; 
 
         //TODO used for debugging only.
         virtual string toString() = 0;
 };
 
 
-int compareUpdate(ListNode *u1, ListNode *u2){
-    UpdateNode *a = (UpdateNode*)u1;
-    UpdateNode *b = (UpdateNode*)u2;
-    return a->key - b->key;
-}
+
 
 
 
 class InsNode : public UpdateNode{
     public:
         InsNode(int64_t key): UpdateNode(key){
-
+            type = INS;
         }
         void retire(NodeRecordManager &recordMgr){
             //insList.removeKey(this);
@@ -71,9 +62,6 @@ class InsNode : public UpdateNode{
         }
         ~InsNode(){
 
-        }
-        TYPE type(){
-            return INS;
         }
         string toString(){
             return std::to_string((uintptr_t)this) + ": INS Node, retCounter:" + std::to_string(retireCounter) + " State:" + std::to_string(status);
@@ -84,6 +72,7 @@ class InsNode : public UpdateNode{
 #warning updateNodeMax is currently created as a copy node?, which is then retired when the notify node is retired. TODO is this even valid?
 class NotifyNode{
     public:
+    const int64_t key;
     UpdateNode * const updateNode;
     InsNode * const updateNodeMax;
     const int64_t notifyThreshold;
@@ -92,7 +81,7 @@ class NotifyNode{
     NotifyNode *next;
     
     NotifyNode(UpdateNode *upNode, InsNode *upNodeMax, int64_t threshold) : 
-        updateNode(upNode), updateNodeMax(upNodeMax), notifyThreshold(threshold){
+        key(upNode->key), updateNode(upNode), updateNodeMax(upNodeMax), notifyThreshold(threshold){
     }
     void retire(NodeRecordManager &recordMgr){
         //notList.removeKey(this);
@@ -130,12 +119,7 @@ class PredecessorNode : public ListNode{
     }
 };
 
-//Function used to compare two predecessor nodes.
-inline int __attribute__((always_inline)) comparePred(ListNode *p1, ListNode *p2){
-    PredecessorNode *a = (PredecessorNode*)p1;
-    PredecessorNode *b = (PredecessorNode*)p2;
-    return a->key - b->key;
-}
+
 
 
 class DelNode : public UpdateNode{
@@ -150,10 +134,10 @@ class DelNode : public UpdateNode{
         DelNode(int64_t key, int b, UpdateNode *latest, int64_t delP, PredecessorNode *delPredN)
         : UpdateNode(key, latest), upper0Boundary(0), 
             lower1Boundary(b+1), delPred(delP), delPred2(-1), delPredNode(delPredN){
-
+                type = DEL;
         }
         DelNode(int64_t key, int b, UpdateNode *latest) : DelNode(key, b, latest, -1, nullptr){
-
+            
         }
         //Should be used to retire a delete node.
         void retire(NodeRecordManager &recordMgr){
@@ -162,9 +146,6 @@ class DelNode : public UpdateNode{
             recordMgr.retire(threadID(), this);
         }
         ~DelNode(){
-        }
-        TYPE type() {
-            return DEL;
         }
         string toString(){
             return std::to_string((uintptr_t)this) + ": DEL Node, retCounter:" + std::to_string(retireCounter) + " State:" + std::to_string(status);
