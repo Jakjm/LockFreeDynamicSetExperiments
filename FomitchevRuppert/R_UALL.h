@@ -63,6 +63,7 @@ class RU_ALL_TYPE {
             
             uintptr_t result = (uintptr_t)desc + NotifFlag;
             prev->successor.compare_exchange_strong(result, (uintptr_t)next);
+            return result;
         }
 
         uintptr_t helpInsert(ListNode *prev, InsertDescNode *desc){
@@ -302,7 +303,7 @@ class RU_ALL_TYPE {
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
             NotifyDescNode *notifyDesc = descMgr->allocate<NotifyDescNode>(threadID(), pNode);
-            while(next != (uintptr_t)tail){
+            while(next != (uintptr_t)&tail){
                 if(state == Marked){ //If node is marked, then node.next is permanently equal to next.
                     pNode->notifyThreshold = (UpdateNode*)next;
                     return (ListNode*)next;

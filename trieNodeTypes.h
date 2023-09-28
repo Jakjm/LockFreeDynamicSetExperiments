@@ -4,7 +4,9 @@
 #include "FomitchevRuppert/ListNode.h"
 #include "setbench/common/recordmgr/record_manager.h"
 #include "common.h"
+#pragma once
 using std::string;
+
 
 enum TYPE {INS, DEL};
 enum STATUS {INACTIVE, ACTIVE, STALE};
@@ -102,7 +104,7 @@ class PredecessorNode : public ListNode{
     std::atomic<UpdateNode*> notifyThreshold;
     std::atomic<NotifyNode*> notifyListHead;
     
-    PredecessorNode(int64_t k, NodeRecordManager *listRecMgr) : key(k), notifyThreshold(&INFINITY_THRES) {
+    PredecessorNode(int64_t k) : key(k), notifyThreshold(&INFINITY_THRES) {
     
     }
     void retire(NodeRecordManager &recordMgr){
