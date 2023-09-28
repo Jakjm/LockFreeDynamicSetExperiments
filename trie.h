@@ -1,10 +1,11 @@
+#include <climits>
 #include <cstdint>
 #include <sstream>
 #include <stdint.h>
 #include <vector>
 #include "BoundedMinReg/minreg.h"
 #include "FomitchevRuppert/list.h"
-#include "FR_Extension/list_extension.h"
+#include "FomitchevRuppert/list_extension.h"
 
 //TODO ifdef
 #include <deque>
@@ -41,9 +42,9 @@ class DelNode;
 class NotifyNode;
 
 
-typedef record_manager<reclaimer_debra<int64_t>, allocator_new<int64_t>, pool_none<int64_t>, DelNode, InsNode, PredecessorNode, NotifyNode> recordMgr_t;
+typedef record_manager<reclaimer_debra<int64_t>, allocator_new<int64_t>, pool_none<int64_t>, DelNode, InsNode, PredecessorNode, NotifyNode> NodeRecordManager;
 
-class UpdateNode : ListNode<int64_t>{
+class UpdateNode : public ListNode{
     public:
         int64_t key;
         std::atomic<STATUS> status; 
@@ -62,17 +63,19 @@ class UpdateNode : ListNode<int64_t>{
         UpdateNode(int64_t x) : UpdateNode(x, nullptr) {
 
         }
-        virtual void retire(recordMgr_t &recordMgr) = 0;
+        virtual void retire(NodeRecordManager &recordMgr) = 0;
         virtual ~UpdateNode(){}
         virtual TYPE type() = 0; 
 
         //TODO used for debugging only.
         virtual string toString() = 0;
 };
-int compareUpdate(UpdateNode *u1, UpdateNode *u2){
-    if(u1->key > u2->key)return 1;
-    else if(u1->key < u2->key)return -1;
-    else return 0;
+
+
+int compareUpdate(ListNode *u1, ListNode *u2){
+    UpdateNode *a = (UpdateNode*)u1;
+    UpdateNode *b = (UpdateNode*)u2;
+    return a->key - b->key;
 }
 
 
@@ -82,7 +85,7 @@ class InsNode : public UpdateNode{
         InsNode(int64_t key): UpdateNode(key){
 
         }
-        void retire(recordMgr_t &recordMgr){
+        void retire(NodeRecordManager &recordMgr){
             //insList.removeKey(this);
             recordMgr.retire(threadID(), this);
         }
@@ -111,7 +114,7 @@ class NotifyNode{
     NotifyNode(UpdateNode *upNode, InsNode *upNodeMax, int64_t threshold) : 
         updateNode(upNode), updateNodeMax(upNodeMax), notifyThreshold(threshold){
     }
-    void retire(recordMgr_t &recordMgr){
+    void retire(NodeRecordManager &recordMgr){
         //notList.removeKey(this);
         //int reclaim = updateNode->retireCounter.fetch_add(-1);
         //if(reclaim == 1)updateNode->retire(recordMgr);
@@ -119,22 +122,21 @@ class NotifyNode{
         recordMgr.retire( threadID(), this);
     }
 };
-int compareNotify(NotifyNode *n1, NotifyNode *n2){
-    return n1 - n2;
-}
 
-typedef record_manager<reclaimer_debra<NotifyNode*>, allocator_new<NotifyNode*>, pool_none<NotifyNode*>, ListNode<NotifyNode*,false>> NotifyListRecordMgr_t;
-class PredecessorNode{
+//UpdateNodes that are meant to represent the values of infinity and zero for the notifyThreshold
+InsNode INFINITY_THRES(INT64_MAX);
+InsNode ZERO_THRES(0);
+
+class PredecessorNode : ListNode{
     public:
     const int64_t key;
-    std::atomic<bool> traversedTrie;
-
-    NotifyNode *notifyListHead;
+    std::atomic<UpdateNode*> notifyThreshold;
+    std::atomic<NotifyNode*> notifyListHead;
     
-    PredecessorNode(int64_t k, NotifyListRecordMgr_t *listRecMgr) : key(k), traversedTrie(false) {
+    PredecessorNode(int64_t k, NodeRecordManager *listRecMgr) : key(k), notifyThreshold(&INFINITY_THRES) {
     
     }
-    void retire(recordMgr_t &recordMgr){
+    void retire(NodeRecordManager &recordMgr){
         NotifyNode *curNode = notifyListHead;
         while(curNode){
             NotifyNode *next = curNode->next;
@@ -147,10 +149,12 @@ class PredecessorNode{
         
     }
 };
-inline int __attribute__((always_inline)) comparePred(PredecessorNode *p1, PredecessorNode *p2){
-    if(p1->key > p2->key)return 1;
-    else if(p1->key < p2->key)return -1;
-    else return 0;
+
+//Function used to compare two predecessor nodes.
+inline int __attribute__((always_inline)) comparePred(ListNode *p1, ListNode *p2){
+    PredecessorNode *a = (PredecessorNode*)p1;
+    PredecessorNode *b = (PredecessorNode*)p2;
+    return a->key - b->key;
 }
 
 
@@ -172,7 +176,7 @@ class DelNode : public UpdateNode{
 
         }
         //Should be used to retire a delete node.
-        void retire(recordMgr_t &recordMgr){
+        void retire(NodeRecordManager &recordMgr){
             //delList.removeKey(this);
             if(delPredNode)delPredNode->retire(recordMgr);
             recordMgr.retire(threadID(), this);
@@ -217,23 +221,15 @@ class Trie{
     const int64_t universeSize; //Equal to 2^b 
     vector<vector<TrieNode>> trieNodes;
     vector<LatestList> latest;
-    recordMgr_t recordMgr;
-    record_manager<reclaimer_debra<NotifyNode*>, allocator_new<NotifyNode*>, pool_none<NotifyNode*>, ListNode<NotifyNode*, false>> notifyManager;
-    PredecessorNode predMin, predMax; 
-    InsNode updateMin, updateMax;
-    LinkedList<PredecessorNode*, comparePred> P_ALL;
-    LinkedList<UpdateNode *, compareUpdate> U_ALL;
-       
+    NodeRecordManager recordMgr;
+    LinkedList<comparePred> P_ALL;
+    LinkedList<compareUpdate> U_ALL;
+    //TODO create UALL
     public:
-    Trie(int size) : b(size), universeSize(1 << b), latest(universeSize), recordMgr(NUM_THREADS), 
-    notifyManager(NUM_THREADS), predMin(-1, &notifyManager), 
-    predMax(universeSize + 1, &notifyManager), updateMin(-1), updateMax(universeSize + 1),
-        P_ALL(&predMin, &predMax),
-        U_ALL(&updateMin, &updateMax)
+    Trie(int size) : b(size), universeSize(1 << b), latest(universeSize), recordMgr(NUM_THREADS), P_ALL(), U_ALL()
     {
         threadInit();
         auto guard = recordMgr.getGuard(threadID());
-        auto notifyGuard = notifyManager.getGuard(threadID());
         
         //Initialize the binary trie nodes for each level of the trie.
         for(int i = 0; i <= b;++i){
@@ -274,8 +270,6 @@ class Trie{
     ~Trie(){
         threadInit();
         recordMgr.startOp(threadID());
-        notifyManager.startOp(threadID());
-        verifyLists();
         
         //Attempt to retire all of the UpdateNodes stored in the latest lists
         //And all of the dNodePtrs.
@@ -301,10 +295,8 @@ class Trie{
             }
         }
         recordMgr.endOp(threadID());
-        notifyManager.endOp(threadID());
         for(int i = 0;i < NUM_THREADS;++i){
             recordMgr.deinitThread(i);
-            notifyManager.deinitThread(i);
         }
     }
     UpdateNode *findLatest(int64_t x){
@@ -321,29 +313,117 @@ class Trie{
     }
     bool search(int64_t x){
         assert(x >= 0 && x <= universeSize); //TODO remove this eventually.
-        if (x < 0 || x > universeSize){
-            return false; //x outside of range of trie.
-        }
         threadInit();
         auto guard = recordMgr.getGuard(threadID());
-        auto notifyGuard = notifyManager.getGuard(threadID());
 
         UpdateNode *l = findLatest(x);
         return l->type() == INS; //Return whether the root of the latest was an insert node.
     }
+
+    char interpretedBit(TrieNode *t, int height){
+        UpdateNode *dNode = t->dNodePtr;
+        UpdateNode *uNode = findLatest(dNode->key);
+        if(uNode->type() == INS)return 1;
+        else{
+            DelNode *d = (DelNode*)uNode; //uNode must have type = DEL
+            if (height >= d->lower1Boundary.minRead()) return 1;
+            else if(height <= d->upper0Boundary)return 0;
+            else return 1;
+        }
+    }
+
+
+    //Help to activate the update node created by an insert or delete operation....
+    void helpActivate(UpdateNode *uNode){
+        if (uNode->status == INACTIVE){
+            //TODO insert uNode into RU-ALL
+            U_ALL.insert(uNode);
+
+            STATUS expectedStatus = INACTIVE;
+            uNode->status.compare_exchange_strong(expectedStatus, ACTIVE);
+
+            UpdateNode *latestNext = uNode->latestNext;
+            if(latestNext){
+                latestNext->status = STALE;
+                
+                bool unlinked = uNode->latestNext.compare_exchange_strong(latestNext, nullptr); //Replaces uNode->latestNext = nullptr;
+                if(unlinked){ 
+                    //TODO might help with knowing if a node can be reclaimed...
+                }
+            }
+        }
+    }
     
+
+    //Notify predecessor operation by placing a new notify node in the notify list.
+    void sendNotification(NotifyNode *newNotifyNode, PredecessorNode *pNode){
+        while(1){
+            NotifyNode *nNode = pNode->notifyListHead;
+            newNotifyNode->next = nNode;
+            if(!firstActivated(newNotifyNode->updateNode))return; //If the updateNode is no longer the first activated one, no need to continue....
+
+            //Otherwise, attempt to put newNotifyNode at the head of the notifyList for pNode.
+            NotifyNode *expected = nNode;
+            pNode->notifyListHead.compare_exchange_strong(expected,newNotifyNode); 
+            if(expected == nNode){
+                return; //Succeeded in putting newNotifyNode at the head of the notifyList.
+            }
+        }
+    }
+
+    //Traverse through the Update Announcement Linked List
+    void traverseUALL(int64_t x, vector<InsNode*> &I, std::unordered_set<DelNode*> &D){
+        UpdateNode *uNode = (UpdateNode*)U_ALL.first();   
+        while(uNode && uNode->key <= x){
+            if(uNode->status != INACTIVE && firstActivated(uNode)){
+                if(uNode->type() == INS)I.push_back((InsNode*)uNode);
+                else D.insert((DelNode*)uNode);
+            }
+            uNode = (UpdateNode*)U_ALL.next(uNode);
+        }                                                                                             
+    }
+
+    //Send notifications to predecessor operations.
+    void notifyPredOps(UpdateNode *uNode){
+        vector<InsNode*> I; 
+        std::unordered_set<DelNode*> D;
+        traverseUALL(INT64_MAX, I, D);
+
+        PredecessorNode *pNode = (PredecessorNode*)P_ALL.first();
+        while(pNode){
+            int64_t tau;
+            UpdateNode *notifyThres = pNode->notifyThreshold;
+            tau = notifyThres->key;
+
+            if(firstActivated(uNode)){ //Once false this should not become true again - say to jeremy....
+                #warning updateNodeMax is created as a copy node of node in UALL with largest key < pNode.key 
+                int64_t maxKey = -1;
+                InsNode *updateNodeMax = nullptr;
+                for(InsNode* insNode : I){
+                    if(insNode->key < pNode->key){
+                        if(insNode->key > maxKey)maxKey = insNode->key;
+                    }
+                }
+                if(maxKey != -1)updateNodeMax = recordMgr.allocate<InsNode>(threadID(), maxKey); 
+
+
+                NotifyNode *newNotif = recordMgr.allocate<NotifyNode>(threadID(), uNode, updateNodeMax, tau);
+                sendNotification(newNotif,pNode);
+            }
+        }
+    }
 
     void insertBinaryTrie(UpdateNode *v){
         //For each binary trie node t on the path from the parent of the leaf with v.key to the root, do 
         int64_t key = v->key;
         for(int depth = b-1;depth >= 0;--depth){
             key = key >> 1;
-            TrieNode &t = trieNodes[depth][key];
+            TrieNode &t = trieNodes[depth][key]; //Start from parent of 
             UpdateNode *dNodePtr = t.dNodePtr;
             UpdateNode *uNode = findLatest(dNodePtr->key);
 
             if (uNode->type() == DEL){
-                DelNode *delNode = dynamic_cast<DelNode*>(uNode);
+                DelNode *delNode = (DelNode*)uNode;
                 int height = b - depth;
                 if (height < delNode->lower1Boundary.minRead() && height <= delNode->upper0Boundary){
                     v->target = delNode;
@@ -353,17 +433,16 @@ class Trie{
             }
         }
     }
-    //                0
+    
+
+    //               0
     //           0       1
     //         0   1    2  3
     //       0  1 2 3  4 5 6 7
     // If the index is odd, it is the right child. Subtract 1 to get the left child.
     // If the index is even, it is the left child. Add 1 to get the right child.
-    static int64_t siblingIndex(int64_t index){
-        int64_t mod2 = index & 1;
-        if(mod2)return index - 1; 
-        else return index + 1;    
-    }
+    #define siblingIndex(index) (index + 1 - ((index & 1) * 2))
+
     void deleteBinaryTrie(DelNode *v){
         TrieNode *t = &trieNodes[b][v->key]; //Get leaf of the trie with v.key
         TrieNode *root = &trieNodes[0][0];
@@ -373,7 +452,7 @@ class Trie{
         while(t != root){
             int height = b - depth;
             TrieNode *sibling = &trieNodes[depth][siblingIndex(key)];
-            if(interpretedBit(t, height) == 1 || interpretedBit(sibling, height))return;
+            if(interpretedBit(t, height) == 1 || interpretedBit(sibling, height) == 1)return;
 
             //t = t->parent.
             --depth;
@@ -386,7 +465,6 @@ class Trie{
             if(v->stop || v->lower1Boundary.minRead() != b+1)return;
             
             DelNode *expected = d;
-            v->retireCounter.fetch_add(1);
             t->dNodePtr.compare_exchange_strong(expected, v);
             if(expected != d){
                 d = t->dNodePtr;
@@ -395,24 +473,15 @@ class Trie{
                 expected = d;
                 t->dNodePtr.compare_exchange_strong(expected, v);
                 if(expected != d){
-                    //Retire v if v is no longer in shared memory (TODO maybe this is silly.)
-                    int retire = v->retireCounter.fetch_add(-1);
-                    if(retire == 1)v->retire(recordMgr);
-                    assert(retire > 0);
+                    //Retire v if v is no longer in shared memory? (TODO maybe this is silly.)
                     return;
                 }
                 else{
                     //Retire d if it is no longer in shared memory.
-                    int retire = d->retireCounter.fetch_add(-1);
-                    if(retire == 1)d->retire(recordMgr);
-                    assert(retire > 0);
                 }
             }
             else{
-                //Retire d if it is no longer in shared memory.
-                int retire = d->retireCounter.fetch_add(-1);
-                if(retire == 1)d->retire(recordMgr);
-                assert(retire > 0);
+                //Retire d if it is no longer in shared memory?
             }
             TrieNode *left = &trieNodes[depth+1][key * 2], *right = &trieNodes[depth+1][key *2 +1];
             if(interpretedBit(left, height - 1) == 1 || interpretedBit(right, height- 1))return;
@@ -420,185 +489,67 @@ class Trie{
         }
     }
 
-    //Traverse through the Update Announcement Linked List
-    void traverseUALL(int64_t x, vector<InsNode*> &I, std::unordered_set<DelNode*> &D){
-        UpdateNode *u, *v;
-        
-        LinkedList<UpdateNode *, compareUpdate>::Iterator it = U_ALL.begin();
-        int64_t uk, vk;                                                                                                  
-
-        //u = head of linked list.
-        if(it == U_ALL.end()){
-            return;
-        }
-        u = (*it).key;
-        uk = u->key;
-        ++it;
-        
-        while(it != U_ALL.end() && uk < x){
-            v = (*it).key;
-            vk = v->key;
-
-            if((uk != vk && u->status == ACTIVE) || (uk == vk && v->status == INACTIVE)){
-                if(u->type() == INS)I.push_back((InsNode*)u);
-                else D.insert((DelNode*)u);
-            }
-            u = v;
-            uk = vk;
-            ++it;
-        }
-    }
-    char interpretedBit(TrieNode *t, int height){
-        UpdateNode *dNode = t->dNodePtr;
-        UpdateNode *uNode = findLatest(dNode->key);
-        if(uNode->type() == INS)return 1;
-        else{
-            DelNode *d = dynamic_cast<DelNode*>(uNode); //uNode must have type = DEL
-            if (height >= d->lower1Boundary.minRead()) return 1;
-            else if(height <= d->upper0Boundary)return 0;
-            else return 1;
-        }
-    }
-
-    void helpActivate(UpdateNode *uNode){
-        if (uNode->status == INACTIVE){
-
-            if(U_ALL.insert(uNode)){
-                int result = uNode->retireCounter.fetch_add(1);
-                assert(result > 0);
-            }
-
-            //TODO fetch+add based on who makes the process active instead of based on insertion?
-            //However there may be no such process...
-            STATUS expectedStatus = INACTIVE;
-            uNode->status.compare_exchange_strong(expectedStatus, ACTIVE);
-
-            UpdateNode *latestNext = uNode->latestNext;
-            if(latestNext){
-                latestNext->status = STALE;
-                
-                bool unlinked = uNode->latestNext.compare_exchange_strong(latestNext, nullptr); //Replaces uNode->latestNext = nullptr;
-                if(unlinked){ 
-                    //If this is the thread that unlinks latestNext, attempt to retire latest next.
-                    int retire = latestNext->retireCounter.fetch_add(-1);
-                    if(retire == 1)latestNext->retire(recordMgr);
-                    assert(retire > 0);
-                }
-            }
-            if (uNode->status == STALE){
-                if(U_ALL.removeKey(uNode)){
-                    int retire = uNode->retireCounter.fetch_add(-1);
-                    if(retire == 1)uNode->retire(recordMgr);
-                    assert(retire > 0);
-                }
-            }
-        }
-    }
+    /**
+    Insert operation on the binary trie.
+    */
     void insert(int64_t x){
         assert(x >= 0 && x <= universeSize); //TODO remove this eventually.
-        if (x < 0 || x > universeSize){
-            return; //x outside of range of trie.
-        }
         threadInit();
         auto guard = recordMgr.getGuard(threadID());
-        auto notifyGuard = notifyManager.getGuard(threadID());
         UpdateNode *dNode = findLatest(x), *expected;
         if (dNode->type() == INS)return; //x already in S, nothing to do!
         //dNode has type DEL and its child, if it has one, is of type INS
 
         //InsNode *v = new InsNode(x);
         InsNode *v = recordMgr.allocate<InsNode, int64_t>(threadID(), x);
-        insList.insert(v);
         v->latestNext = dNode;
 
         UpdateNode *latestNext = dNode->latestNext;
         if(latestNext){
             latestNext->status = STALE;
             //dNode->latestNext = nullptr
-            bool unlinked = dNode->latestNext.compare_exchange_strong(latestNext, nullptr); 
-            if(unlinked){
+            UpdateNode *expected = latestNext;
+            dNode->latestNext.compare_exchange_strong(expected, nullptr); 
+            if(expected == latestNext){
                 //If this is the thread that unlinked latestNext from the latest list, 
-                //Attempt to retire latestNext.
-                int retire = latestNext->retireCounter.fetch_add(-1);
-                if(retire == 1) latestNext->retire(recordMgr);
-                assert(retire > 0);
+                //Attempt to retire latestNext. TODO...
             }
         }
         expected = dNode;
-        v->retireCounter = 2; //Initially set reclaim counter to 2.
         latest[x].head.compare_exchange_strong(expected, v);
         if (expected != dNode){
             helpActivate(expected);
-            //No other thread has seen v, so v can be reclaimed.
+            //No other thread has seen v, so v can be retired.
             v->retire(recordMgr);
             return;
         }
 
         U_ALL.insert(v);
+        //TODO insert v into RU-ALL
 
         STATUS expectedStatus = INACTIVE;
         v->status.compare_exchange_strong( expectedStatus, ACTIVE);
         dNode->status = STALE;
+        
         //v->latestNext = nullptr
-        bool reclaim = v->latestNext.compare_exchange_strong(dNode,nullptr); 
-        if(reclaim){
-            int retire = dNode->retireCounter.fetch_add(-1);
-            if(retire == 1)dNode->retire(recordMgr);
-            assert(retire > 0);
+        expected = dNode;
+        v->latestNext.compare_exchange_strong(expected,nullptr); 
+        if(expected == dNode){
+            //TODO retire dNode if possible now that 
         }
         
-        vector<InsNode*> I;
-        std::unordered_set<DelNode*> D;
-        traverseUALL(INT64_MAX, I, D);
-
-        //Notify predecessor operations that this insertion is in progress...
-        //Start an iterator from the first pred node with key that is x+1 or greater.
-        for(LinkedList<PredecessorNode*, comparePred>::Iterator predIt = P_ALL.begin();predIt != P_ALL.end();++predIt){
-            ListNode<PredecessorNode*> &lNode = *predIt;
-            PredecessorNode *p = lNode.key;
-            if(p->key <= x)continue;
-            if(v->status == STALE)break;
-
-            //updateNodeMax = a node with the largest key in I that is less than p.key
-            #warning usually updateNodeMax is the actual node in I. However, to make memory reclamation easier, I copy the node
-            int64_t maxKey = -1;
-            for(InsNode* insNode : I){
-               if(insNode->key < p->key){
-                   if(maxKey < insNode->key)maxKey = insNode->key;
-               }
-            }
-            InsNode *updateNodeMax;
-            if(maxKey != -1){
-                updateNodeMax = recordMgr.allocate<InsNode>(threadID(), maxKey); 
-                insList.insert(updateNodeMax);
-            }
-            else updateNodeMax = nullptr;
-
-            v->retireCounter.fetch_add(1);
-            NotifyNode *nNode = recordMgr.allocate<NotifyNode>(threadID(), v, updateNodeMax, p->traversedTrie.load());
-            notList.insert(nNode);
-            p->notifyList.insert(nNode);
-        }
         insertBinaryTrie(v);
+        notifyPredOps(v); //Notify predecessor operations that this insertion is in progress...
 
         //for each node uNode in U-ALL with uNode.key = x before and including v do
             //uNode.status = STALE
-        for(LinkedList<UpdateNode*, compareUpdate>::Iterator it = U_ALL.begin();it != U_ALL.end(); ++it){
-            ListNode<UpdateNode*> &lNode = *it;
-            UpdateNode *uNode = lNode.key;
-            if(uNode->key < x)continue;
-            if(uNode->key > x)break;
-            uNode->status = STALE;
-            if(uNode == v) break;
-        }
 
-        //Remove v from U_ALL
-        if(U_ALL.removeKey(v)){
-            int retire = v->retireCounter.fetch_add(-1);
-            if(retire == 1)v->retire(recordMgr);
-            assert(retire > 0);
-        }
+        U_ALL.remove(v);
+        //TODO remove v from RU-ALL
+        //TODO stuff for retiring v if possible....
     }
+    //Good up to this point
+
     void remove(int64_t x){
         assert(x >= 0 && x <= universeSize); //TODO remove this eventually.
         if (x < 0 || x > universeSize){
@@ -606,7 +557,6 @@ class Trie{
         }
         threadInit();
         auto guard = recordMgr.getGuard(threadID());
-        auto notifyGuard = notifyManager.getGuard(threadID());
         UpdateNode *iNode = findLatest(x), *expected;
         if(iNode->type() == DEL)return; //x is not in S, nothing to do!
         //iNode has type INS. If it has a child, its child has type DEL.
@@ -962,14 +912,6 @@ class Trie{
             return true;
         }
     }
-    void verifyLists(){
-        for(auto it = U_ALL.begin();it != U_ALL.end();++it){
-            assert(false);
-        }
-        for(auto it = P_ALL.begin();it != P_ALL.end();++it){
-            assert(false);
-        }
-    }
     //TODO ifdef debug
     void printOpLog(){
 
@@ -978,7 +920,6 @@ class Trie{
     //Initialize this thread with the record manager if this hasn't happened already.
     void threadInit(){
         assert(threadID() != -1);
-        recordMgr.initThread(threadID());	
-        notifyManager.initThread(threadID());
+        recordMgr.initThread(threadID());
     }
 };

@@ -82,11 +82,6 @@ std::string delString(DelNode*ptr){
 std::string notString(NotifyNode* ptr){
     return "";
 }
-void printList(){
-    cout << " ~~Unfreed: " << insList.toString(insString) << std::endl;
-    cout << delList.toString(delString) << std::endl;
-    cout << " Num notify nodes: " << notList.toString(notString);
-}
 
 int main(int argc, char **argv){
     //simpleTest();
