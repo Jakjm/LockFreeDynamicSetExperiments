@@ -4,6 +4,7 @@
 #include <thread>
 #include <random>
 #include "list_extension.h"
+#include "RU_ALL.h"
 using std::cout;
 
 //Produces a random integer between 0 and range (inclusive).
@@ -28,12 +29,18 @@ class IntNode : public ListNode{
 
 std::string intNodeToString(ListNode *node){
     IntNode *iNode = (IntNode*)node;
-    return std::to_string(iNode->key); 
+    return std::to_string(iNode->key) + " " + std::to_string((uintptr_t)iNode); 
 }
 inline int __attribute__((always_inline)) compareInt(ListNode *node1, ListNode *node2) {
     IntNode *i1 = ((IntNode*)node1);
     IntNode *i2 = ((IntNode*)node2);
     return i1->key - i2->key;
+}
+
+inline int __attribute__((always_inline)) reverseCompareInt(ListNode *node1, ListNode *node2) {
+    IntNode *i1 = ((IntNode*)node1);
+    IntNode *i2 = ((IntNode*)node2);
+    return i2->key - i1->key;
 }
 
 void randomTask(LinkedList_FRE<compareInt> *list, ListNode **array, int arraySize, int testSize, int id){
@@ -57,6 +64,29 @@ void randomTask(LinkedList_FRE<compareInt> *list, ListNode **array, int arraySiz
 }
 
 void randomTest(){
+    int arraySize = 8000;
+    int testSize = 50000;
+    IntNode *node[arraySize];
+    //Allobreak ate nodes...
+    for(int i = 0;i < arraySize; ++i){
+        node[i] = new IntNode(i);
+    }
+    LinkedList_FRE<compareInt> list;
+    std::thread t0(randomTask, &list, (ListNode**)node, arraySize, testSize, 0);
+    std::thread t1(randomTask, &list, (ListNode**)node, arraySize, testSize, 1);
+    std::thread t2(randomTask, &list, (ListNode**)node, arraySize, testSize, 2);
+    std::thread t3(randomTask, &list, (ListNode**)node, arraySize, testSize, 3);
+    t0.join();
+    t1.join();
+    t2.join();
+    t3.join();
+    //Free nodes
+    for(int i = 0;i < arraySize;++i){
+        delete node[i];
+    }
+}
+
+void randomTest2(){
     int arraySize = 8000;
     int testSize = 50000;
     IntNode *node[arraySize];
@@ -124,9 +154,59 @@ void basicTest(){
     list.remove(&i4);
     list.printList(intNodeToString);
 }
+void basicTest2(){
+    threadID(0);
+    IntNode i1(1);
+    IntNode i12(1);
+    IntNode i2(2);
+    IntNode i3(3);
+    IntNode i4(4);
+    IntNode i5(5);
+
+    RU_ALL_TYPE<reverseCompareInt> list;
+
+
+    list.printList(intNodeToString);
+
+    //Insert 1, 4, 2, 5, 3
+    list.insert(&i1);
+    list.printList(intNodeToString);
+
+    list.insert(&i12);
+    list.printList(intNodeToString);
+
+    list.insert(&i4);
+    list.printList(intNodeToString);
+
+    list.insert(&i2);
+    list.printList(intNodeToString);
+
+    list.insert(&i5);
+    list.printList(intNodeToString);
+
+    list.insert(&i3);
+    list.printList(intNodeToString);
+
+    //Remove 2, 5, 1, 3, 4
+    list.remove(&i2);
+    list.printList(intNodeToString);
+
+    list.remove(&i5);
+    list.printList(intNodeToString);
+
+    list.remove(&i1);
+    list.printList(intNodeToString);
+    
+    list.remove(&i3);
+    list.printList(intNodeToString);
+
+    list.remove(&i4);
+    list.printList(intNodeToString);
+}
 
 int main(){
-    basicTest();
-    randomTest();
+    basicTest2();
+    //basicTest();
+    //randomTest();
     return 0;
 }

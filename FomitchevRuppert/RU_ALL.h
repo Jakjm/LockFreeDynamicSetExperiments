@@ -65,8 +65,15 @@ class RU_ALL_TYPE {
             uintptr_t result = (uintptr_t)desc + NotifFlag;
             prev->successor.compare_exchange_strong(result, (uintptr_t)next);
             
-            if(result == (uintptr_t)desc + NotifFlag)return (uintptr_t)next;
-            else return result;
+
+            //Return contents of prev->successor immediately following CAS...
+            if(result == (uintptr_t)desc + NotifFlag){
+                descMgr->retire(threadID(), desc);
+                return (uintptr_t)next;
+            }
+            else{
+                return result;
+            } 
         }
 
         uintptr_t helpInsert(ListNode *prev, InsertDescNode *desc){
@@ -145,9 +152,7 @@ class RU_ALL_TYPE {
         }
 
         //Used to compare two nodes in the list
-        //Returns 1 if n1 must be placed after n2
-        //Returns 0 if n1 may be placed after or before n2.
-        //Returns -1 if n1 must be placed before n2
+        //Returns a positive value if n1 must be later in the list than n2
         inline int __attribute__((always_inline)) compNode(ListNode *n1, ListNode *n2){
             if(n1 == &tail)return 1;
             else return compare(n1,n2);
@@ -316,7 +321,6 @@ class RU_ALL_TYPE {
                     node->successor.compare_exchange_strong(succ, (uintptr_t)notifyDesc + NotifFlag);
                     if(succ == next){
                         helpNotify(node, notifyDesc);
-                        descMgr->retire(threadID(), notifyDesc);
                         return (ListNode*)next; //CAS succeeded, therefore pNode->notifyThreshold was updated to next 
                                                 //while prev.next was equal to next.
                     } 
@@ -346,6 +350,51 @@ class RU_ALL_TYPE {
             return ' ';
         }
 
+        ListNode *first(){
+            return next(&head);
+        }
+        ListNode *next(ListNode *node){
+            descMgr->initThread(threadID());
+            auto guard = descMgr->getGuard(threadID());
+            
+            uintptr_t succ = node->successor;
+            uintptr_t next = succ & NEXT_MASK;
+            uint64_t state = succ & STATUS_MASK;
+            if(state == InsFlag){
+                next = (uintptr_t)((InsertDescNode*)next)->next;
+            }
+            else if(state == NotifFlag){ //Help with notification while node points to a NotifyDescNode....
+                next = (uintptr_t)((NotifyDescNode*)next)->next;
+            }
+
+            //If the following ListNode was the tail, then return nullptr.
+            if(next == (uintptr_t)(&tail)){
+                return nullptr;
+            }
+            else return (ListNode*)next; //Otherwise, return the following ListNode.
+        }
+
+        ListNode *next(ListNode *node, uint64_t &state){
+            descMgr->initThread(threadID());
+            auto guard = descMgr->getGuard(threadID());
+            
+            uintptr_t succ = node->successor;
+            uintptr_t next = succ & NEXT_MASK;
+            state = succ & STATUS_MASK;
+            if(state == InsFlag){
+                next = (uintptr_t)((InsertDescNode*)next)->next;
+            }
+            else if(state == NotifFlag){ //Help with notification while node points to a NotifyDescNode....
+                next = (uintptr_t)((NotifyDescNode*)next)->next;
+            }
+
+            //If the following ListNode was the tail, then return nullptr.
+            if(next == (uintptr_t)(&tail)){
+                return nullptr;
+            }
+            else return (ListNode*)next; //Otherwise, return the following ListNode.
+        }
+
         //Thread safe way of printing list
         void printList(std::string (*nodeToString)(ListNode*)){
             std::ostringstream stream;
@@ -353,13 +402,9 @@ class RU_ALL_TYPE {
             uint64_t status;
             ListNode *node = next(&head, status);
             stream << "{";
-            if(node){
+            while(node){
                 stream << "<" << nodeToString(node) << ", " << stat_to_char(status)  << ">";
                 node = next(node, status);
-                while(node != nullptr){
-                    stream << " - <" << nodeToString(node) << ", " << stat_to_char(status) << ">";
-                    node = next(node);
-                }
             }
             stream << "}\n";
             std::cout << stream.str();

@@ -12,19 +12,15 @@
 #pragma once
 using std::string;
 //An implementation of Eric Ruppert and Michhail Fomitchev's Lock-Free Linked List
-
-//Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert
-//With an additional extension.
-//compare is the function used to compare the nodes of the linked list
-template <int(*compare)(ListNode*, ListNode*)>
-class LinkedList{
+//Specifically made for the P_ALL which is an unsorted linked list
+class P_ALL_TYPE{
     public:
         ListNode tail, head; //Head, tail of the linked list. 
     public:
-        LinkedList() : tail(), head(){
+        P_ALL_TYPE() : tail(), head(){
             head.successor.store((uintptr_t)&tail);
         }
-        ~LinkedList(){ 
+        ~P_ALL_TYPE(){ 
         }
         //Precondition: prev.successor was <delNode, DelFlag> at an earlier point, and delNode is Marked.
         uintptr_t helpMarked(ListNode *prev, ListNode *delNode){
@@ -59,64 +55,14 @@ class LinkedList{
             succ = helpMarked(prev, delNode);
             return succ;
         }
-        //Used to compare two nodes in the list
-        //Returns 1 if n1 must be placed after n2
-        //Returns 0 if n1 may be placed after or before n2.
-        //Returns -1 if n1 must be placed before n2
-        inline int __attribute__((always_inline)) compNode(ListNode *n1, ListNode *n2){
-            if(n1 == &tail)return 1;
-            else return compare(n1,n2);
-        }
 
-        void insert(ListNode *node){
-            ListNode *curr = &head;
-            uintptr_t succ = curr->successor;
-            uintptr_t next = succ & NEXT_MASK;
-            uint64_t state = succ & STATUS_MASK;
-            while(next != (uintptr_t)node){
-                if(state == Normal){
-                    if(compNode((ListNode*)next,node) <= 0){ //node should be placed further along in the list if next <= node
-                        curr = (ListNode*)next;
-                        succ = curr->successor;
-                        next = succ & NEXT_MASK;
-                        state = succ & STATUS_MASK;
-                        continue;
-                    }
-                    node->successor = next;
-                    succ = next;
-                    curr->successor.compare_exchange_strong(succ, (uintptr_t)node);
-                    if(succ == next){ //If the CAS succeeded, node has been successfully inserted and the operation can stop.
-                        return;
-                    }
-                    //Read next and state from curr.successor.
-                    next = succ & NEXT_MASK;
-                    state = succ & STATUS_MASK;
-                }
-                else if(state == DelFlag){
-                    succ = helpRemove(curr, (ListNode*)next);
-                    next = succ & NEXT_MASK;
-                    state = succ & STATUS_MASK;
-                }
-                else{
-                    ListNode *prev = curr->backlink;
-                    succ = prev->successor;
-                    next = succ & NEXT_MASK;
-                    state = succ & STATUS_MASK;
-                    if((ListNode*)next == curr){ //Help remove curr from the list.
-                        succ = helpMarked(prev, curr);
-                        next = succ & NEXT_MASK;
-                        state = succ & STATUS_MASK;
-                    }
-                    curr = prev;
-                }
-            }
-        }
+        
         void remove(ListNode *node){
             ListNode *curr = &head;
             uintptr_t succ = curr->successor;
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
-            while(compNode((ListNode*)next, node) > 0){
+            while((ListNode*)next != &tail){
                 if(state == Normal){
                     if((ListNode*)next != node){ //Advance...
                         curr = (ListNode*)next;

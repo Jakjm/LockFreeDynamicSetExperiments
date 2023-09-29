@@ -109,8 +109,7 @@ class LinkedList_FRE {
                     succ = helpRemove(delNode, (ListNode*)next);
                 }
                 else if(state == InsFlag){ //Help with insertion while it points to an insertion descriptor...
-                    InsertDescNode *desc = (InsertDescNode*)next;
-                    succ = helpInsert(delNode, desc);
+                    succ = helpInsert(delNode, (InsertDescNode*)next);
                 }
                 else{ //Attempt to mark the node if the status was normal...
                     uintptr_t markedSuccessor = (uintptr_t)next + Marked;
@@ -312,13 +311,9 @@ class LinkedList_FRE {
             uint64_t status;
             ListNode *node = next(&head, status);
             stream << "{";
-            if(node){
+            while(node){
                 stream << "<" << nodeToString(node) << ", " << stat_to_char(status)  << ">";
                 node = next(node, status);
-                while(node != nullptr){
-                    stream << " - <" << nodeToString(node) << ", " << stat_to_char(status) << ">";
-                    node = next(node);
-                }
             }
             stream << "}\n";
             std::cout << stream.str();
