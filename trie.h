@@ -88,7 +88,7 @@ class Trie{
             latest[key].head = initialDelNode;
             initialDelNode->status = ACTIVE;
             baseRow[key].dNodePtr = initialDelNode;
-            initialDelNode->retireCounter += 2;
+            //initialDelNode->retireCounter += 2;
         }
 
         //Initialize rows 1 through b-1, such that every trieNode that is a parent of two trieNodes
@@ -101,7 +101,7 @@ class Trie{
                 int64_t leftChild = 2 * i;
                 DelNode *dNode = childRow[leftChild].dNodePtr;
                 trieNodeRow[i].dNodePtr = dNode;
-                dNode->retireCounter += 1;
+                //dNode->retireCounter += 1;
             }
         }
     }
@@ -114,23 +114,23 @@ class Trie{
         for(vector<TrieNode> &trieNodeRow : trieNodes){
             for(TrieNode &tNode : trieNodeRow){
                 DelNode *dNode = tNode.dNodePtr;
-                int reclaim = dNode->retireCounter.fetch_add(-1);
-                if(reclaim == 1)dNode->retire(recordMgr);
+                //int reclaim = dNode->retireCounter.fetch_add(-1);
+                //if(reclaim == 1)dNode->retire(recordMgr);
             }
         }
         for(LatestList &list : latest){
             UpdateNode *uNode = list.head;
             UpdateNode *next = uNode->latestNext;
             if(next){
-                int reclaim = next->retireCounter.fetch_add(-1);
-                if(reclaim == 1){
-                    next->retire(recordMgr);
-                }
+                //int reclaim = next->retireCounter.fetch_add(-1);
+                //if(reclaim == 1){
+                //    next->retire(recordMgr);
+                //}
             }
-            int reclaim = uNode->retireCounter.fetch_add(-1);
-            if(reclaim == 1){
-                uNode->retire(recordMgr);
-            }
+            //int reclaim = uNode->retireCounter.fetch_add(-1);
+            //if(reclaim == 1){
+               // uNode->retire(recordMgr);
+            //}
         }
         recordMgr.endOp(threadID());
         for(int i = 0;i < NUM_THREADS;++i){
@@ -248,6 +248,7 @@ class Trie{
                 NotifyNode *newNotif = recordMgr.allocate<NotifyNode>(threadID(), uNode, updateNodeMax, tau);
                 sendNotification(newNotif,pNode);
             }
+            pNode = (PredecessorNode*)P_ALL.next(pNode);
         }
     }
 
@@ -413,9 +414,9 @@ class Trie{
             //iNode->latestNext = nullptr; 
             bool unlink = iNode->latestNext.compare_exchange_strong(latestNext, nullptr);
             if(unlink){  //If this operation unlinked the insNode from the latest list...
-                int retire = latestNext->retireCounter.fetch_add(-1);
-                if(retire == 1)latestNext->retire(recordMgr);
-                assert(retire > 0);
+                //int retire = latestNext->retireCounter.fetch_add(-1);
+                //if(retire == 1)latestNext->retire(recordMgr);
+                //assert(retire > 0);
             }   
         }
         notifyPredOps(iNode);
@@ -532,7 +533,8 @@ class Trie{
 
 
     void traverseAndInsertPALL(PredecessorNode *newNode, deque<PredecessorNode*> &q){
-        PredecessorNode *first = (PredecessorNode*)P_ALL.first();
+        assert(newNode != &P_ALL.tail);
+        PredecessorNode *first = (PredecessorNode*)(P_ALL.head.successor.load() & NEXT_MASK);
         PredecessorNode *pNode = first;
         //Traverse P_ALL from start to end
         while(pNode){
@@ -548,7 +550,7 @@ class Trie{
 
             P_ALL.head.successor.compare_exchange_strong(expected, (uintptr_t)newNode);
             if(expected == (uintptr_t)first){
-                return;
+                return; //Successful insertion
             }
             int64_t state = (int64_t)(expected & STATUS_MASK);
             ListNode *next = (ListNode*)(expected & NEXT_MASK);
@@ -557,8 +559,8 @@ class Trie{
             }
 
             vector<PredecessorNode*> qPrime;
-            PredecessorNode *first = (PredecessorNode*)P_ALL.first();
-            PredecessorNode *pNode = first;
+            first = (PredecessorNode*)(P_ALL.head.successor.load() & NEXT_MASK);
+            pNode = first;
             //Traverse P_ALL from start to end
             while(pNode){
                 bool contains = false;
@@ -649,7 +651,6 @@ class Trie{
         auto guard = recordMgr.getGuard(threadID());
         
         PredecessorNode *p = recordMgr.allocate<PredecessorNode>(threadID(), y);
-        P_ALL.insert(p);
         int64_t pred = predHelper(p);
         P_ALL.remove(p);
         p->retire(recordMgr); //PredNode p can be retired, since it is no longer in shared memory.

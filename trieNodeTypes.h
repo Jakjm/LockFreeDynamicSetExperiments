@@ -11,8 +11,6 @@ using std::string;
 enum TYPE {INS, DEL};
 enum STATUS {INACTIVE, ACTIVE, STALE};
 
-
-class UpdateNode;
 class PredecessorNode;
 class InsNode;
 class DelNode;
@@ -34,7 +32,7 @@ class UpdateNode : public ListNode{
         //It should be safe to retire an update node when retireCounter is 0.
         std::atomic<int> retireCounter; 
 
-        UpdateNode(int64_t x, UpdateNode *latest) : key(x), status(INACTIVE), latestNext(latest), stop(false), target(nullptr), retireCounter(0){
+        UpdateNode(int64_t x, UpdateNode *latest) : key(x), status(INACTIVE), latestNext(latest), stop(false), target(nullptr), retireCounter(0), ListNode(){
         
         }
         UpdateNode(int64_t x) : UpdateNode(x, nullptr) {
@@ -83,7 +81,7 @@ class NotifyNode{
     NotifyNode *next;
     
     NotifyNode(UpdateNode *upNode, InsNode *upNodeMax, int64_t threshold) : 
-        key(upNode->key), updateNode(upNode), updateNodeMax(upNodeMax), notifyThreshold(threshold){
+        key(upNode->key), updateNode(upNode), updateNodeMax(upNodeMax), notifyThreshold(threshold), next(nullptr){
     }
     void retire(NodeRecordManager &recordMgr){
         //notList.removeKey(this);
@@ -104,7 +102,7 @@ class PredecessorNode : public ListNode{
     std::atomic<UpdateNode*> notifyThreshold;
     std::atomic<NotifyNode*> notifyListHead;
     
-    PredecessorNode(int64_t k) : key(k), notifyThreshold(&INFINITY_THRES) {
+    PredecessorNode(int64_t k) : key(k), notifyThreshold(&INFINITY_THRES), notifyListHead(nullptr), ListNode() {
     
     }
     void retire(NodeRecordManager &recordMgr){

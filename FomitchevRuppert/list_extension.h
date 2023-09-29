@@ -52,7 +52,7 @@ class LinkedList_FRE {
             delete descMgr;
         }
 
-        uintptr_t helpInsert(ListNode *prev, InsertDescNode *desc){
+         uintptr_t helpInsert(ListNode *prev, InsertDescNode *desc){
             uintptr_t expected = 0;
             uintptr_t result = expected;
             desc->newNode->successor.compare_exchange_strong(result, (uintptr_t)desc->next);
@@ -66,6 +66,10 @@ class LinkedList_FRE {
                 prev->successor.compare_exchange_strong(result, (uintptr_t)desc->next);
                 if(result == expected){
                     descMgr->retire(threadID(), desc);
+                    return (uintptr_t)desc->next;
+                }
+                else{
+                    return result;
                 }
             }
             else{
@@ -75,10 +79,14 @@ class LinkedList_FRE {
                 prev->successor.compare_exchange_strong(result, (uintptr_t)desc->newNode);
                 if(result == expected){
                     descMgr->retire(threadID(), desc);
+                    return (uintptr_t)desc->newNode;
+                }
+                else{
+                    return result;
                 }
             }
-            return result;
         }
+        
         //Precondition: prev.successor was <delNode, DelFlag> at an earlier point, and delNode is Marked.
         uintptr_t helpMarked(ListNode *prev, ListNode *delNode){
             ListNode *next = (ListNode*)((uintptr_t)delNode->successor & NEXT_MASK);

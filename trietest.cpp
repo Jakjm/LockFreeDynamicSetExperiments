@@ -85,7 +85,7 @@ std::string notString(NotifyNode* ptr){
 
 int main(int argc, char **argv){
     //simpleTest();
-    multithreadTest(3, 1000, 4);
+    multithreadTest(3, 50, 1);
     //printList();
     return 0;
 }
