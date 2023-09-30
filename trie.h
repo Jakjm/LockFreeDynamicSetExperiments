@@ -30,6 +30,7 @@
 //TODO add comments everywhere
 using std::vector;
 using std::unordered_set;
+using std::set;
 using std::string;
 using std::deque;
 
@@ -99,6 +100,8 @@ class Trie{
                 //dNode->retireCounter += 1;
             }
         }
+
+        verifyLists();
     }
     ~Trie(){
         threadInit();
@@ -127,6 +130,8 @@ class Trie{
                // uNode->retire(recordMgr);
             //}
         }
+        verifyLists();
+
         recordMgr.endOp(threadID());
         for(int i = 0;i < NUM_THREADS;++i){
             recordMgr.deinitThread(i);
@@ -531,9 +536,10 @@ class Trie{
 
 
     void traverseAndInsertPALL(PredecessorNode *newNode, deque<PredecessorNode*> &q){
-        unordered_set<PredecessorNode*> qSet;
+        set<PredecessorNode*> qSet;
         PredecessorNode *first = (PredecessorNode*)(P_ALL.head.successor.load() & NEXT_MASK);
         PredecessorNode *pNode = first;
+        
         //Traverse P_ALL from start to end
         while(pNode){
             q.push_back(pNode);
@@ -827,6 +833,14 @@ class Trie{
             return true;
         }
     }
+
+    //Verify that all of the lists are empty
+    void verifyLists(){
+        assert(RU_ALL.head.successor == (uintptr_t)&RU_ALL.tail);
+        assert(U_ALL.head.successor == (uintptr_t)&U_ALL.tail);
+        assert(P_ALL.head.successor == (uintptr_t)&P_ALL.tail);
+    }
+
     //TODO ifdef debug
     void printOpLog(){
 

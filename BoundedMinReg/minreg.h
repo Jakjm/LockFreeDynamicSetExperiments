@@ -396,11 +396,11 @@ class MinReg64{
     void minWrite(int x){
         if(x < 64){
             uint64_t mask = ~(1 << x);  //Create an AND mask of all 1s except at bit x starting from the right.
-            value.fetch_and(mask, std::memory_order_relaxed);   //Turn off bit x within value
+            value.fetch_and(mask);   //Turn off bit x within value
         }
     }
     int minRead(){
-        uint64_t curValue = value.load(std::memory_order_relaxed); //
+        uint64_t curValue = value.load(); //
         //Using library function given here for detecting bit 
         //https://en.cppreference.com/w/cpp/header/bit
         int minValue = std::__countr_one(curValue);
