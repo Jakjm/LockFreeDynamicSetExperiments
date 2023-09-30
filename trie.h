@@ -205,12 +205,12 @@ class Trie{
     }
 
         //Traverse through the Update Announcement Linked List
-    void traverseUALL(int64_t x, vector<InsNode*> &I, std::unordered_set<DelNode*> &D){
+    void traverseUALL(int64_t x, vector<InsNode*> &I, vector<DelNode*> &D){
         UpdateNode *uNode = (UpdateNode*)U_ALL.first();   
         while(uNode && uNode->key <= x){
             if(uNode->status != INACTIVE && firstActivated(uNode)){
                 if(uNode->type == INS)I.push_back((InsNode*)uNode);
-                else D.insert((DelNode*)uNode);
+                else D.push_back((DelNode*)uNode);
             }
             uNode = (UpdateNode*)U_ALL.next(uNode);
         }                                                                                             
@@ -219,7 +219,7 @@ class Trie{
     //Send notifications to predecessor operations.
     void notifyPredOps(UpdateNode *uNode){
         vector<InsNode*> I; 
-        std::unordered_set<DelNode*> D;
+        vector <DelNode*> D;
         traverseUALL(INT64_MAX, I, D);
 
         PredecessorNode *pNode = (PredecessorNode*)P_ALL.first();
@@ -469,14 +469,14 @@ class Trie{
 
     //y = 3 
     //height = 2  
-    int64_t traverseBinaryTrie(int64_t y){
+    int64_t traverseBinaryTrie(int64_t y, int64_t &depth){
         if(b <= 1)return -1;
 
         //Get interpreted bit
         //TrieNode *t = &trieNodes[b][y];
         TrieNode *tSibling = &trieNodes[b][siblingIndex(y)], 
                             *tParent = &trieNodes[b-1][y / 2];
-        int depth = b;
+        depth = b;
         int height = b - depth;
         char i1 = interpretedBit(tParent, height + 1);
         char i2 = interpretedBit(tSibling, height);
@@ -486,7 +486,9 @@ class Trie{
             y = y >> 1;
             --depth;
             height = b - depth;
-            if(depth == 0)return -1; //Interpreted bit of root node was 0 on previous iteration.
+            if(depth == 0){
+                return -1; //Interpreted bit of root node was 0 on previous iteration. Return <-1, null>
+            }
 
             //t = tParent;
             tSibling = &trieNodes[depth][siblingIndex(y)];
@@ -503,18 +505,20 @@ class Trie{
         while(depth < b){
             //Right child is at 2*y + 1, left child is at 2 * y.
             int64_t rightIndex = y * 2 + 1, leftIndex = y * 2;
-            ++depth;
-            height = b - depth;
-            TrieNode *right = &trieNodes[depth][rightIndex];
-            char i = interpretedBit(right, height);
-            if(i == 1){
+            int childDepth = depth + 1;
+            int childHeight = height - 1;
+            TrieNode *right = &trieNodes[childDepth][rightIndex];
+            if(interpretedBit(right, childHeight) == 1){
                 y = rightIndex;
+                depth = childDepth;
+                height = childHeight;
                 continue;
             }
-            TrieNode *left = &trieNodes[depth][leftIndex];
-            i = interpretedBit(left, height);
-            if(i == 1){
+            TrieNode *left = &trieNodes[childDepth][leftIndex];
+            if(interpretedBit(left, childHeight) == 1){
                 y = leftIndex;
+                depth = childDepth;
+                height = childHeight;
                 continue;
             }
             
@@ -579,14 +583,14 @@ class Trie{
     }
 
     //Traverse the reverse update announcement linked list.
-    void traverseRUALL(PredecessorNode *pNode, vector<InsNode *> &I, vector<DelNode*> &D){
+    void traverseRUALL(PredecessorNode *pNode, vector<InsNode *> &I, unordered_set<DelNode*> &D){
         UpdateNode *uNode = (UpdateNode*)RU_ALL.first(pNode); //Atomically set pNode.notifyThreshold....
         while(uNode){
             assert(uNode != &RU_ALL.tail);
             if(uNode->key < pNode->key){
                 if(uNode->status != INACTIVE && firstActivated(uNode)){
                     if(uNode->type == INS) I.push_back((InsNode*)uNode);
-                    else D.push_back((DelNode*)uNode);
+                    else D.insert((DelNode*)uNode);
                 }
             }
             uNode = (UpdateNode*)RU_ALL.next(pNode,uNode); //Atomically set pNode.notifyThreshold....
@@ -600,14 +604,16 @@ class Trie{
     int64_t predHelper(PredecessorNode *pNode){
         deque<PredecessorNode*> Q;
         vector<InsNode*> I_0, I_1, I_2;
-        vector<DelNode*> D_0, D_2;
-        unordered_set<DelNode*> D_1;
-        int64_t pred0, pred1, pred2, pred3, pred4;
+        vector<DelNode*> D_1, D_2;
+        unordered_set<DelNode*> D_0;
+        int64_t pred0; 
         int64_t y = pNode->key;
+        int64_t depthT;
+        
 
         traverseAndInsertPALL(pNode, Q);
         traverseRUALL(pNode,I_0, D_0);
-        pred0 = traverseBinaryTrie(y); //TODO fix this 
+        pred0 = traverseBinaryTrie(y, depthT);
         traverseUALL(y, I_1, D_1);
 
         //Traverse pNode's notify list...
@@ -617,19 +623,48 @@ class Trie{
                 if(nNode->key > nNode->notifyThreshold){
                     if(nNode->updateNode->type == INS)I_2.push_back((InsNode*)nNode->updateNode);
                     else D_2.push_back((DelNode*)nNode->updateNode);
-                    //TODO updateNodeMax
+                    //TODO updateNodeMax might be null??
                     I_2.push_back(nNode->updateNodeMax);
                 }
                 else{
                     if(nNode->updateNode->type == INS)I_0.push_back((InsNode*)nNode->updateNode);
-                    else D_0.push_back((DelNode*)nNode->updateNode);
+                    else D_0.insert((DelNode*)nNode->updateNode);
                 }
             }
             nNode = nNode->next;
         }
+        //pred3 = key of del node in d1_minus_d0 with largest key
+        //pred4 = key of del node in d2_minus_d0 with largest key
+        int64_t pred3 = -1, pred4 = -1;
+        //Create D1 - D0 and D2 - D0
+        unordered_set<DelNode*> D1_minus_D0, D2_minus_D0;
+        for(DelNode *d : D_1){
+            if(D_0.count(d) == 0){
+                D1_minus_D0.insert(d);
+                if(d->key > pred3)pred3 = d->key;
+            }
+        }
+        for(DelNode *d : D_2){
+            if(D_0.count(d) == 0){
+                D2_minus_D0.insert(d);
+                if(d->key > pred4)pred4 = d->key;
+            }
+        }
 
-        //TODO... fix issues with binary trie in case pred0 == -1...
+        if(pred0 == -1){
+            vector<UpdateNode*> K;
+        }
+
         
+        //pred1 = key of ins node in I_1 with greatest key
+        //pred2 = key of ins node in I_2 with greatest key
+        int64_t pred1 = -1, pred2 = -1;
+        for(InsNode *i : I_1){
+            if(i->key > pred1)pred1 = i->key;
+        }
+        for(InsNode *i : I_2){
+            if(i->key > pred2)pred2 = i->key;
+        }
 
         int64_t max = -1;
         if(pred0 > max) max = pred0;
