@@ -531,12 +531,13 @@ class Trie{
 
 
     void traverseAndInsertPALL(PredecessorNode *newNode, deque<PredecessorNode*> &q){
-        assert(newNode != &P_ALL.tail);
+        unordered_set<PredecessorNode*> qSet;
         PredecessorNode *first = (PredecessorNode*)(P_ALL.head.successor.load() & NEXT_MASK);
         PredecessorNode *pNode = first;
         //Traverse P_ALL from start to end
         while(pNode){
             q.push_back(pNode);
+            qSet.insert(pNode);
             pNode = (PredecessorNode*)P_ALL.next(pNode);
         }
 
@@ -548,7 +549,8 @@ class Trie{
 
             P_ALL.head.successor.compare_exchange_strong(expected, (uintptr_t)newNode);
             if(expected == (uintptr_t)first){
-                return; //Successful insertion
+                q.push_front(newNode); //Put newNode at the front of q.
+                return; //newNode was successfully inserted
             }
             int64_t state = (int64_t)(expected & STATUS_MASK);
             ListNode *next = (ListNode*)(expected & NEXT_MASK);
@@ -559,25 +561,19 @@ class Trie{
             vector<PredecessorNode*> qPrime;
             first = (PredecessorNode*)(P_ALL.head.successor.load() & NEXT_MASK);
             pNode = first;
-            //Traverse P_ALL from start to end
-            while(pNode){
-                bool contains = false;
-                for(PredecessorNode *p : q){ //For every node in q
-                    if(p == pNode){ //If this is a node we have already seen before in q, return!
-                        contains = true;
-                        break;
-                    }
-                }
-                if(contains)break;
+            //Traverse P_ALL from start to end, add any nodes not in Q to qPrime
+            while(pNode && qSet.count(pNode) == 0){
                 qPrime.push_back(pNode);
                 pNode = (PredecessorNode*)P_ALL.next(pNode);
             }
 
-            //Go through the vector in reverse order, and put each element at the front of q.
+            //Go through qPrime in reverse order, and put each element at the front of q.
             //This way q is sorted from the most recently inserted PNode to the least recently inserted PNode.
             for(vector<PredecessorNode*>::reverse_iterator iter = qPrime.rbegin(); iter != qPrime.rend(); ++iter){
                 PredecessorNode *p = *iter;
+                
                 q.push_front(p);
+                qSet.insert(p);
             }
         }
     }
@@ -604,14 +600,13 @@ class Trie{
         vector<DelNode*> D_1, D_2;
         unordered_set<InsNode*> I_0;
         unordered_set<DelNode*> D_0;
-        int64_t pred0; 
         int64_t y = pNode->key;
         int64_t depthT;
         
 
         traverseAndInsertPALL(pNode, Q);
         traverseRUALL(pNode,I_0, D_0);
-        pred0 = traverseBinaryTrie(y, depthT);
+        int64_t pred0 = traverseBinaryTrie(y, depthT);
         traverseUALL(y, I_1, D_1);
 
         //Traverse pNode's notify list...
@@ -621,8 +616,8 @@ class Trie{
                 if(nNode->key > nNode->notifyThreshold){
                     if(nNode->updateNode->type == INS)I_2.push_back((InsNode*)nNode->updateNode);
                     else D_2.push_back((DelNode*)nNode->updateNode);
-                    //TODO updateNodeMax might be null??
-                    I_2.push_back(nNode->updateNodeMax);
+
+                    if(nNode->updateNodeMax)I_2.push_back(nNode->updateNodeMax);
                 }
                 else{
                     if(nNode->updateNode->type == INS)I_0.insert((InsNode*)nNode->updateNode);
@@ -674,9 +669,7 @@ class Trie{
                 unordered_set<PredecessorNode*> predNodes;
                 predNodes.insert(pNode);
                 for(DelNode *d : D_0){
-                    if(d->delPredNode != nullptr){
-                        predNodes.insert(d->delPredNode);
-                    }
+                    predNodes.insert(d->delPredNode);
                 }
 
                 //pNodePrime is the predecessor node that is the farthest along in Q.
