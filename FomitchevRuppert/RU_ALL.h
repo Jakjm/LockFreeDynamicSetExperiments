@@ -9,9 +9,9 @@
 #include <iterator>
 #include <atomic>
 #include <cassert>
+#include "list_extension.h"
 #include "../setbench/common/recordmgr/record_manager.h"
 #include "../common.h"
-#include "list_extension.h"
 #include "../trieNodeTypes.h"
 #pragma once
 using std::string;
@@ -25,20 +25,30 @@ const uint64_t NotifFlag = 4;
 class NotifyDescNode{
     public:
     PredecessorNode *pNode;
-    ListNode *next;
+    RU_ALL_Node *next;
     NotifyDescNode(PredecessorNode *p) : pNode(p), next(nullptr) {
 
     }
 };
 
-typedef record_manager<reclaimer_debra<>, allocator_new<>, pool_none<>, InsertDescNode, NotifyDescNode> DescManager;
+class RU_ALL_INS_DescNode{
+    public:
+    RU_ALL_Node *newNode;
+    RU_ALL_Node *next;
+    RU_ALL_INS_DescNode(RU_ALL_Node *newNode) : newNode(newNode), next(nullptr) {
+
+    }
+};
+
+
+typedef record_manager<reclaimer_debra<>, allocator_new<>, pool_none<>, RU_ALL_INS_DescNode, NotifyDescNode> DescManager;
 
 //Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert.
 //compare is the function used to compare the nodes of the linked list
-template <int(*compare)(ListNode*, ListNode*)>
+template <int(*compare)(RU_ALL_Node*, RU_ALL_Node*)>
 class RU_ALL_TYPE {
     public:
-        ListNode tail, head; //Head, tail of the linked list. 
+        RU_ALL_Node tail, head; //Head, tail of the linked list. 
         DescManager *const descMgr; //Record manager used to allocate insert_descriptor nodes.
     public:
         RU_ALL_TYPE() : tail(), head(), descMgr(new DescManager(NUM_THREADS)){
@@ -52,8 +62,8 @@ class RU_ALL_TYPE {
             delete descMgr;
         }
 
-        uintptr_t helpNotify(ListNode *prev, NotifyDescNode *desc){
-            ListNode *next = desc->next;
+        uintptr_t helpNotify(RU_ALL_Node *prev, NotifyDescNode *desc){
+            RU_ALL_Node *next = desc->next;
             assert(next != &tail);
             assert(next != 0);
             UpdateNode *expected;
@@ -76,7 +86,7 @@ class RU_ALL_TYPE {
             } 
         }
 
-        uintptr_t helpInsert(ListNode *prev, InsertDescNode *desc){
+        uintptr_t helpInsert(RU_ALL_Node *prev, RU_ALL_INS_DescNode *desc){
             uintptr_t expected = 0;
             uintptr_t result = expected;
             desc->newNode->successor.compare_exchange_strong(result, (uintptr_t)desc->next);
@@ -112,8 +122,8 @@ class RU_ALL_TYPE {
         }
         
         //Precondition: prev.successor was <delNode, DelFlag> at an earlier point, and delNode is Marked.
-        uintptr_t helpMarked(ListNode *prev, ListNode *delNode){
-            ListNode *next = (ListNode*)((uintptr_t)delNode->successor & NEXT_MASK);
+        uintptr_t helpMarked(RU_ALL_Node *prev, RU_ALL_Node *delNode){
+            RU_ALL_Node *next = (RU_ALL_Node*)((uintptr_t)delNode->successor & NEXT_MASK);
             uintptr_t expected = (uintptr_t)delNode + DelFlag;
             uintptr_t result = expected;
             prev->successor.compare_exchange_strong(result, (uintptr_t)next);
@@ -122,7 +132,7 @@ class RU_ALL_TYPE {
             else return result;
         }
         //Precondition, prev.successor was <delNode, DelFlag> at an earlier point.
-        uintptr_t helpRemove(ListNode *prev, ListNode *delNode){
+        uintptr_t helpRemove(RU_ALL_Node *prev, RU_ALL_Node *delNode){
             delNode->backlink = prev;
             uintptr_t succ = delNode->successor.load(); //The value of delNode's successor pointer
             uintptr_t state = succ & STATUS_MASK;
@@ -130,10 +140,10 @@ class RU_ALL_TYPE {
 
             while(state != Marked){ //While delNode is not marked...
                 if(state == DelFlag){ //Help with deletion of its successor, if it is flagged....
-                    succ = helpRemove(delNode, (ListNode*)next);
+                    succ = helpRemove(delNode, (RU_ALL_Node*)next);
                 }
                 else if(state == InsFlag){ //Help with insertion while it points to an insertion descriptor...
-                    succ = helpInsert(delNode, (InsertDescNode*)next);
+                    succ = helpInsert(delNode, (RU_ALL_INS_DescNode*)next);
                 }
                 else if(state == NotifFlag){
                     succ = helpNotify(delNode, (NotifyDescNode*)next);
@@ -153,37 +163,40 @@ class RU_ALL_TYPE {
 
         //Used to compare two nodes in the list
         //Returns a positive value if n1 must be later in the list than n2
-        inline int __attribute__((always_inline)) compNode(ListNode *n1, ListNode *n2){
+        inline int __attribute__((always_inline)) compNode(RU_ALL_Node *n1, RU_ALL_Node *n2){
             if(n1 == &tail)return 1;
             else return compare(n1,n2);
         }
 
-        void insert(ListNode *node){
+        void insert(RU_ALL_Node *node){
             if((node->successor & STATUS_MASK) == Marked)return;
 
             descMgr->initThread(threadID());
             auto guard = descMgr->getGuard(threadID());
 
-            ListNode *curr = &head;
+            RU_ALL_Node *curr = &head;
             uintptr_t succ = curr->successor;
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
-            InsertDescNode *newDesc = descMgr->template allocate<InsertDescNode>(threadID(), node);
+            RU_ALL_INS_DescNode *newDesc = descMgr->template allocate<RU_ALL_INS_DescNode>(threadID(), node);
             while(next != (uintptr_t)node){
                 if(state == Normal){
-                    if(compNode((ListNode*)next,node) <= 0){ //node should be placed further along in the list if next <= node
-                        curr = (ListNode*)next;
+                    if(compNode((RU_ALL_Node*)next,node) <= 0){ //node should be placed further along in the list if next <= node
+                        curr = (RU_ALL_Node*)next;
                         succ = curr->successor;
                         next = succ & NEXT_MASK;
                         state = succ & STATUS_MASK;
                         continue;
                     }
-                    if((node->successor & STATUS_MASK) == Marked)return;
-                    newDesc->next = (ListNode*)next; //Set the next of the insert descriptor node.
+                    if((node->successor & STATUS_MASK) == Marked){
+                        descMgr->retire(threadID(), newDesc);
+                        return;
+                    }
+                    newDesc->next = (RU_ALL_Node*)next; //Set the next of the insert descriptor node.
                     succ = next;
                     curr->successor.compare_exchange_strong(succ, (uintptr_t)newDesc + InsFlag);
                     if(succ == next){ //If the CAS succeeded....
-                        helpInsert(curr, (InsertDescNode*)newDesc);
+                        helpInsert(curr, (RU_ALL_INS_DescNode*)newDesc);
                         return;
                     }
                     //Read next and state from curr.successor.
@@ -191,8 +204,11 @@ class RU_ALL_TYPE {
                     state = succ & STATUS_MASK;
                 }
                 else if(state == InsFlag){
-                    succ = helpInsert(curr, (InsertDescNode*)next);
-                    if(((InsertDescNode*)next)->newNode == node)return;
+                    succ = helpInsert(curr, (RU_ALL_INS_DescNode*)next);
+                    if(((RU_ALL_INS_DescNode*)next)->newNode == node){
+                        descMgr->retire(threadID(), newDesc);
+                        return;
+                    }
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
                 }
@@ -202,16 +218,16 @@ class RU_ALL_TYPE {
                     state = succ & STATUS_MASK;
                 }
                 else if(state == DelFlag){
-                    succ = helpRemove(curr, (ListNode*)next);
+                    succ = helpRemove(curr, (RU_ALL_Node*)next);
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
                 }
                 else{
-                    ListNode *prev = curr->backlink;
+                    RU_ALL_Node *prev = curr->backlink;
                     succ = prev->successor;
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
-                    if((ListNode*)next == curr){ //Help remove curr from the list.
+                    if((RU_ALL_Node*)next == curr){ //Help remove curr from the list.
                         succ = helpMarked(prev, curr);
                         next = succ & NEXT_MASK;
                         state = succ & STATUS_MASK;
@@ -220,19 +236,19 @@ class RU_ALL_TYPE {
                 }
             }
         }
-        void remove(ListNode *node){
+        void remove(RU_ALL_Node *node){
             descMgr->initThread(threadID());
             auto guard = descMgr->getGuard(threadID());
 
-            ListNode *curr = &head;
+            RU_ALL_Node *curr = &head;
             uintptr_t succ = curr->successor;
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
             while(1){
                 if(state == Normal){
-                    if(compNode((ListNode*)next, node) > 0)return;
-                    if((ListNode*)next != node){ //Advance...
-                        curr = (ListNode*)next;
+                    if(compNode((RU_ALL_Node*)next, node) > 0)return;
+                    if((RU_ALL_Node*)next != node){ //Advance...
+                        curr = (RU_ALL_Node*)next;
                         succ = curr->successor;
                         next = succ & NEXT_MASK;
                         state = succ & STATUS_MASK;
@@ -249,7 +265,7 @@ class RU_ALL_TYPE {
                     }
                 }
                 else if(state == InsFlag){
-                    succ = helpInsert(curr, (InsertDescNode*)next);
+                    succ = helpInsert(curr, (RU_ALL_INS_DescNode*)next);
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
                 }
@@ -258,17 +274,17 @@ class RU_ALL_TYPE {
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
                 }
-                else if(compNode((ListNode*)next, node) > 0){
+                else if(compNode((RU_ALL_Node*)next, node) > 0){
                     return;
                 }
                 else if(state == DelFlag){
-                    succ = helpRemove(curr, (ListNode*)next);
-                    if((ListNode*)next == node)return;
+                    succ = helpRemove(curr, (RU_ALL_Node*)next);
+                    if((RU_ALL_Node*)next == node)return;
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
                 }
                 else{
-                    ListNode *prev = curr->backlink;
+                    RU_ALL_Node *prev = curr->backlink;
                     succ = prev->successor;
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
@@ -284,51 +300,49 @@ class RU_ALL_TYPE {
 
         //Special RU-ALL traversal algorithms here: 
         //Returns the head of the linked list, or null if the list is empty...
-        ListNode *first(PredecessorNode *pNode){
+        RU_ALL_Node *first(PredecessorNode *pNode){
             return next(pNode, &head);
         }
 
         //Returns the node following node, or null if bottom was following node.
-        ListNode *next(PredecessorNode *pNode, ListNode *node){
+        RU_ALL_Node *next(PredecessorNode *pNode, RU_ALL_Node *node){
             descMgr->initThread(threadID());
             auto guard = descMgr->getGuard(threadID());
-            
-            assert(node != &tail);
+
             uintptr_t succ = node->successor;
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
             NotifyDescNode *notifyDesc = descMgr->allocate<NotifyDescNode>(threadID(), pNode);
-            while(next != (uintptr_t)&tail){
-                if(state == Marked){ //If node is marked, then node.next is permanently equal to next.
-                    pNode->notifyThreshold = (UpdateNode*)next;
-                    descMgr->deallocate(threadID(), notifyDesc); //notifyDesc was not used
-                    return (ListNode*)next;
+            while(next != (uintptr_t)&tail){ //Continue while next != tail...
+                if(state == Normal){
+                    notifyDesc->next = (RU_ALL_Node*)next;
+                    succ = next;
+
+                    node->successor.compare_exchange_strong(succ, (uintptr_t)notifyDesc + NotifFlag);
+                    if(succ == next){
+                        helpNotify(node, notifyDesc);
+                        return (RU_ALL_Node*)next; //CAS succeeded, therefore pNode->notifyThreshold was updated to next 
+                                                //while prev.next was equal to next.
+                    } 
                 }
                 else if(state == DelFlag){ //Help with deletion of its successor, if it is flagged....
-                    succ = helpRemove(node, (ListNode*)next);
+                    succ = helpRemove(node, (RU_ALL_Node*)next);
                 }
                 else if(state == InsFlag){ //Help with insertion while it points to an insertion descriptor...
-                    succ = helpInsert(node, (InsertDescNode*)next);
+                    succ = helpInsert(node, (RU_ALL_INS_DescNode*)next);
                 }
                 else if(state == NotifFlag){ //Help with notification while node points to a NotifyDescNode....
                     succ = helpNotify(node, (NotifyDescNode*)next);
                 }
-                else if(state == Normal){
-                    notifyDesc->next = (ListNode*)next;
-                    succ = next;
-                    assert(next != (uintptr_t)&tail);
-                    assert(next != (uintptr_t)0);
-                    node->successor.compare_exchange_strong(succ, (uintptr_t)notifyDesc + NotifFlag);
-                    if(succ == next){
-                        helpNotify(node, notifyDesc);
-                        return (ListNode*)next; //CAS succeeded, therefore pNode->notifyThreshold was updated to next 
-                                                //while prev.next was equal to next.
-                    } 
+                else{ //node is marked, so node.next is permanently equal to next. No need to help!
+                    pNode->notifyThreshold = (UpdateNode*)next;
+                    descMgr->retire(threadID(), notifyDesc); //notifyDesc was not used
+                    return (RU_ALL_Node*)next;
                 }
                 next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;
             }
-            descMgr->deallocate(threadID(), notifyDesc); //notifyDesc was not used
+            descMgr->retire(threadID(), notifyDesc); //notifyDesc was not used
             return nullptr;
         }
         char stat_to_char(uint64_t status){
@@ -350,10 +364,10 @@ class RU_ALL_TYPE {
             return ' ';
         }
 
-        ListNode *first(){
+        RU_ALL_Node *first(){
             return next(&head);
         }
-        ListNode *next(ListNode *node){
+        RU_ALL_Node *next(RU_ALL_Node *node){
             descMgr->initThread(threadID());
             auto guard = descMgr->getGuard(threadID());
             
@@ -361,20 +375,20 @@ class RU_ALL_TYPE {
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
             if(state == InsFlag){
-                next = (uintptr_t)((InsertDescNode*)next)->next;
+                next = (uintptr_t)((RU_ALL_INS_DescNode*)next)->next;
             }
             else if(state == NotifFlag){ //Help with notification while node points to a NotifyDescNode....
                 next = (uintptr_t)((NotifyDescNode*)next)->next;
             }
 
-            //If the following ListNode was the tail, then return nullptr.
+            //If the following RU_ALL_Node was the tail, then return nullptr.
             if(next == (uintptr_t)(&tail)){
                 return nullptr;
             }
-            else return (ListNode*)next; //Otherwise, return the following ListNode.
+            else return (RU_ALL_Node*)next; //Otherwise, return the following RU_ALL_Node.
         }
 
-        ListNode *next(ListNode *node, uint64_t &state){
+        RU_ALL_Node *next(RU_ALL_Node *node, uint64_t &state){
             descMgr->initThread(threadID());
             auto guard = descMgr->getGuard(threadID());
             
@@ -382,26 +396,27 @@ class RU_ALL_TYPE {
             uintptr_t next = succ & NEXT_MASK;
             state = succ & STATUS_MASK;
             if(state == InsFlag){
-                next = (uintptr_t)((InsertDescNode*)next)->next;
+                next = (uintptr_t)((RU_ALL_INS_DescNode*)next)->next;
             }
             else if(state == NotifFlag){ //Help with notification while node points to a NotifyDescNode....
                 next = (uintptr_t)((NotifyDescNode*)next)->next;
             }
 
-            //If the following ListNode was the tail, then return nullptr.
+            //If the following RU_ALL_Node was the tail, then return nullptr.
             if(next == (uintptr_t)(&tail)){
                 return nullptr;
             }
-            else return (ListNode*)next; //Otherwise, return the following ListNode.
+            else return (RU_ALL_Node*)next; //Otherwise, return the following RU_ALL_Node.
         }
 
         //Thread safe way of printing list
-        void printList(std::string (*nodeToString)(ListNode*)){
+        void printList(std::string (*nodeToString)(RU_ALL_Node*)){
+            
             std::ostringstream stream;
 
             uint64_t status;
-            ListNode *node = next(&head, status);
-            stream << "{";
+            RU_ALL_Node *node = next(&head, status);
+            stream << (std::to_string(head.successor) + " " + std::to_string((uintptr_t)&tail)) << "{";
             while(node){
                 stream << "<" << nodeToString(node) << ", " << stat_to_char(status)  << ">";
                 node = next(node, status);

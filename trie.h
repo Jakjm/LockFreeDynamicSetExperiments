@@ -5,7 +5,8 @@
 #include <sstream>
 #include <stdint.h>
 #include <vector>
-#include "FomitchevRuppert/R_UALL.h"
+#include "FomitchevRuppert/P_ALL.h"
+#include "FomitchevRuppert/RU_ALL.h"
 #include "trieNodeTypes.h"
 #include "BoundedMinReg/minreg.h"
 #include "FomitchevRuppert/list.h"
@@ -38,14 +39,8 @@ inline int __attribute__((always_inline)) compareUpdate(ListNode *u1, ListNode *
     return a->key - b->key;
 }
 
-//Function used to compare two predecessor nodes.
-inline int __attribute__((always_inline)) comparePred(ListNode *p1, ListNode *p2){
-    PredecessorNode *a = (PredecessorNode*)p1;
-    PredecessorNode *b = (PredecessorNode*)p2;
-    return a->key - b->key;
-}
 
-inline int __attribute__((always_inline)) reverseCompareUpdate(ListNode *u1, ListNode *u2){
+inline int __attribute__((always_inline)) reverseCompareUpdate(RU_ALL_Node *u1, RU_ALL_Node *u2){
     UpdateNode *a = (UpdateNode*)u1;
     UpdateNode *b = (UpdateNode*)u2;
     return b->key - a->key;
@@ -60,7 +55,7 @@ class Trie{
     vector<vector<TrieNode>> trieNodes;
     vector<LatestList> latest;
     NodeRecordManager recordMgr;
-    LinkedList<comparePred> P_ALL;
+    P_ALL_TYPE P_ALL;
     LinkedList_FRE<compareUpdate> U_ALL;
     RU_ALL_TYPE<reverseCompareUpdate> RU_ALL;
     public:
@@ -364,7 +359,6 @@ class Trie{
 
         U_ALL.insert(iNode);
         RU_ALL.insert(iNode);
-        //TODO insert iNode into RU-ALL
 
         STATUS expectedStatus = INACTIVE;
         iNode->status.compare_exchange_strong( expectedStatus, ACTIVE);
@@ -586,15 +580,16 @@ class Trie{
 
     //Traverse the reverse update announcement linked list.
     void traverseRUALL(PredecessorNode *pNode, vector<InsNode *> &I, vector<DelNode*> &D){
-        UpdateNode *uNode = (UpdateNode*)RU_ALL.first(pNode);
+        UpdateNode *uNode = (UpdateNode*)RU_ALL.first(pNode); //Atomically set pNode.notifyThreshold....
         while(uNode){
+            assert(uNode != &RU_ALL.tail);
             if(uNode->key < pNode->key){
                 if(uNode->status != INACTIVE && firstActivated(uNode)){
                     if(uNode->type == INS) I.push_back((InsNode*)uNode);
                     else D.push_back((DelNode*)uNode);
                 }
             }
-            uNode = (UpdateNode*)RU_ALL.next(pNode,uNode);
+            uNode = (UpdateNode*)RU_ALL.next(pNode,uNode); //Atomically set pNode.notifyThreshold....
         }
         pNode->notifyThreshold.store(&ZERO_THRES);
     }

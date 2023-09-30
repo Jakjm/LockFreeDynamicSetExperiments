@@ -36,4 +36,21 @@ class ListNode{
         //TODO ifdef 
 };
 
+
+/**
+* Similar but different class RU_ALL_Node.
+*/
+class RU_ALL_Node{
+    public:
+        std::atomic<uintptr_t> successor; //Contains <right, status>. The status is contained within the lowest 3 bits of the pointer.
+        std::atomic<RU_ALL_Node*> backlink;  
+        RU_ALL_Node() : successor(0), backlink(nullptr){
+
+        }
+};
+
+std::string toString(ListNode *lNode){
+    return std::to_string(lNode->successor);
+}
+
 #endif

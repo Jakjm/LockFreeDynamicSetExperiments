@@ -3,6 +3,8 @@
 #include <string>
 #include <thread>
 #include <random>
+#include "../trieNodeTypes.h"
+#include "P_ALL.h"
 #include "list_extension.h"
 #include "RU_ALL.h"
 using std::cout;
@@ -202,6 +204,31 @@ void basicTest2(){
 
     list.remove(&i4);
     list.printList(intNodeToString);
+}
+
+void insertPNode(P_ALL_TYPE &P_ALL, PredecessorNode *newNode){
+    //Insert newNode into P_ALL
+    while(1){
+        //Set newNode's next to first.
+        PredecessorNode *first = (PredecessorNode*)(P_ALL.head.successor.load() & NEXT_MASK);
+        uintptr_t expected = (uintptr_t)first;
+        newNode->successor = (uintptr_t)first;
+
+
+        P_ALL.head.successor.compare_exchange_strong(expected, (uintptr_t)newNode);
+        if(expected == (uintptr_t)first){
+            return; //Successful insertion
+        }
+        int64_t state = (int64_t)(expected & STATUS_MASK);
+        ListNode *next = (ListNode*)(expected & NEXT_MASK);
+        if(state == DelFlag){
+            first = (PredecessorNode*)(P_ALL.helpRemove(&P_ALL.head, next) & NEXT_MASK);
+        }
+    }
+}
+
+void basicTest3(){
+    
 }
 
 int main(){

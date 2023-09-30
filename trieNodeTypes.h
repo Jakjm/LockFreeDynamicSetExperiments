@@ -19,7 +19,7 @@ class NotifyNode;
 
 typedef record_manager<reclaimer_debra<int64_t>, allocator_new<int64_t>, pool_none<int64_t>, DelNode, InsNode, PredecessorNode, NotifyNode> NodeRecordManager;
 
-class UpdateNode : public ListNode{
+class UpdateNode : public ListNode, public RU_ALL_Node{
     public:
         int64_t key;
         std::atomic<STATUS> status; 
