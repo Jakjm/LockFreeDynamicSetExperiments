@@ -4,6 +4,7 @@
 #include <iterator>
 #include <sstream>
 #include <stdint.h>
+#include <unordered_map>
 #include <vector>
 #include "FomitchevRuppert/P_ALL.h"
 #include "FomitchevRuppert/RU_ALL.h"
@@ -686,34 +687,35 @@ class Trie{
                     }
                 }
 
-                deque<UpdateNode*> L;
-                unordered_set<UpdateNode*> LPrime;
-                //Prepend all updateNodes of the notify nodes of pNodePrime to L
+                
+                deque<UpdateNode*> LPrime;
+                //Prepend all updateNodes of the notify nodes of pNodePrime to LPrime
                 NotifyNode *nNode = pNodePrime->notifyListHead;
                 while(nNode){
-                    L.push_front(nNode->updateNode);
+                    LPrime.push_front(nNode->updateNode);
                     nNode = nNode->next;
                 }
 
-                //Prepend all updateNodes not in I_0 union D_0 of notify nodes of pNode to LPrime
+                unordered_set<UpdateNode*> L;
+                //Insert all updateNodes not in I_0 union D_0 of notify nodes of pNode to L
                 nNode = pNode->notifyListHead;
                 while(nNode){
                     UpdateNode *uNode = nNode->updateNode;
                     if(uNode->type == INS){
                         if(I_0.count((InsNode*)uNode) == 0){
-                            LPrime.insert(uNode);
+                            L.insert(uNode);
                         }
                     }
                     else if(uNode->type == DEL){
                         if(D_0.count((DelNode*)uNode) == 0){
-                            LPrime.insert(uNode);
+                            L.insert(uNode);
                         }
                     }
                     nNode = nNode->next;
                 }
                 deque<UpdateNode*> LDoublePrime;
-                for(UpdateNode *uNode : L){
-                    if(LPrime.count(uNode) == 0)LDoublePrime.push_back(uNode);
+                for(UpdateNode *uNode : LPrime){
+                    if(L.count(uNode) == 0)LDoublePrime.push_back(uNode);
                 }
                 unordered_set<int64_t> R;
                 for(DelNode *dNode : D_0){
@@ -729,9 +731,28 @@ class Trie{
                         R.insert(delPred2);
                     }
                 }
-                //TODO Line 219 seems kinda weird
+                //Set of keys X, such that for every key x in X, 
+                //x is in R, and an UpdateNode with key x is in L'', 
+                //and the furthest update node within L'' has type INS
+                std::unordered_set<int64_t> goodKeys;
+                //Go through LDouble prime in reverse
+                for(deque<UpdateNode*>::reverse_iterator iter = LDoublePrime.rbegin(); iter != LDoublePrime.rend(); ++iter){
+                    UpdateNode *uNode = *iter;
+                    int64_t key = uNode->key;
+                    //If uNode->key is not in goodKeys and uNode->key is in R...
+                    if(goodKeys.count(key) == 0 && R.count(key) > 0){
+                        if(uNode->type == DEL){
+                            //If uNode is a delete node, then remove key from R as the furthest node in L'' with key uNode->key has type DEL
+                            R.erase(key); 
+                        }
+                        else{
+                            //Otherwise add uNode->key to goodKeys, since uNode is the furthest node with key uNode->key in L'' and it has type INS
+                            goodKeys.insert(key);
+                        }
+                    }
+                }
 
-                //Pred0 = maximum value among nodes in V
+                //Pred0 = maximum value among keys in R
                 pred0 = -1;
                 for(int64_t v : R){
                     if(v > pred0)pred0 = v;
@@ -741,7 +762,7 @@ class Trie{
 
         //Return the max among pred0 and k.
         if(pred0 > k)return pred0;
-        return k;
+        else return k;
     }
     int64_t predecessor(int64_t y){
         assert(y >= 0 && y <= universeSize);
