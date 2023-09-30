@@ -12,7 +12,6 @@
 #include "FomitchevRuppert/list.h"
 #include "FomitchevRuppert/list_extension.h"
 
-//TODO ifdef
 #include <deque>
 #include <thread>
 #include <string>
@@ -583,13 +582,13 @@ class Trie{
     }
 
     //Traverse the reverse update announcement linked list.
-    void traverseRUALL(PredecessorNode *pNode, vector<InsNode *> &I, unordered_set<DelNode*> &D){
+    void traverseRUALL(PredecessorNode *pNode, unordered_set<InsNode *> &I, unordered_set<DelNode*> &D){
         UpdateNode *uNode = (UpdateNode*)RU_ALL.first(pNode); //Atomically set pNode.notifyThreshold....
         while(uNode){
             assert(uNode != &RU_ALL.tail);
             if(uNode->key < pNode->key){
                 if(uNode->status != INACTIVE && firstActivated(uNode)){
-                    if(uNode->type == INS) I.push_back((InsNode*)uNode);
+                    if(uNode->type == INS) I.insert((InsNode*)uNode);
                     else D.insert((DelNode*)uNode);
                 }
             }
@@ -598,13 +597,11 @@ class Trie{
         pNode->notifyThreshold.store(&ZERO_THRES);
     }
 
-    //Good up to this point
-
-
     int64_t predHelper(PredecessorNode *pNode){
         deque<PredecessorNode*> Q;
-        vector<InsNode*> I_0, I_1, I_2;
+        vector<InsNode*> I_1, I_2;
         vector<DelNode*> D_1, D_2;
+        unordered_set<InsNode*> I_0;
         unordered_set<DelNode*> D_0;
         int64_t pred0; 
         int64_t y = pNode->key;
@@ -627,52 +624,124 @@ class Trie{
                     I_2.push_back(nNode->updateNodeMax);
                 }
                 else{
-                    if(nNode->updateNode->type == INS)I_0.push_back((InsNode*)nNode->updateNode);
+                    if(nNode->updateNode->type == INS)I_0.insert((InsNode*)nNode->updateNode);
                     else D_0.insert((DelNode*)nNode->updateNode);
                 }
             }
             nNode = nNode->next;
         }
-        //pred3 = key of del node in d1_minus_d0 with largest key
-        //pred4 = key of del node in d2_minus_d0 with largest key
-        int64_t pred3 = -1, pred4 = -1;
-        //Create D1 - D0 and D2 - D0
-        unordered_set<DelNode*> D1_minus_D0, D2_minus_D0;
-        for(DelNode *d : D_1){
-            if(D_0.count(d) == 0){
-                D1_minus_D0.insert(d);
-                if(d->key > pred3)pred3 = d->key;
-            }
-        }
-        for(DelNode *d : D_2){
-            if(D_0.count(d) == 0){
-                D2_minus_D0.insert(d);
-                if(d->key > pred4)pred4 = d->key;
-            }
-        }
-
-        if(pred0 == -1){
-            vector<UpdateNode*> K;
-        }
-
         
         //pred1 = key of ins node in I_1 with greatest key
         //pred2 = key of ins node in I_2 with greatest key
-        int64_t pred1 = -1, pred2 = -1;
+        //pred3 = key of del node in d1_minus_d0 with largest key
+        //pred4 = key of del node in d2_minus_d0 with largest key
+        int64_t pred1 = -1, pred2 = -1, pred3, pred4;
         for(InsNode *i : I_1){
             if(i->key > pred1)pred1 = i->key;
+
         }
         for(InsNode *i : I_2){
             if(i->key > pred2)pred2 = i->key;
         }
 
-        int64_t max = -1;
-        if(pred0 > max) max = pred0;
-        if(pred1 > max) max = pred1;
-        if(pred2 > max) max = pred2;
-        if(pred3 > max) max = pred3;
-        if(pred4 > max) max = pred4;
-        return max;
+        //Create D1 - D0 and D2 - D0
+        for(DelNode *d : D_1){
+            if(D_0.count(d) == 0){
+                if(d->key > pred3)pred3 = d->key;
+            }
+        }
+        for(DelNode *d : D_2){
+            if(D_0.count(d) == 0){
+                if(d->key > pred4)pred4 = d->key;
+            }
+        }
+
+        int k = -1;
+        if(pred1 > k) k = pred1;
+        if(pred2 > k) k = pred2;
+        if(pred3 > k) k = pred3;
+        if(pred4 > k) k = pred4;
+        
+        //Binary trie traversal stopped at an internal node t at depth depthT
+        if(pred0 == -2){
+            //The minimum key among the leaves of the subtree rooted by t
+            //pred0 * 2^(b - depthT)
+            int minU_t = pred0 * (1 << (b - depthT)); 
+            if(k < minU_t){
+                //D_0 must contain a DEL node with key that is in the 
+                //range of keys of leaves in the subtree rooted by t
+                unordered_set<PredecessorNode*> predNodes;
+                predNodes.insert(pNode);
+                for(DelNode *d : D_0){
+                    if(d->delPredNode != nullptr){
+                        predNodes.insert(d->delPredNode);
+                    }
+                }
+
+                //pNodePrime is the predecessor node that is the farthest along in Q.
+                PredecessorNode *pNodePrime = nullptr;
+                for(PredecessorNode *p : Q){
+                    if(predNodes.count(p) > 0){
+                        pNodePrime = p;
+                    }
+                }
+
+                deque<UpdateNode*> L;
+                unordered_set<UpdateNode*> LPrime;
+                //Prepend all updateNodes of the notify nodes of pNodePrime to L
+                NotifyNode *nNode = pNodePrime->notifyListHead;
+                while(nNode){
+                    L.push_front(nNode->updateNode);
+                    nNode = nNode->next;
+                }
+
+                //Prepend all updateNodes not in I_0 union D_0 of notify nodes of pNode to LPrime
+                nNode = pNode->notifyListHead;
+                while(nNode){
+                    UpdateNode *uNode = nNode->updateNode;
+                    if(uNode->type == INS){
+                        if(I_0.count((InsNode*)uNode) == 0){
+                            LPrime.insert(uNode);
+                        }
+                    }
+                    else if(uNode->type == DEL){
+                        if(D_0.count((DelNode*)uNode) == 0){
+                            LPrime.insert(uNode);
+                        }
+                    }
+                    nNode = nNode->next;
+                }
+                deque<UpdateNode*> LDoublePrime;
+                for(UpdateNode *uNode : L){
+                    if(LPrime.count(uNode) == 0)LDoublePrime.push_back(uNode);
+                }
+                unordered_set<int64_t> R;
+                for(DelNode *dNode : D_0){
+                    R.insert(dNode->delPred); //Insert the embedded predecessor value of the delNodes in D_0
+                }
+                for(UpdateNode *uNode : LDoublePrime){
+                    if(uNode->type == INS){
+                        R.insert(uNode->key);
+                    }
+                    else{
+                        R.insert(uNode->key);
+                        int64_t delPred2 = ((DelNode*)uNode)->delPred2;
+                        R.insert(delPred2);
+                    }
+                }
+                //TODO Line 219 seems kinda weird
+
+                //Pred0 = maximum value among nodes in V
+                pred0 = -1;
+                for(int64_t v : R){
+                    if(v > pred0)pred0 = v;
+                }
+            }
+        }
+
+        //Return the max among pred0 and k.
+        if(pred0 > k)return pred0;
+        return k;
     }
     int64_t predecessor(int64_t y){
         assert(y >= 0 && y <= universeSize);
