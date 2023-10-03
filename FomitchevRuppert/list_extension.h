@@ -8,7 +8,6 @@
 #include <iterator>
 #include <atomic>
 #include <cassert>
-#include "../setbench/common/recordmgr/record_manager.h"
 #include "../common.h"
 #include "ListNode.h"
 #pragma once
@@ -17,20 +16,24 @@ using std::string;
 #define testStats
 
 //An extension of Fomitchev and Ruppert's linked list that allows concurrent insertions of the same node.
-
 //Additional status used when a ListNode's successor is an insert descriptor node.
 const uint64_t InsFlag = 3; 
 
 //Definition of the Insert Descriptor Node object.
-class InsertDescNode{
-    public:
-    ListNode *newNode;
-    ListNode *next;
-    InsertDescNode(ListNode *ins) : newNode(ins), next(nullptr) {
+struct InsertDescNode{
+    std::atomic<ListNode*> newNode;
+    std::atomic<ListNode*> next;
+    std::atomic<int64_t> seqNum; //Sequence number.
+    InsertDescNode():  newNode(nullptr), next(nullptr), seqNum(0){
 
     }
 };
-typedef record_manager<reclaimer_debra<>, allocator_new<>, pool_none<>, InsertDescNode> InsertDescManager;
+
+//The first 3 bits of a ListNode's successor pointer are used for the states...
+//If the state is InsFlag or NotifFlag, then the information to access a descriptor node is contained as follows:
+const uint64_t PROC_MASK = 0x0000000000000FF0; //Process ID contained within lower 8 bits
+const uint64_t SEQ_MASK =  0xFFFFFFFFFFFFF000; //Sequence # contained within upper 52 bits
+
 
 //Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert
 //With an additional extension.
@@ -39,47 +42,46 @@ template <int(*compare)(ListNode*, ListNode*)>
 class LinkedList_FRE {
     public:
         ListNode tail, head; //Head, tail of the linked list. 
-        InsertDescManager *const descMgr; //Record manager used to allocate insert_descriptor nodes.
+        
     public:
-        LinkedList_FRE() : tail(), head(), descMgr(new InsertDescManager(NUM_THREADS)){
+        InsertDescNode descs[NUM_THREADS];
+        LinkedList_FRE() : tail(), head(){
             head.successor.store((uintptr_t)&tail);
         }
         ~LinkedList_FRE(){ 
-            //Deinitialize all threads.
-            for(int i = 0;i < NUM_THREADS;++i){
-                descMgr->deinitThread(i);
-            }
-            delete descMgr;
         }
 
-         uintptr_t helpInsert(ListNode *prev, InsertDescNode *desc){
-            uintptr_t expected = 0;
-            uintptr_t result = expected;
-            desc->newNode->successor.compare_exchange_strong(result, (uintptr_t)desc->next);
+        uintptr_t helpInsert(ListNode *prev, uint64_t seqNum,  uint64_t procID){
+            InsertDescNode *desc = &descs[procID];
+            ListNode *newNode = desc->newNode;
+            ListNode *next = desc->next;
+            if(seqNum != desc->seqNum){
+                return prev->successor.load();
+            }
 
+            //Attempt to initialize newNode....
+            uintptr_t result = 0;
+            newNode->successor.compare_exchange_strong(result, (uintptr_t)next);
+
+            uint64_t expected = (seqNum << 12) + (procID << 4) + InsFlag;
+            result = expected; 
             //If insert node was marked....
             if((result & STATUS_MASK) == Marked){ 
-                expected = (uintptr_t)desc + InsFlag;
-                result = expected;
                 //newNode has already been removed.
                 //Attempt to CAS to remove descriptor.
-                prev->successor.compare_exchange_strong(result, (uintptr_t)desc->next);
+                prev->successor.compare_exchange_strong(result, (uintptr_t)next);
                 if(result == expected){
-                    descMgr->retire(threadID(), desc);
-                    return (uintptr_t)desc->next;
+                    return (uintptr_t)next;
                 }
                 else{
                     return result;
                 }
             }
             else{
-                expected = (uintptr_t)desc + InsFlag;
-                result = expected;
                 //Attempt to complete insertion of insert node.
-                prev->successor.compare_exchange_strong(result, (uintptr_t)desc->newNode);
+                prev->successor.compare_exchange_strong(result, (uintptr_t)newNode);
                 if(result == expected){
-                    descMgr->retire(threadID(), desc);
-                    return (uintptr_t)desc->newNode;
+                    return (uintptr_t)newNode;
                 }
                 else{
                     return result;
@@ -108,8 +110,11 @@ class LinkedList_FRE {
                 if(state == DelFlag){ //Help with deletion of its successor, if it is flagged....
                     succ = helpRemove(delNode, (ListNode*)next);
                 }
-                else if(state == InsFlag){ //Help with insertion while it points to an insertion descriptor...
-                    succ = helpInsert(delNode, (InsertDescNode*)next);
+                else if(state == InsFlag){ //Help with insertion if prev.next points to an InsertDescNode....
+                    uint64_t seqNum = (next & SEQ_MASK) >> 12;
+                    uint64_t procID = (next & PROC_MASK) >> 4;
+                    //Help with insertion...
+                    succ = helpInsert(delNode,  seqNum, procID);
                 }
                 else{ //Attempt to mark the node if the status was normal...
                     uintptr_t markedSuccessor = (uintptr_t)next + Marked;
@@ -135,15 +140,17 @@ class LinkedList_FRE {
 
         void insert(ListNode *node){
             if((node->successor & STATUS_MASK) == Marked)return;
-
-            descMgr->initThread(threadID());
-            auto guard = descMgr->getGuard(threadID());
-
             ListNode *curr = &head;
             uintptr_t succ = curr->successor;
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
-            InsertDescNode *newDesc = descMgr->template allocate<InsertDescNode>(threadID(), node);
+
+            //This is the descriptor for this thread.
+            InsertDescNode *desc = &descs[threadID()];
+            desc->seqNum++; //Increment the sequence number....
+            uint64_t seqNum = desc->seqNum;
+            assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
+            desc->newNode = node;
             while(next != (uintptr_t)node){
                 if(state == Normal){
                     if(compNode((ListNode*)next,node) <= 0){ //node should be placed further along in the list if next <= node
@@ -154,11 +161,13 @@ class LinkedList_FRE {
                         continue;
                     }
                     if((node->successor & STATUS_MASK) == Marked)return;
-                    newDesc->next = (ListNode*)next; //Set the next of the insert descriptor node.
+                    desc->next = (ListNode*)next; //Set the next of the insert descriptor node.
                     succ = next;
-                    curr->successor.compare_exchange_strong(succ, (uintptr_t)newDesc + InsFlag);
+
+                    uint64_t newVal = (seqNum << 12) + (threadID() << 4) + InsFlag;
+                    curr->successor.compare_exchange_strong(succ, (uintptr_t)newVal);
                     if(succ == next){ //If the CAS succeeded....
-                        helpInsert(curr, (InsertDescNode*)newDesc);
+                        helpInsert(curr, seqNum, threadID());
                         return;
                     }
                     //Read next and state from curr.successor.
@@ -166,8 +175,9 @@ class LinkedList_FRE {
                     state = succ & STATUS_MASK;
                 }
                 else if(state == InsFlag){
-                    succ = helpInsert(curr, (InsertDescNode*)next);
-                    if(((InsertDescNode*)next)->newNode == node)return;
+                    uint64_t seq = (next & SEQ_MASK) >> 12;
+                    uint64_t proc = (next & PROC_MASK) >> 4;
+                    succ = helpInsert(curr, seq, proc);
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
                 }
@@ -191,9 +201,6 @@ class LinkedList_FRE {
             }
         }
         void remove(ListNode *node){
-            descMgr->initThread(threadID());
-            auto guard = descMgr->getGuard(threadID());
-
             ListNode *curr = &head;
             uintptr_t succ = curr->successor;
             uintptr_t next = succ & NEXT_MASK;
@@ -219,7 +226,9 @@ class LinkedList_FRE {
                     }
                 }
                 else if(state == InsFlag){
-                    succ = helpInsert(curr, (InsertDescNode*)next);
+                    uint64_t seq = (next & SEQ_MASK) >> 12;
+                    uint64_t proc = (next & PROC_MASK) >> 4;
+                    succ = helpInsert(curr, seq, proc);
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
                 }
@@ -254,15 +263,23 @@ class LinkedList_FRE {
             return next(&head);
         }
         ListNode *next(ListNode *node){
-            descMgr->initThread(threadID());
-            auto guard = descMgr->getGuard(threadID());
-            
             uintptr_t succ = node->successor;
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
-            if(state == InsFlag){
-                next = (uintptr_t)((InsertDescNode*)next)->next;
+
+            
+            while(state == InsFlag){
+                uint64_t seq = (next & SEQ_MASK) >> 12;
+                uint64_t proc = (next & PROC_MASK) >> 4;
+                InsertDescNode *desc = &descs[proc];
+                next = (uintptr_t)(ListNode*)desc->next;
+                if(desc->seqNum == seq)break; //desc was still a valid insert descriptor node following node...
+                
+                succ = node->successor; //Read node->successor again.
+                next = succ & NEXT_MASK;
+                state = succ & STATUS_MASK;
             }
+            //next points to a ListNode....
 
             //If the following ListNode was the tail, then return nullptr.
             if(next == (uintptr_t)(&tail)){
@@ -271,16 +288,25 @@ class LinkedList_FRE {
             else return (ListNode*)next; //Otherwise, return the following ListNode.
         }
 
-        ListNode *next(ListNode *node, uint64_t &state){
-            descMgr->initThread(threadID());
-            auto guard = descMgr->getGuard(threadID());
-            
+
+        ListNode *next(ListNode *node, uint64_t state){
             uintptr_t succ = node->successor;
             uintptr_t next = succ & NEXT_MASK;
             state = succ & STATUS_MASK;
-            if(state == InsFlag){
-                next = (uintptr_t)((InsertDescNode*)next)->next;
+
+            
+            while(state == InsFlag){
+                uint64_t seq = (next & SEQ_MASK) >> 12;
+                uint64_t proc = (next & PROC_MASK) >> 4;
+                InsertDescNode *desc = &descs[proc];
+                next = (uintptr_t)(ListNode*)desc->next;
+                if(desc->seqNum == seq)break; //desc was still a valid insert descriptor node following node...
+                
+                succ = node->successor; //Read node->successor again.
+                next = succ & NEXT_MASK;
+                state = succ & STATUS_MASK;
             }
+            //next points to a ListNode....
 
             //If the following ListNode was the tail, then return nullptr.
             if(next == (uintptr_t)(&tail)){
@@ -288,6 +314,7 @@ class LinkedList_FRE {
             }
             else return (ListNode*)next; //Otherwise, return the following ListNode.
         }
+        
         char stat_to_char(uint64_t status){
             if(status == Normal){
                 return ' ';

@@ -10,7 +10,6 @@
 #include <atomic>
 #include <cassert>
 #include "list_extension.h"
-#include "../setbench/common/recordmgr/record_manager.h"
 #include "../common.h"
 #include "../trieNodeTypes.h"
 #pragma once
@@ -25,15 +24,10 @@ struct DescNode{
     std::atomic<uintptr_t> other;
     std::atomic<RU_ALL_Node*> next;
     std::atomic<int64_t> seqNum; //Sequence number.
-    DescNode(): seqNum(0), next(nullptr), other((uintptr_t)nullptr){
+    DescNode():  other((uintptr_t)nullptr), next(nullptr), seqNum(0){
 
     }
 };
-
-//The first 3 bits of a pointer are used for the states...
-//If the state is InsFlag or NotifFlag, then the information to access a descriptor node is contained as follows:
-const uint64_t PROC_MASK = 0x0000000000000FF0; //Process ID contained within lower 8 bits
-const uint64_t SEQ_MASK =  0xFFFFFFFFFFFFF000; //Sequence # contained within upper 52 bits
 
 //Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert.
 //compare is the function used to compare the nodes of the linked list
@@ -399,7 +393,7 @@ class RU_ALL_TYPE {
                 next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;
             }
-            //next points to a ListNode....
+            //next points to a RU_ALL_Node....
 
             //If the following RU_ALL_Node was the tail, then return nullptr.
             if(next == (uintptr_t)(&tail)){
