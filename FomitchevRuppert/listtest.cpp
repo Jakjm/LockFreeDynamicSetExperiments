@@ -20,7 +20,7 @@ inline int randomNum(int range){
 	return dist(rng);
 }
 
-class IntNode : public ListNode{
+class IntNode : public ListNode, public RU_ALL_Node{
     public:
     int key;
     IntNode(int k): key(k){
@@ -33,13 +33,17 @@ std::string intNodeToString(ListNode *node){
     IntNode *iNode = (IntNode*)node;
     return std::to_string(iNode->key) + " " + std::to_string((uintptr_t)iNode); 
 }
+std::string intNodeToString2(RU_ALL_Node *node){
+    IntNode *iNode = (IntNode*)node;
+    return std::to_string(iNode->key) + " " + std::to_string((uintptr_t)iNode); 
+}
 inline int __attribute__((always_inline)) compareInt(ListNode *node1, ListNode *node2) {
     IntNode *i1 = ((IntNode*)node1);
     IntNode *i2 = ((IntNode*)node2);
     return i1->key - i2->key;
 }
 
-inline int __attribute__((always_inline)) reverseCompareInt(ListNode *node1, ListNode *node2) {
+inline int __attribute__((always_inline)) reverseCompareInt(RU_ALL_Node *node1, RU_ALL_Node *node2) {
     IntNode *i1 = ((IntNode*)node1);
     IntNode *i2 = ((IntNode*)node2);
     return i2->key - i1->key;
@@ -168,42 +172,42 @@ void basicTest2(){
     RU_ALL_TYPE<reverseCompareInt> list;
 
 
-    list.printList(intNodeToString);
+    list.printList(intNodeToString2);
 
     //Insert 1, 4, 2, 5, 3
     list.insert(&i1);
-    list.printList(intNodeToString);
+    list.printList(intNodeToString2);
 
     list.insert(&i12);
-    list.printList(intNodeToString);
+    list.printList(intNodeToString2);
 
     list.insert(&i4);
-    list.printList(intNodeToString);
+    list.printList(intNodeToString2);
 
     list.insert(&i2);
-    list.printList(intNodeToString);
+    list.printList(intNodeToString2);
 
     list.insert(&i5);
-    list.printList(intNodeToString);
+    list.printList(intNodeToString2);
 
     list.insert(&i3);
-    list.printList(intNodeToString);
+    list.printList(intNodeToString2);
 
     //Remove 2, 5, 1, 3, 4
     list.remove(&i2);
-    list.printList(intNodeToString);
+    list.printList(intNodeToString2);
 
     list.remove(&i5);
-    list.printList(intNodeToString);
+    list.printList(intNodeToString2);
 
     list.remove(&i1);
-    list.printList(intNodeToString);
+    list.printList(intNodeToString2);
     
     list.remove(&i3);
-    list.printList(intNodeToString);
+    list.printList(intNodeToString2);
 
     list.remove(&i4);
-    list.printList(intNodeToString);
+    list.printList(intNodeToString2);
 }
 
 void insertPNode(P_ALL_TYPE &P_ALL, PredecessorNode *newNode){
