@@ -252,9 +252,9 @@ class Trie{
         }
     }
 
-    void insertBinaryTrie(UpdateNode *v){
-        //For each binary trie node t on the path from the parent of the leaf with v.key to the root, do 
-        int64_t key = v->key;
+    void insertBinaryTrie(UpdateNode *iNode){
+        //For each binary trie node t on the path from the parent of the leaf with iNode.key to the root, do 
+        int64_t key = iNode->key;
         for(int depth = b-1;depth >= 0;--depth){
             key = key >> 1;
             TrieNode &t = trieNodes[depth][key]; //Start from parent of 
@@ -265,8 +265,8 @@ class Trie{
                 DelNode *delNode = (DelNode*)uNode;
                 int height = b - depth;
                 if (height < delNode->lower1Boundary.minRead() && height <= delNode->upper0Boundary){
-                    v->target = delNode;
-                    if(firstActivated(v) == false)return;
+                    iNode->target = delNode;
+                    if(firstActivated(iNode) == false)return;
                     delNode->lower1Boundary.minWrite(height);
                 }
             }
@@ -282,12 +282,12 @@ class Trie{
     // If the index is even, it is the left child. Add 1 to get the right child.
     #define siblingIndex(index) (index + 1 - ((index & 1) * 2))
 
-    void deleteBinaryTrie(DelNode *v){
-        TrieNode *t = &trieNodes[b][v->key]; //Get leaf of the trie with v.key
+    void deleteBinaryTrie(DelNode *dNode){
+        TrieNode *t = &trieNodes[b][dNode->key]; //Get leaf of the trie with dNode.key
         TrieNode *root = &trieNodes[0][0];
         
         int depth = b;
-        int64_t key = v->key;
+        int64_t key = dNode->key;
         while(t != root){
             int height = b - depth;
             TrieNode *sibling = &trieNodes[depth][siblingIndex(key)];
@@ -300,19 +300,19 @@ class Trie{
             t = &trieNodes[depth][key];
 
             DelNode *d = t->dNodePtr;
-            if(firstActivated(v) == false)return;
-            if(v->stop || v->lower1Boundary.minRead() != b+1)return;
+            if(firstActivated(dNode) == false)return;
+            if(dNode->stop || dNode->lower1Boundary.minRead() != b+1)return;
             
             DelNode *expected = d;
-            t->dNodePtr.compare_exchange_strong(expected, v);
+            t->dNodePtr.compare_exchange_strong(expected, dNode);
             if(expected != d){
                 d = t->dNodePtr;
-                if(firstActivated(v) == false)return;
-                if(v->stop || v->lower1Boundary.minRead() != b+1)return;
+                if(firstActivated(dNode) == false)return;
+                if(dNode->stop || dNode->lower1Boundary.minRead() != b+1)return;
                 expected = d;
-                t->dNodePtr.compare_exchange_strong(expected, v);
+                t->dNodePtr.compare_exchange_strong(expected, dNode);
                 if(expected != d){
-                    //Retire v if v is no longer in shared memory? (TODO maybe this is silly.)
+                    //Retire dNode if dNode is no longer in shared memory? (TODO maybe this is silly.)
                     return;
                 }
                 else{
@@ -324,7 +324,7 @@ class Trie{
             }
             TrieNode *left = &trieNodes[depth+1][key * 2], *right = &trieNodes[depth+1][key *2 +1];
             if(interpretedBit(left, height - 1) == 1 || interpretedBit(right, height- 1))return;
-            v->upper0Boundary = height;
+            dNode->upper0Boundary = height;
         }
     }
 
@@ -678,20 +678,22 @@ class Trie{
                     predNodes.insert(d->delPredNode);
                 }
 
-                //pNodePrime is the predecessor node that is the farthest along in Q.
+                //pNodePrime is the predecessor node in predNodes that is the latest in Q.
                 PredecessorNode *pNodePrime = nullptr;
-                for(PredecessorNode *p : Q){
-                    if(predNodes.count(p) > 0){
+                for (auto rit = Q.rbegin(); rit != Q.rend(); ++rit) { //Iterate through Q backwards.
+                    PredecessorNode *p = *rit;
+                    if(predNodes.count(p) > 0){ //Stop as soon as such a predecessor node is found.
                         pNodePrime = p;
+                        break;
                     }
                 }
 
                 
-                deque<UpdateNode*> LPrime;
-                //Prepend all updateNodes of the notify nodes of pNodePrime to LPrime
+                vector<UpdateNode*> LPrime;
+                //Insert all updateNodes of the notify nodes of pNodePrime to LPrime.
                 NotifyNode *nNode = pNodePrime->notifyListHead;
                 while(nNode){
-                    LPrime.push_front(nNode->updateNode);
+                    LPrime.push_back(nNode->updateNode);
                     nNode = nNode->next;
                 }
 
@@ -712,8 +714,11 @@ class Trie{
                     }
                     nNode = nNode->next;
                 }
-                deque<UpdateNode*> LDoublePrime;
-                for(UpdateNode *uNode : LPrime){
+                //Insert the nodes that are in LPrime but not L into LDoublePrime, 
+                //in the reverse order of which they are stored in LPrime.
+                vector<UpdateNode*> LDoublePrime; 
+                for (auto rit = LPrime.rbegin(); rit != LPrime.rend(); ++rit) {
+                    UpdateNode *uNode = *rit;
                     if(L.count(uNode) == 0)LDoublePrime.push_back(uNode);
                 }
                 unordered_set<int64_t> R;
@@ -735,7 +740,7 @@ class Trie{
                 //and the furthest update node within L'' has type INS
                 std::unordered_set<int64_t> goodKeys;
                 //Go through LDouble prime in reverse
-                for(deque<UpdateNode*>::reverse_iterator iter = LDoublePrime.rbegin(); iter != LDoublePrime.rend(); ++iter){
+                for(vector<UpdateNode*>::reverse_iterator iter = LDoublePrime.rbegin(); iter != LDoublePrime.rend(); ++iter){
                     UpdateNode *uNode = *iter;
                     int64_t key = uNode->key;
                     //If uNode->key is not in goodKeys and uNode->key is in R...

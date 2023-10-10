@@ -35,9 +35,8 @@ template <int(*compare)(RU_ALL_Node*, RU_ALL_Node*)>
 class RU_ALL_TYPE {
     public:
         RU_ALL_Node tail, head; //Head, tail of the linked list. 
-        DescNode descs[NUM_THREADS];
-        //DescManager *const descMgr; //Record manager used to allocate insert_descriptor nodes.
     public:
+        DescNode descs[NUM_THREADS];
         RU_ALL_TYPE() : tail(), head(){
             head.successor.store((uintptr_t)&tail);
             for(int i = 0;i < NUM_THREADS;++i){

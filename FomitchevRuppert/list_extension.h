@@ -36,13 +36,11 @@ const uint64_t SEQ_MASK =  0xFFFFFFFFFFFFF000; //Sequence # contained within upp
 
 
 //Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert
-//With an additional extension.
 //compare is the function used to compare the nodes of the linked list
 template <int(*compare)(ListNode*, ListNode*)>
 class LinkedList_FRE {
     public:
         ListNode tail, head; //Head, tail of the linked list. 
-        
     public:
         InsertDescNode descs[NUM_THREADS];
         LinkedList_FRE() : tail(), head(){
