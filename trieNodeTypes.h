@@ -22,14 +22,14 @@ typedef record_manager<reclaimer_debra<int64_t>, allocator_new<int64_t>, pool_no
 class UpdateNode : public ListNode, public RU_ALL_Node{
     public:
         int64_t key;
+        const TYPE type; 
         std::atomic<STATUS> status; 
         std::atomic<UpdateNode *> latestNext;
         std::atomic<bool> stop;
         std::atomic<DelNode *> target;
-        const TYPE type; 
+        
 
-        UpdateNode(int64_t x, TYPE t) : key(x), status(INACTIVE), latestNext(nullptr), stop(false), target(nullptr), type(t), 
-            ListNode(), RU_ALL_Node(){
+        UpdateNode(int64_t x, TYPE t) : ListNode(), RU_ALL_Node(), key(x), type(t), status(INACTIVE), latestNext(nullptr), stop(false), target(nullptr){
         
         }
         virtual void retire(NodeRecordManager &recordMgr) = 0;
@@ -88,7 +88,7 @@ class PredecessorNode : public ListNode{
     std::atomic<UpdateNode*> notifyThreshold;
     std::atomic<NotifyNode*> notifyListHead;
     
-    PredecessorNode(int64_t k) : key(k), notifyThreshold(&INFINITY_THRES), notifyListHead(nullptr), ListNode() {
+    PredecessorNode(int64_t k) : ListNode(), key(k), notifyThreshold(&INFINITY_THRES), notifyListHead(nullptr) {
     
     }
     void retire(NodeRecordManager &recordMgr){

@@ -8,6 +8,8 @@
 using std::cout;
 #pragma once
 
+
+
 //2 ^ Floor log_2 function 
 //Function for rounding down to the next smallest power of 2.
 //Taken from hacker's delight.
@@ -441,17 +443,17 @@ class MutexMinReg64{
     std::mutex lock;
     uint64_t value;
     public:
-    MutexMinReg64(): value(64), lock(){
+    MutexMinReg64(): lock(), value(64){
 
     }
-    void minWrite(int x){
+    void minWrite(uint64_t x){
         lock.lock();    //acquire lock
         if(x < value)value = x;
         lock.unlock();   //release lock
     }
-    int minRead(){
+    uint64_t minRead(){
         lock.lock();    //acquire lock
-        int min = value; 
+        uint64_t min = value; 
         lock.unlock();  //release lock
         return min;
     }
@@ -460,10 +462,10 @@ class LockMinReg64{
     std::atomic_flag lock;
     uint64_t value;
     public:
-    LockMinReg64(): value(64), lock(ATOMIC_FLAG_INIT){
+    LockMinReg64(): lock(ATOMIC_FLAG_INIT), value(64){
    
     }
-    void minWrite(int x){
+    void minWrite(uint64_t x){
         while (lock.test_and_set(std::memory_order_acquire)) {  // acquire lock
             #if defined(__cpp_lib_atomic_flag_test)
                 while (lock.test(std::memory_order_relaxed));
