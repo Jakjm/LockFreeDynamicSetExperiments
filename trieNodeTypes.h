@@ -126,7 +126,7 @@ class DelNode : public UpdateNode{
         //Should be used to retire a delete node.
         void retire(NodeRecordManager &recordMgr){
             #warning should retire delPredNode separately.
-            delPredNode->retire(recordMgr); 
+            if(delPredNode)delPredNode->retire(recordMgr); 
             recordMgr.retire(threadID, this);
         }
         ~DelNode(){

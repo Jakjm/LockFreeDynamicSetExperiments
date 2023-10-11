@@ -59,7 +59,9 @@ void simpleTest(){
     trie.insert(3);
     cout << "Inserted 3" << std::endl;
     trie.printInterpretedBits();
-    cout << "Pred(2): " << trie.predecessor(2) << " Pred(5): " << trie.predecessor(5) << std::endl;
+    int pred1 = trie.predecessor(2);
+    int pred2 = trie.predecessor(5);
+    cout << "Pred(2): " << pred1 << " Pred(5): " << pred2 << std::endl;
     trie.insert(5);
     cout << "Inserted 5" << std::endl;
     trie.printInterpretedBits();
@@ -76,7 +78,7 @@ int compare(int i1, int i2){
 
 int main(int argc, char **argv){
     //simpleTest();
-    multithreadTest(3, 1000000, 4);
+    multithreadTest(3, 100000, 4);
     //printList();
     return 0;
 }

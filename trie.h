@@ -84,10 +84,10 @@ class Trie{
             initialDelNode->status = ACTIVE;
             if((key & 1) == 0){ //If the key is even, 
                 baseRow[key / 2].dNodePtr = initialDelNode;
-                initialDelNode->dNodeCount += 2;
+                initialDelNode->dNodeCount = 2;
             }
             else{
-                initialDelNode->dNodeCount += 1;
+                initialDelNode->dNodeCount = 1;
             }
         }
 
@@ -101,7 +101,7 @@ class Trie{
                 int64_t leftChild = 2 * i;
                 DelNode *dNode = childRow[leftChild].dNodePtr;
                 trieNodeRow[i].dNodePtr = dNode;
-                dNode->dNodeCount += 1;
+                dNode->dNodeCount.fetch_add(1);
             }
         }
 
@@ -116,8 +116,8 @@ class Trie{
         for(vector<TrieNode> &trieNodeRow : trieNodes){
             for(TrieNode &tNode : trieNodeRow){
                 DelNode *dNode = tNode.dNodePtr;
-                int reclaim = dNode->dNodeCount.fetch_add(-1);
-                if(reclaim == 1)dNode->retire(recordMgr);
+                int retire = dNode->dNodeCount.fetch_add(-1);
+                if(retire == 1)dNode->retire(recordMgr);
             }
         }
         for(LatestList &list : latest){
@@ -127,7 +127,7 @@ class Trie{
                 uNode->retire(recordMgr);
             }
             else{
-                DelNode *d = (DelNode*)d;
+                DelNode *d = (DelNode*)uNode;
                 int retire = d->dNodeCount.fetch_add(-1);
                 assert(retire == 1);
                 d->retire(recordMgr);
@@ -205,9 +205,16 @@ class Trie{
             if(latestNext){
                 latestNext->status = STALE;
                 
-                bool unlinked = uNode->latestNext.compare_exchange_strong(latestNext, nullptr); //Replaces uNode->latestNext = nullptr;
+                //Set uNode->latestNext to nullptr
+                bool unlinked = uNode->latestNext.compare_exchange_strong(latestNext, nullptr); 
                 if(unlinked){ 
-                    //TODO might help with knowing if a node can be reclaimed...
+                    if(latestNext->type == INS){
+                        latestNext->retire(recordMgr);
+                    }
+                    else{
+                        int retire = ((DelNode*)latestNext)->dNodeCount.fetch_add(-1);
+                        if(retire == 1)latestNext->retire(recordMgr);
+                    }
                 }
             }
         }
@@ -215,17 +222,19 @@ class Trie{
     
 
     //Notify predecessor operation by placing a new notify node in the notify list.
-    void sendNotification(NotifyNode *newNotifyNode, PredecessorNode *pNode){
+    bool sendNotification(NotifyNode *newNotifyNode, PredecessorNode *pNode){
         while(1){
             NotifyNode *nNode = pNode->notifyListHead;
             newNotifyNode->next = nNode;
-            if(!firstActivated(newNotifyNode->updateNode))return; //If the updateNode is no longer the first activated one, no need to continue....
+            if(!firstActivated(newNotifyNode->updateNode)){
+                return false; //If the updateNode is no longer the first activated one, no need to continue....
+            }
 
             //Otherwise, attempt to put newNotifyNode at the head of the notifyList for pNode.
             NotifyNode *expected = nNode;
             pNode->notifyListHead.compare_exchange_strong(expected,newNotifyNode); 
             if(expected == nNode){
-                return; //Succeeded in putting newNotifyNode at the head of the notifyList.
+                return true; //Succeeded in putting newNotifyNode at the head of the notifyList.
             }
         }
     }
@@ -265,7 +274,11 @@ class Trie{
                 }
 
                 NotifyNode *newNotif = recordMgr.allocate<NotifyNode>(threadID, uNode, updateNodeMax, tau);
-                sendNotification(newNotif,pNode);
+                bool notifSent = sendNotification(newNotif,pNode);
+                if(!notifSent){
+                    newNotif->retire(recordMgr); //Should reclaim (or deallocate notif node) as it went unused.
+                    break;
+                }
             }
             pNode = (PredecessorNode*)P_ALL.next(pNode);
         }
@@ -325,16 +338,16 @@ class Trie{
                 expected = d;
                 t->dNodePtr.compare_exchange_strong(expected, dNode);
                 if(expected != d){
-                    //Retire dNode if dNode is no longer in shared memory? (TODO maybe this is silly.)
                     return;
                 }
-                else{
-                    //Retire d if it is no longer in shared memory.
-                }
             }
-            else{
-                //Retire d if it is no longer in shared memory?
-            }
+            //Retire d if it is no longer in shared memory.
+            int retire = d->dNodeCount.fetch_add(-1);
+            if(retire == 1)d->retire(recordMgr);
+
+            //Increment dNodeCount of dNode
+            dNode->dNodeCount.fetch_add(1);
+
             if(interpretedBit(key * 2, depth + 1) == 1 || interpretedBit(key * 2 + 1, depth + 1))return;
             dNode->upper0Boundary = (b - depth);
         }
@@ -385,7 +398,9 @@ class Trie{
         expected = dNode;
         iNode->latestNext.compare_exchange_strong(expected,nullptr); 
         if(expected == dNode){
-            //TODO retire dNode if possible now that 
+            //Retire the delete node if it is no longer in the latest list or stored as a dNodePtr
+            int retire = ((DelNode*)dNode)->dNodeCount.fetch_add(-1);
+            if(retire == 1)dNode->retire(recordMgr);
         }
         
         insertBinaryTrie(iNode);
@@ -426,9 +441,8 @@ class Trie{
             //iNode->latestNext = nullptr; 
             bool unlink = iNode->latestNext.compare_exchange_strong(latestNext, nullptr);
             if(unlink){  //If this operation unlinked the insNode from the latest list...
-                //int retire = latestNext->retireCounter.fetch_add(-1);
-                //if(retire == 1)latestNext->retire(recordMgr);
-                //assert(retire > 0);
+                int retire = ((DelNode*)latestNext)->dNodeCount.fetch_add(-1);
+                if(retire == 1)latestNext->retire(recordMgr);
             }   
         }
         notifyPredOps(iNode);
@@ -446,6 +460,7 @@ class Trie{
             return;
         }
 
+
         U_ALL.insert(dNode);
         RU_ALL.insert(dNode);
 
@@ -459,6 +474,7 @@ class Trie{
         bool unlink = dNode->latestNext.compare_exchange_strong(iNode, nullptr);
         if(unlink){  
             //If this CAS unlinked iNode from the latest list, decrement its retire counter and retire it if necessary.
+            iNode->retire(recordMgr);
         }
         PredecessorNode *pNode2 = recordMgr.allocate<PredecessorNode>(threadID, x);
         int64_t delPred2 = predHelper(pNode2);
@@ -478,7 +494,8 @@ class Trie{
         U_ALL.remove(dNode);
         RU_ALL.remove(dNode);
 
-        //TODO Try to retire dNode if possible....
+        int retire = dNode->dNodeCount.fetch_add(-1);
+        if(retire == 1)dNode->retire(recordMgr);
     }
 
     //    0
@@ -636,37 +653,30 @@ class Trie{
             nNode = nNode->next;
         }
         
-        //pred1 = key of ins node in I_1 with greatest key
-        //pred2 = key of ins node in I_2 with greatest key
-        //pred3 = key of del node in d1_minus_d0 with largest key
-        //pred4 = key of del node in d2_minus_d0 with largest key
-        int64_t pred1 = -1, pred2 = -1, pred3, pred4;
+        int64_t k = -1;
+        //k = key of updateNode with largest key among I_1, I_2, D_1 - D_0 and D_2 - D_0.
         for(InsNode *i : I_1){
-            if(i->key > pred1)pred1 = i->key;
+            if(i->key > k)k = i->key;
 
         }
         for(InsNode *i : I_2){
-            if(i->key > pred2)pred2 = i->key;
+            if(i->key > k)k = i->key;
         }
 
         //Create D1 - D0 and D2 - D0
         for(DelNode *d : D_1){
             if(D_0.count(d) == 0){
-                if(d->key > pred3)pred3 = d->key;
+                if(d->key > k)k = d->key;
             }
         }
         for(DelNode *d : D_2){
             if(D_0.count(d) == 0){
-                if(d->key > pred4)pred4 = d->key;
+                if(d->key > k)k = d->key;
             }
         }
 
-        int k = -1;
-        if(pred1 > k) k = pred1;
-        if(pred2 > k) k = pred2;
-        if(pred3 > k) k = pred3;
-        if(pred4 > k) k = pred4;
         
+        #warning ask Jeremy about this? do I need to do this for -1 also?
         //Binary trie traversal stopped at an internal node t at depth depthT
         if(pred0 == -2){
             //The minimum key among the leaves of the subtree rooted by t
