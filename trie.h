@@ -72,7 +72,7 @@ class Trie{
             trieNodes.push_back(trieNodeRow);
         }
 
-        vector<TrieNode> &baseRow = trieNodes[b-1];
+        vector<TrieNode> &baseRow = trieNodes[b - 1];
 
         //Initialize the latest lists for each key in the universe.
         //Initialize row b of binary trie nodes.
@@ -173,19 +173,24 @@ class Trie{
         UpdateNode *l = findLatest(x);
         return l->type == INS; //Return whether the root of the latest was an insert node.
     }
-
-    char interpretedBit(TrieNode *t, int height){
-        UpdateNode *dNode = t->dNodePtr;
-        UpdateNode *uNode = findLatest(dNode->key);
+    char interpretedBit(int index, int depth){
+        UpdateNode *uNode;
+        if(depth == b){
+            uNode = findLatest(index); //Check the latest list for key = index.
+        }
+        else{
+            DelNode *dNode = trieNodes[depth][index].dNodePtr;
+            uNode = findLatest(dNode->key);
+        }
         if(uNode->type == INS)return 1;
         else{
-            DelNode *d = (DelNode*)uNode; //uNode must have type = DEL
+            DelNode *d = (DelNode*)uNode;
+            int height = b - depth;
             if (height >= d->lower1Boundary.minRead()) return 1;
             else if(height <= d->upper0Boundary)return 0;
             else return 1;
         }
     }
-
 
     //Help to activate the update node created by an insert or delete operation....
     void helpActivate(UpdateNode *uNode){
@@ -297,21 +302,15 @@ class Trie{
     #define siblingIndex(index) (index + 1 - ((index & 1) * 2))
 
     void deleteBinaryTrie(DelNode *dNode){
-        TrieNode *t = &trieNodes[b][dNode->key]; //Get leaf of the trie with dNode.key
-        TrieNode *root = &trieNodes[0][0];
-        
         int depth = b;
         int64_t key = dNode->key;
-        while(t != root){
-            int height = b - depth;
-            TrieNode *sibling = &trieNodes[depth][siblingIndex(key)];
-            if(interpretedBit(t, height) == 1 || interpretedBit(sibling, height) == 1)return;
+        while(depth > 0){
+            if(interpretedBit(key, depth) == 1 || interpretedBit(siblingIndex(key), depth) == 1)return;
 
             //t = t->parent.
             --depth;
-            height = b-depth;
             key = key / 2;
-            t = &trieNodes[depth][key];
+            TrieNode *t = &trieNodes[depth][key];
 
             DelNode *d = t->dNodePtr;
             if(firstActivated(dNode) == false)return;
@@ -336,9 +335,8 @@ class Trie{
             else{
                 //Retire d if it is no longer in shared memory?
             }
-            TrieNode *left = &trieNodes[depth+1][key * 2], *right = &trieNodes[depth+1][key *2 +1];
-            if(interpretedBit(left, height - 1) == 1 || interpretedBit(right, height- 1))return;
-            dNode->upper0Boundary = height;
+            if(interpretedBit(key * 2, depth + 1) == 1 || interpretedBit(key * 2 + 1, depth + 1))return;
+            dNode->upper0Boundary = (b - depth);
         }
     }
 
@@ -493,51 +491,41 @@ class Trie{
 
         //Get interpreted bit
         //TrieNode *t = &trieNodes[b][y];
-        TrieNode *tSibling = &trieNodes[b][siblingIndex(y)], 
-                            *tParent = &trieNodes[b-1][y / 2];
+
+        int64_t parentIndex = y / 2;
         depth = b;
-        int height = b - depth;
-        char i1 = interpretedBit(tParent, height + 1);
-        char i2 = interpretedBit(tSibling, height);
+        char i1 = interpretedBit(parentIndex, depth - 1);
+        char i2 = interpretedBit(siblingIndex(y), depth);
         
         //While i1 = 0, i2 == 0, or t is the leftChild of tParent
         while(i1 == 0 || (y % 2 == 0) || i2 == 0){
             y = y >> 1;
             --depth;
-            height = b - depth;
             if(depth == 0){
                 return -1; //Interpreted bit of root node was 0 on previous iteration. Return <-1, null>
             }
 
             //t = tParent;
-            tSibling = &trieNodes[depth][siblingIndex(y)];
-            tParent = &trieNodes[depth - 1][y / 2];
+            parentIndex = y / 2;
             
-            i1 = interpretedBit(tParent,height + 1);
-            i2 = interpretedBit(tSibling, height);
+            i1 = interpretedBit(parentIndex,depth - 1);
+            i2 = interpretedBit(siblingIndex(y), depth);
         }
 
         //Go to left child of parent. Subtract 1 from y if it is odd. 
         y = y - (y & 1);
-        //t = &trieNodes[depth][y];
     
         while(depth < b){
             //Right child is at 2*y + 1, left child is at 2 * y.
-            int64_t rightIndex = y * 2 + 1, leftIndex = y * 2;
-            int childDepth = depth + 1;
-            int childHeight = height - 1;
-            TrieNode *right = &trieNodes[childDepth][rightIndex];
-            if(interpretedBit(right, childHeight) == 1){
+            int64_t rightIndex = y * 2 + 1;
+            ++depth;
+            if(interpretedBit(rightIndex, depth) == 1){
                 y = rightIndex;
-                depth = childDepth;
-                height = childHeight;
                 continue;
             }
-            TrieNode *left = &trieNodes[childDepth][leftIndex];
-            if(interpretedBit(left, childHeight) == 1){
+            int64_t leftIndex = y * 2;
+            if(interpretedBit(leftIndex, depth) == 1){
                 y = leftIndex;
-                depth = childDepth;
-                height = childHeight;
                 continue;
             }
             
@@ -810,7 +798,6 @@ class Trie{
     //TODO ifdef debug
     string interpretedBitsString(){
         std::ostringstream stream;
-        TrieNode *curNode;
         //For each level
         for(int depth = 0;depth <= b;++depth){
             stream << "\t\t";
@@ -819,11 +806,9 @@ class Trie{
             for(int space = 0;space < numSpaces; ++space){
                 stream << ' ';
             }
-            int height = b - depth;
             //For every trie node at the given depth, print interpreted bit.
             for(uint64_t n = 0; n < trieNodes[depth].size();++n){
-                curNode = &trieNodes[depth][n];
-                stream << std::to_string(interpretedBit(curNode, height)) << ' ';
+                stream << std::to_string(interpretedBit(n, depth)) << ' ';
             } 
             stream << "\n"; 
         }
@@ -837,15 +822,15 @@ class Trie{
     bool verifyInterpretedBits(int index=0, int depth=0){
         if(depth == b)return true;
         else{
-            int height = b - depth;
             int leftIndex = index << 1;
             int rightIndex = leftIndex + 1;
-            TrieNode *node = &trieNodes[depth][index];
-            TrieNode *leftChild = &trieNodes[depth+1][leftIndex];
-            TrieNode *rightChild = &trieNodes[depth+1][rightIndex];
+
+            int iBit = interpretedBit(index, depth);
+            int leftBit = interpretedBit(leftIndex, depth+1);
+            int rightBit = interpretedBit(rightIndex, depth+1);
             
-            if(interpretedBit(node, height) != 
-                            (interpretedBit(leftChild, height-1) || interpretedBit(rightChild, height-1)))return false;
+            //Validate that interpreted bit of D_depth[index] = its left child's bit | it's right child's bit.
+            if(iBit != (leftBit | rightBit))return false; 
 
             if(!verifyInterpretedBits(leftIndex, depth+1))return false;
             else if(!verifyInterpretedBits(rightIndex, depth+1))return false;
