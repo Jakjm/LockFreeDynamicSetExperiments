@@ -206,13 +206,14 @@ class Trie{
                 latestNext->status = STALE;
                 
                 //Set uNode->latestNext to nullptr
-                bool unlinked = uNode->latestNext.compare_exchange_strong(latestNext, nullptr); 
-                if(unlinked){ 
+                UpdateNode *result = uNode->latestNext.exchange(nullptr); 
+                if(result == latestNext){ //This operation unlinked latestNext from the latest list.
                     if(latestNext->type == INS){
-                        latestNext->retire(recordMgr);
+                        latestNext->retire(recordMgr); //Retire latestNext if it's an insert node.
                     }
                     else{
-                        int retire = ((DelNode*)latestNext)->dNodeCount.fetch_add(-1);
+                        //Otherwise, decrement latestNext's dNodeCount, and retire latestNext if dNodeCount was reduced to 0.
+                        int retire = ((DelNode*)latestNext)->dNodeCount.fetch_add(-1); 
                         if(retire == 1)latestNext->retire(recordMgr);
                     }
                 }
@@ -263,22 +264,23 @@ class Trie{
             UpdateNode *notifyThres = pNode->notifyThreshold;
             tau = notifyThres->key;
 
-            if(firstActivated(uNode)){
-                int64_t maxKey = -1;
-                InsNode *updateNodeMax = nullptr;
-                for(InsNode* insNode : I){
-                    if(insNode->key < pNode->key && insNode->key > maxKey){
-                            maxKey = insNode->key;
-                            updateNodeMax = insNode;
-                    }
+            if(!firstActivated(uNode)){
+                return;
+            }
+            int64_t maxKey = -1;
+            InsNode *updateNodeMax = nullptr;
+            for(InsNode* insNode : I){
+                if(insNode->key < pNode->key && insNode->key > maxKey){
+                        maxKey = insNode->key;
+                        updateNodeMax = insNode;
                 }
+            }
 
-                NotifyNode *newNotif = recordMgr.allocate<NotifyNode>(threadID, uNode, updateNodeMax, tau);
-                bool notifSent = sendNotification(newNotif,pNode);
-                if(!notifSent){
-                    newNotif->retire(recordMgr); //Should reclaim (or deallocate notif node) as it went unused.
-                    break;
-                }
+            NotifyNode *newNotif = recordMgr.allocate<NotifyNode>(threadID, uNode, updateNodeMax, tau);
+            bool notifSent = sendNotification(newNotif,pNode);
+            if(!notifSent){
+                newNotif->retire(recordMgr); //Should retire (or deallocate notif node) as it went unused.
+                break;
             }
             pNode = (PredecessorNode*)P_ALL.next(pNode);
         }
@@ -325,29 +327,36 @@ class Trie{
             key = key / 2;
             TrieNode *t = &trieNodes[depth][key];
 
-            DelNode *d = t->dNodePtr;
+            DelNode *d = t->dNodePtr; //d is the oldValue of t->dNodePtr
             if(firstActivated(dNode) == false)return;
             if(dNode->stop || dNode->lower1Boundary.minRead() != b+1)return;
             
             DelNode *expected = d;
+            int count = dNode->dNodeCount.fetch_add(1); 
+            assert(count > 0);
             t->dNodePtr.compare_exchange_strong(expected, dNode);
             if(expected != d){
                 d = t->dNodePtr;
-                if(firstActivated(dNode) == false)return;
-                if(dNode->stop || dNode->lower1Boundary.minRead() != b+1)return;
+                if(firstActivated(dNode) == false || dNode->stop || (dNode->lower1Boundary.minRead() != b+1)){
+                    count = dNode->dNodeCount.fetch_add(-1);
+                    assert(count > 1);
+                    return;
+                }
                 expected = d;
                 t->dNodePtr.compare_exchange_strong(expected, dNode);
                 if(expected != d){
+                    count = dNode->dNodeCount.fetch_add(-1);
+                    assert(count > 1);
                     return;
                 }
             }
+
+            //dNode has successfully taken d's place as t->dNodePtr
             //Retire d if it is no longer in shared memory.
-            int retire = d->dNodeCount.fetch_add(-1);
-            if(retire == 1)d->retire(recordMgr);
+            count = d->dNodeCount.fetch_add(-1);
+            if(count == 1)d->retire(recordMgr);
 
             //Increment dNodeCount of dNode
-            dNode->dNodeCount.fetch_add(1);
-
             if(interpretedBit(key * 2, depth + 1) == 1 || interpretedBit(key * 2 + 1, depth + 1))return;
             dNode->upper0Boundary = (b - depth);
         }
@@ -371,9 +380,8 @@ class Trie{
         if(latestNext){
             latestNext->status = STALE;
             //dNode->latestNext = nullptr
-            UpdateNode *expected = latestNext;
-            dNode->latestNext.compare_exchange_strong(expected, nullptr); 
-            if(expected == latestNext){
+            UpdateNode *result = dNode->latestNext.exchange(nullptr); 
+            if(result == latestNext){
                 assert(latestNext->type == INS);
                 latestNext->retire(recordMgr); //Retire the InsertNode.
             }
@@ -396,9 +404,10 @@ class Trie{
         
         //iNode->latestNext = nullptr
         expected = dNode;
-        iNode->latestNext.compare_exchange_strong(expected,nullptr); 
-        if(expected == dNode){
+        UpdateNode *result = iNode->latestNext.exchange(nullptr); 
+        if(result == dNode){
             //Retire the delete node if it is no longer in the latest list or stored as a dNodePtr
+            assert(dNode->type == DEL);
             int retire = ((DelNode*)dNode)->dNodeCount.fetch_add(-1);
             if(retire == 1)dNode->retire(recordMgr);
         }
@@ -411,7 +420,6 @@ class Trie{
 
         U_ALL.remove(iNode);
         RU_ALL.remove(iNode);
-        //TODO stuff for retiring iNode if possible....
     }
     
 
@@ -424,7 +432,6 @@ class Trie{
         if(iNode->type == DEL)return; //x is not in S, nothing to do!
         //iNode has type INS. If it has a child, its child has type DEL.
 
-        //PredecessorNode *pNode = new PredecessorNode(x);
         PredecessorNode *pNode = recordMgr.allocate<PredecessorNode>(threadID,x);
         int64_t delPred = predHelper(pNode);
 
@@ -433,30 +440,33 @@ class Trie{
         dNode->delPredNode = pNode;
         dNode->delPred = delPred;
         dNode->latestNext = iNode;
+        assert(dNode->dNodeCount == 2);
     
         
         UpdateNode *latestNext = iNode->latestNext;
         if(latestNext){
             latestNext->status = STALE;
-            //iNode->latestNext = nullptr; 
-            bool unlink = iNode->latestNext.compare_exchange_strong(latestNext, nullptr);
-            if(unlink){  //If this operation unlinked the insNode from the latest list...
+
+            UpdateNode *result = iNode->latestNext.exchange(nullptr); 
+            //Swap iNode's latestNext with nullptr.
+            if(result == latestNext){ //If this operation removed latestNext, decrement its dNodeCount.
+                assert(latestNext->type == DEL);
                 int retire = ((DelNode*)latestNext)->dNodeCount.fetch_add(-1);
-                if(retire == 1)latestNext->retire(recordMgr);
+                if(retire == 1)latestNext->retire(recordMgr); //Retire if dNodeCount was lowered to 0.
             }   
         }
         notifyPredOps(iNode);
         expected = iNode;
         latest[x].head.compare_exchange_strong(expected, dNode);
 
-        if(expected != iNode){
-            //There was a different node, expected, instead of iNode at the head of the latest list.
+        if(expected != iNode){ //Failed to CAS dNode to head of latest list....
+            //There was a different node, expected, instead of iNode at the head of the latest list prior to our CAS.
             //We will help activate it.
             helpActivate(expected);
 
             //Remove pNode from P_ALL.
             P_ALL.remove(pNode);
-            dNode->retire(recordMgr); //Retire dNode and the pNode. 
+            dNode->retire(recordMgr); //Retire dNode and the pNode as they are no longer used.
             return;
         }
 
@@ -470,16 +480,18 @@ class Trie{
 
         UpdateNode *target = iNode->target;
         if(target)target->stop = true;
-        //v->latestNext = nullptr; 
-        bool unlink = dNode->latestNext.compare_exchange_strong(iNode, nullptr);
-        if(unlink){  
-            //If this CAS unlinked iNode from the latest list, decrement its retire counter and retire it if necessary.
+        //Swap dNode's latestNext with nullptr.
+        UpdateNode *result = dNode->latestNext.exchange(nullptr);
+        if(result == iNode){  
+            //If this CAS unlinked iNode from the latest list, retire iNode.
+            assert(iNode->type == INS);
             iNode->retire(recordMgr);
         }
         PredecessorNode *pNode2 = recordMgr.allocate<PredecessorNode>(threadID, x);
         int64_t delPred2 = predHelper(pNode2);
         dNode->delPred2 = delPred2;
 
+        assert(dNode->dNodeCount > 0);
         deleteBinaryTrie(dNode);
         notifyPredOps(dNode);
 
@@ -488,8 +500,7 @@ class Trie{
         P_ALL.remove(pNode2);
 
         pNode2->retire(recordMgr); //pNode2 is no longer in shared memory, so it can be retired.
-        //pNode is still in shared memory but it will be retired when v is retired.
-
+        //pNode is still in shared memory but it will be retired when dNode is retired.
 
         U_ALL.remove(dNode);
         RU_ALL.remove(dNode);
@@ -608,7 +619,6 @@ class Trie{
     void traverseRUALL(PredecessorNode *pNode, unordered_set<InsNode *> &I, unordered_set<DelNode*> &D){
         UpdateNode *uNode = (UpdateNode*)RU_ALL.first(pNode); //Atomically set pNode.notifyThreshold....
         while(uNode){
-            assert(uNode != &RU_ALL.tail);
             if(uNode->key < pNode->key){
                 if(uNode->status != INACTIVE && firstActivated(uNode)){
                     if(uNode->type == INS) I.insert((InsNode*)uNode);

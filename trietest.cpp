@@ -78,7 +78,7 @@ int compare(int i1, int i2){
 
 int main(int argc, char **argv){
     //simpleTest();
-    multithreadTest(3, 100000, 4);
+    multithreadTest(3, 40000, 8);
     //printList();
     return 0;
 }

@@ -70,9 +70,6 @@ class NotifyNode{
         key(upNode->key), updateNode(upNode), updateNodeMax(upNodeMax), notifyThreshold(threshold), next(nullptr){
     }
     void retire(NodeRecordManager &recordMgr){
-        //notList.removeKey(this);
-        //int reclaim = updateNode->retireCounter.fetch_add(-1);
-        //if(reclaim == 1)updateNode->retire(recordMgr);
         recordMgr.retire( threadID, this);
     }
 };
