@@ -23,7 +23,7 @@ const uint64_t InsFlag = 3;
 struct InsertDescNode{
     std::atomic<ListNode*> newNode;
     std::atomic<ListNode*> next;
-    std::atomic<int64_t> seqNum; //Sequence number.
+    std::atomic<uint64_t> seqNum; //Sequence number.
     InsertDescNode():  newNode(nullptr), next(nullptr), seqNum(0){
 
     }
@@ -144,7 +144,7 @@ class LinkedList_FRE {
             uint64_t state = succ & STATUS_MASK;
 
             //This is the descriptor for this thread.
-            InsertDescNode *desc = &descs[threadID()];
+            InsertDescNode *desc = &descs[threadID];
             desc->seqNum++; //Increment the sequence number....
             uint64_t seqNum = desc->seqNum;
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
@@ -162,10 +162,10 @@ class LinkedList_FRE {
                     desc->next = (ListNode*)next; //Set the next of the insert descriptor node.
                     succ = next;
 
-                    uint64_t newVal = (seqNum << 12) + (threadID() << 4) + InsFlag;
+                    uint64_t newVal = (seqNum << 12) + (threadID << 4) + InsFlag;
                     curr->successor.compare_exchange_strong(succ, (uintptr_t)newVal);
                     if(succ == next){ //If the CAS succeeded....
-                        helpInsert(curr, seqNum, threadID());
+                        helpInsert(curr, seqNum, threadID);
                         return;
                     }
                     //Read next and state from curr.successor.

@@ -17,7 +17,7 @@ inline int randomNum(int range){
 	return dist(rng);
 }
 void randomTask2(Trie *trie, int range, int testSize, int id){
-    threadID(id);
+    threadID = id;
     for(int i = 0;i < testSize;++i){
         int randomN = randomNum(range);
         int opType = randomNum(2);
@@ -33,7 +33,7 @@ void randomTask2(Trie *trie, int range, int testSize, int id){
     }
 }
 void multithreadTest(int trieSize, int testSize, int numThreads){
-    threadID(0);
+    threadID = 0;
     Trie trie(trieSize);
     std::thread *th[NUM_THREADS];
     int range = (1 << trieSize) - 1; 
@@ -52,7 +52,7 @@ void multithreadTest(int trieSize, int testSize, int numThreads){
 }
 
 void simpleTest(){
-    threadID(0);
+    threadID = 0;
     Trie trie(3);
     cout << "Simple test." << std::endl;
     trie.printInterpretedBits();
@@ -72,15 +72,6 @@ void simpleTest(){
 
 int compare(int i1, int i2){
     return i1 - i2;
-}
-std::string insString(InsNode* ptr){
-    return ptr->toString();
-}
-std::string delString(DelNode*ptr){
-    return ptr->toString();
-}
-std::string notString(NotifyNode* ptr){
-    return "";
 }
 
 int main(int argc, char **argv){

@@ -25,25 +25,16 @@ class UpdateNode : public ListNode, public RU_ALL_Node{
         std::atomic<STATUS> status; 
         std::atomic<UpdateNode *> latestNext;
         std::atomic<bool> stop;
-        
         std::atomic<DelNode *> target;
+        const TYPE type; 
 
-        //Used to count the number of places in which the UpdateNode is stored (or will be stored) in shared memory.
-        //It should be safe to retire an update node when retireCounter is 0.
-        std::atomic<int> retireCounter; 
-
-        UpdateNode(int64_t x, UpdateNode *latest) : key(x), status(INACTIVE), latestNext(latest), stop(false), target(nullptr), retireCounter(0), ListNode(){
+        UpdateNode(int64_t x, TYPE t) : key(x), status(INACTIVE), latestNext(nullptr), stop(false), target(nullptr), type(t), 
+            ListNode(), RU_ALL_Node(){
         
-        }
-        UpdateNode(int64_t x) : UpdateNode(x, nullptr) {
-
         }
         virtual void retire(NodeRecordManager &recordMgr) = 0;
         virtual ~UpdateNode(){}
-        TYPE type; 
 
-        //TODO used for debugging only.
-        virtual string toString() = 0;
 };
 
 
@@ -53,18 +44,14 @@ class UpdateNode : public ListNode, public RU_ALL_Node{
 
 class InsNode : public UpdateNode{
     public:
-        InsNode(int64_t key): UpdateNode(key){
-            type = INS;
+        InsNode(int64_t key): UpdateNode(key, INS){
+            
         }
         void retire(NodeRecordManager &recordMgr){
-            //insList.removeKey(this);
-            recordMgr.retire(threadID(), this);
+            recordMgr.retire(threadID, this);
         }
         ~InsNode(){
 
-        }
-        string toString(){
-            return std::to_string((uintptr_t)this) + ": INS Node, retCounter:" + std::to_string(retireCounter) + " State:" + std::to_string(status);
         }
     
 };
@@ -87,8 +74,7 @@ class NotifyNode{
         //notList.removeKey(this);
         //int reclaim = updateNode->retireCounter.fetch_add(-1);
         //if(reclaim == 1)updateNode->retire(recordMgr);
-        if(updateNodeMax)updateNodeMax->retire(recordMgr);
-        recordMgr.retire( threadID(), this);
+        recordMgr.retire( threadID, this);
     }
 };
 
@@ -112,7 +98,7 @@ class PredecessorNode : public ListNode{
             curNode->retire(recordMgr); //Retire notify node...
             curNode = next;
         }
-        recordMgr.retire(threadID(), this); //Retire the predecessor node.
+        recordMgr.retire(threadID, this); //Retire the predecessor node.
     }
     ~PredecessorNode(){
         
@@ -131,24 +117,22 @@ class DelNode : public UpdateNode{
         const int64_t delPred;
         int64_t delPred2;
         PredecessorNode * const delPredNode;
-        DelNode(int64_t key, int b, UpdateNode *latest, int64_t delP, PredecessorNode *delPredN)
-        : UpdateNode(key, latest), upper0Boundary(0), 
-            lower1Boundary(b+1), delPred(delP), delPred2(-1), delPredNode(delPredN){
-                type = DEL;
+        std::atomic<int64_t> dNodeCount;
+        DelNode(int64_t key, int b, UpdateNode *latest, int64_t delP, PredecessorNode *delPredN) : 
+            UpdateNode(key, DEL), upper0Boundary(0), 
+            lower1Boundary(b+1), delPred(delP), delPred2(-1), delPredNode(delPredN), dNodeCount(2){
+
+                latestNext = latest;
         }
         DelNode(int64_t key, int b, UpdateNode *latest) : DelNode(key, b, latest, -1, nullptr){
             
         }
         //Should be used to retire a delete node.
         void retire(NodeRecordManager &recordMgr){
-            //delList.removeKey(this);
-            if(delPredNode)delPredNode->retire(recordMgr);
-            recordMgr.retire(threadID(), this);
+            delPredNode->retire(recordMgr);
+            recordMgr.retire(threadID, this);
         }
         ~DelNode(){
-        }
-        string toString(){
-            return std::to_string((uintptr_t)this) + ": DEL Node, retCounter:" + std::to_string(retireCounter) + " State:" + std::to_string(status);
         }
 };
 

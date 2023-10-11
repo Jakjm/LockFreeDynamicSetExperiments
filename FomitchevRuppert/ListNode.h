@@ -8,8 +8,6 @@
 #include <iterator>
 #include <atomic>
 #include <cassert>
-#include "../setbench/common/recordmgr/record_manager.h"
-#include "../common.h"
 
 #ifndef LL_NODE
 #define LL_NODE

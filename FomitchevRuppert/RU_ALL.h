@@ -23,7 +23,7 @@ const uint64_t NotifFlag = 4;
 struct DescNode{
     std::atomic<uintptr_t> other;
     std::atomic<RU_ALL_Node*> next;
-    std::atomic<int64_t> seqNum; //Sequence number.
+    std::atomic<uint64_t> seqNum; //Sequence number.
     DescNode():  other((uintptr_t)nullptr), next(nullptr), seqNum(0){
 
     }
@@ -39,9 +39,6 @@ class RU_ALL_TYPE {
         DescNode descs[NUM_THREADS];
         RU_ALL_TYPE() : tail(), head(){
             head.successor.store((uintptr_t)&tail);
-            for(int i = 0;i < NUM_THREADS;++i){
-                descs[i].seqNum = 0;
-            }
         }
         ~RU_ALL_TYPE(){ 
             //Deinitialize all threads.
@@ -175,7 +172,7 @@ class RU_ALL_TYPE {
             uint64_t state = succ & STATUS_MASK;
             
             //This is the descriptor for this thread.
-            DescNode *desc = &descs[threadID()];
+            DescNode *desc = &descs[threadID];
             desc->seqNum++; //Increment the sequence number....
             uint64_t seqNum = desc->seqNum;
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
@@ -195,10 +192,10 @@ class RU_ALL_TYPE {
                     desc->next = (RU_ALL_Node*)next; //Set the next of the insert descriptor node.
                     succ = next;
 
-                    uint64_t newVal = (seqNum << 12) + (threadID() << 4) + InsFlag;
+                    uint64_t newVal = (seqNum << 12) + (threadID << 4) + InsFlag;
                     curr->successor.compare_exchange_strong(succ, (uintptr_t)newVal);
                     if(succ == next){ //If the CAS succeeded....
-                        helpInsert(curr, seqNum, threadID());
+                        helpInsert(curr, seqNum, threadID);
                         return;
                     }
                     //Read next and state from curr.successor.
@@ -314,7 +311,7 @@ class RU_ALL_TYPE {
             uint64_t state = succ & STATUS_MASK;
 
 
-            DescNode *desc = &descs[threadID()];
+            DescNode *desc = &descs[threadID];
             desc->seqNum++; //Increment the sequence number....
             uint64_t seqNum = desc->seqNum;
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
@@ -324,10 +321,10 @@ class RU_ALL_TYPE {
                     desc->next = (RU_ALL_Node*)next;
                     succ = next;
 
-                    uint64_t newVal = (seqNum << 12) + (threadID() << 4) + NotifFlag;
+                    uint64_t newVal = (seqNum << 12) + (threadID << 4) + NotifFlag;
                     node->successor.compare_exchange_strong(succ, newVal);
                     if(succ == next){
-                        helpNotify(node, seqNum, threadID());
+                        helpNotify(node, seqNum, threadID);
                         return (RU_ALL_Node*)next; //CAS succeeded, therefore pNode->notifyThreshold was updated to next 
                     } 
                 }

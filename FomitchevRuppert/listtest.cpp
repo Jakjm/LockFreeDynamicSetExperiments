@@ -50,7 +50,7 @@ inline int __attribute__((always_inline)) reverseCompareInt(RU_ALL_Node *node1, 
 }
 
 void randomTask(LinkedList_FRE<compareInt> *list, ListNode **array, int arraySize, int testSize, int id){
-    threadID(id);
+    threadID = id;
     for(int i = 0;i < testSize;++i){
         int randomNode = randomNum(arraySize - 1);
         ListNode *node = array[randomNode];
@@ -116,7 +116,7 @@ void randomTest2(){
 }
 
 void basicTest(){
-    threadID(0);
+    threadID = 0;
     IntNode i1(1);
     IntNode i2(2);
     IntNode i3(3);
@@ -161,7 +161,7 @@ void basicTest(){
     list.printList(intNodeToString);
 }
 void basicTest2(){
-    threadID(0);
+    threadID = 0;
     IntNode i1(1);
     IntNode i12(1);
     IntNode i2(2);
