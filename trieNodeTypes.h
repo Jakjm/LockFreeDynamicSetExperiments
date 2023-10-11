@@ -113,22 +113,20 @@ class DelNode : public UpdateNode{
         
         #warning 64 as maximum lower 1 boundary.
         MinReg64 lower1Boundary; 
-        const int64_t delPred;
+        PredecessorNode *delPredNode;
+        int64_t delPred;
         int64_t delPred2;
-        PredecessorNode * const delPredNode;
-        std::atomic<int64_t> dNodeCount;
-        DelNode(int64_t key, int b, UpdateNode *latest, int64_t delP, PredecessorNode *delPredN) : 
-            UpdateNode(key, DEL), upper0Boundary(0), 
-            lower1Boundary(b+1), delPred(delP), delPred2(-1), delPredNode(delPredN), dNodeCount(2){
 
-                latestNext = latest;
-        }
-        DelNode(int64_t key, int b, UpdateNode *latest) : DelNode(key, b, latest, -1, nullptr){
-            
+        std::atomic<int64_t> dNodeCount;
+        DelNode(int64_t key, int trieHeight) : 
+            UpdateNode(key, DEL), upper0Boundary(0), 
+            lower1Boundary(trieHeight+1), delPredNode(nullptr), delPred(-1), delPred2(-1),  dNodeCount(2){
+        
         }
         //Should be used to retire a delete node.
         void retire(NodeRecordManager &recordMgr){
-            delPredNode->retire(recordMgr);
+            #warning should retire delPredNode separately.
+            delPredNode->retire(recordMgr); 
             recordMgr.retire(threadID, this);
         }
         ~DelNode(){

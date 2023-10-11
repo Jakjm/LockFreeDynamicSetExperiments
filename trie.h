@@ -78,7 +78,7 @@ class Trie{
         //Initialize row b of binary trie nodes.
         //Initially, each latest list's head = a DelNode with
         for(int64_t key = 0; key < universeSize;++key){
-            DelNode *initialDelNode = recordMgr.allocate<DelNode>(threadID, key, b, nullptr);
+            DelNode *initialDelNode = recordMgr.allocate<DelNode>(threadID, key, b);
             initialDelNode->upper0Boundary = b; // The initial delNodes for the trie have upper0Boundary = b.
             latest[key].head = initialDelNode;
             initialDelNode->status = ACTIVE;
@@ -414,8 +414,9 @@ class Trie{
         int64_t delPred = predHelper(pNode);
 
         //Initialize update node for this delete operation.
-        DelNode *dNode = recordMgr.allocate<DelNode>(threadID, x, b, iNode, delPred,pNode);
-        //delList.insert(v);
+        DelNode *dNode = recordMgr.allocate<DelNode>(threadID, x, b);
+        dNode->delPredNode = pNode;
+        dNode->delPred = delPred;
         dNode->latestNext = iNode;
     
         
@@ -807,7 +808,8 @@ class Trie{
                 stream << ' ';
             }
             //For every trie node at the given depth, print interpreted bit.
-            for(uint64_t n = 0; n < trieNodes[depth].size();++n){
+            uint64_t numNodes = (1 << depth);
+            for(uint64_t n = 0; n < numNodes; ++n){
                 stream << std::to_string(interpretedBit(n, depth)) << ' ';
             } 
             stream << "\n"; 
