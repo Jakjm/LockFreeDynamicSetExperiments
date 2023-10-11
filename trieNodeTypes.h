@@ -56,7 +56,6 @@ class InsNode : public UpdateNode{
     
 };
 
-#warning updateNodeMax is currently created as a copy node?, which is then retired when the notify node is retired. TODO is this even valid?
 class NotifyNode{
     public:
     const int64_t key;

@@ -249,17 +249,15 @@ class Trie{
             UpdateNode *notifyThres = pNode->notifyThreshold;
             tau = notifyThres->key;
 
-            if(firstActivated(uNode)){ //Once false this should not become true again - say to jeremy....
-                #warning updateNodeMax is created as a copy node of node in UALL with largest key < pNode.key 
+            if(firstActivated(uNode)){
                 int64_t maxKey = -1;
                 InsNode *updateNodeMax = nullptr;
                 for(InsNode* insNode : I){
-                    if(insNode->key < pNode->key){
-                        if(insNode->key > maxKey)maxKey = insNode->key;
+                    if(insNode->key < pNode->key && insNode->key > maxKey){
+                            maxKey = insNode->key;
+                            updateNodeMax = insNode;
                     }
                 }
-                if(maxKey != -1)updateNodeMax = recordMgr.allocate<InsNode>(threadID, maxKey); 
-
 
                 NotifyNode *newNotif = recordMgr.allocate<NotifyNode>(threadID, uNode, updateNodeMax, tau);
                 sendNotification(newNotif,pNode);
