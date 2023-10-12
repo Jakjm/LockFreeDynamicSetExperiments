@@ -1,5 +1,6 @@
 #include "trie.h"
 #include "common.h"
+#include "trieNodeTypes.h"
 #include <iostream>
 #include <string>
 #include <thread>
@@ -18,6 +19,7 @@ inline int randomNum(int range){
 }
 void randomTask2(Trie *trie, int range, int testSize, int id){
     threadID = id;
+    trieRecordManager.initThread(threadID);
     for(int i = 0;i < testSize;++i){
         int randomN = randomNum(range);
         int opType = randomNum(2);
@@ -34,6 +36,7 @@ void randomTask2(Trie *trie, int range, int testSize, int id){
 }
 void multithreadTest(int trieSize, int testSize, int numThreads){
     threadID = 0;
+    trieRecordManager.initThread(threadID);
     Trie trie(trieSize);
     std::thread *th[NUM_THREADS];
     int range = (1 << trieSize) - 1; 
@@ -53,6 +56,7 @@ void multithreadTest(int trieSize, int testSize, int numThreads){
 
 void simpleTest(){
     threadID = 0;
+    trieRecordManager.initThread(threadID);
     Trie trie(3);
     cout << "Simple test." << std::endl;
     trie.printInterpretedBits();
@@ -78,7 +82,7 @@ int compare(int i1, int i2){
 
 int main(int argc, char **argv){
     //simpleTest();
-    multithreadTest(3, 40000, 8);
+    multithreadTest(3, 50000, 8);
     //printList();
     return 0;
 }

@@ -210,7 +210,7 @@ void basicTest2(){
     list.printList(intNodeToString2);
 }
 
-void insertPNode(P_ALL_TYPE &P_ALL, PredecessorNode *newNode){
+void insertPNode(P_ALL_TYPE &P_ALL, ListNode *newNode){
     //Insert newNode into P_ALL
     while(1){
         //Set newNode's next to first.
@@ -232,11 +232,18 @@ void insertPNode(P_ALL_TYPE &P_ALL, PredecessorNode *newNode){
 }
 
 void basicTest3(){
-    
+    P_ALL_TYPE pall;
+
+    PredecessorNode n1(2);
+    PredecessorNode n2(5);
+    insertPNode(pall, &n1);
+    pall.remove(&n1);
+    insertPNode(pall, &n2);
+
 }
 
 int main(){
-    basicTest2();
+    basicTest3();
     //basicTest();
     //randomTest();
     return 0;

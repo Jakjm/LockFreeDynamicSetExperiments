@@ -1,4 +1,5 @@
 #include <atomic>
+#include <cstddef>
 #include <string>
 #include "BoundedMinReg/minreg.h"
 #include "FomitchevRuppert/ListNode.h"
@@ -17,7 +18,7 @@ class DelNode;
 class NotifyNode;
 
 
-typedef record_manager<reclaimer_debra<int64_t>, allocator_new<int64_t>, pool_none<int64_t>, DelNode, InsNode, PredecessorNode, NotifyNode> NodeRecordManager;
+record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
 
 class UpdateNode : public ListNode, public RU_ALL_Node{
     public:
@@ -29,26 +30,17 @@ class UpdateNode : public ListNode, public RU_ALL_Node{
         std::atomic<DelNode *> target;
         
 
-        UpdateNode(int64_t x, TYPE t) : ListNode(), RU_ALL_Node(), key(x), type(t), status(INACTIVE), latestNext(nullptr), stop(false), target(nullptr){
+        UpdateNode(int64_t x, TYPE t) : ListNode(), RU_ALL_Node(),  key(x), type(t), status(INACTIVE), latestNext(nullptr), stop(false), target(nullptr){
         
         }
-        virtual void retire(NodeRecordManager &recordMgr) = 0;
         virtual ~UpdateNode(){}
 
 };
-
-
-
-
-
 
 class InsNode : public UpdateNode{
     public:
         InsNode(int64_t key): UpdateNode(key, INS){
             
-        }
-        void retire(NodeRecordManager &recordMgr){
-            recordMgr.retire(threadID, this);
         }
         ~InsNode(){
 
@@ -56,7 +48,7 @@ class InsNode : public UpdateNode{
     
 };
 
-class NotifyNode{
+class NotifyNode {
     public:
     const int64_t key;
     UpdateNode * const updateNode;
@@ -69,35 +61,28 @@ class NotifyNode{
     NotifyNode(UpdateNode *upNode, InsNode *upNodeMax, int64_t threshold) : 
         key(upNode->key), updateNode(upNode), updateNodeMax(upNodeMax), notifyThreshold(threshold), next(nullptr){
     }
-    void retire(NodeRecordManager &recordMgr){
-        recordMgr.retire( threadID, this);
-    }
 };
 
 //UpdateNodes that are meant to represent the values of infinity and zero for the notifyThreshold
 InsNode INFINITY_THRES(INT64_MAX);
 InsNode ZERO_THRES(0);
 
-class PredecessorNode : public ListNode{
+class PredecessorNode :  public ListNode{
     public:
     const int64_t key;
     std::atomic<UpdateNode*> notifyThreshold;
     std::atomic<NotifyNode*> notifyListHead;
-    
-    PredecessorNode(int64_t k) : ListNode(), key(k), notifyThreshold(&INFINITY_THRES), notifyListHead(nullptr) {
+
+    PredecessorNode(int64_t k) :  ListNode(), key(k), notifyThreshold(&INFINITY_THRES), notifyListHead(nullptr) {
     
     }
-    void retire(NodeRecordManager &recordMgr){
+    ~PredecessorNode(){
         NotifyNode *curNode = notifyListHead;
         while(curNode){
             NotifyNode *next = curNode->next;
-            curNode->retire(recordMgr); //Retire notify node...
+            delete curNode; //Retire notify node...
             curNode = next;
         }
-        recordMgr.retire(threadID, this); //Retire the predecessor node.
-    }
-    ~PredecessorNode(){
-        
     }
 };
 
@@ -120,12 +105,6 @@ class DelNode : public UpdateNode{
             lower1Boundary(trieHeight+1), delPredNode(nullptr), delPred(-1), delPred2(-1),  dNodeCount(2){
         
         }
-        //Should be used to retire a delete node.
-        void retire(NodeRecordManager &recordMgr){
-            #warning should retire delPredNode separately.
-            if(delPredNode)delPredNode->retire(recordMgr); 
-            recordMgr.retire(threadID, this);
-        }
         ~DelNode(){
         }
 };
@@ -137,15 +116,18 @@ class DelNode : public UpdateNode{
 class TrieNode{
     public:
         std::atomic<DelNode*>dNodePtr;
-        TrieNode(){
+        TrieNode(): dNodePtr((DelNode*)nullptr){
+
         }
-        TrieNode(const TrieNode &node){
-            DelNode *ptr = node.dNodePtr;
-            dNodePtr = ptr;
+        TrieNode(const TrieNode &copy) : dNodePtr((DelNode*)copy.dNodePtr){
+
         }
 };
 
 class LatestList{
     public:
-    std::atomic<UpdateNode*> head;
+        std::atomic<UpdateNode*> head;
+        LatestList(): head((UpdateNode*)nullptr){
+
+        }
 };
