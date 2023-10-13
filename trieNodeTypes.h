@@ -26,11 +26,8 @@ class UpdateNode : public ListNode, public RU_ALL_Node{
         const TYPE type; 
         std::atomic<STATUS> status; 
         std::atomic<UpdateNode *> latestNext;
-        std::atomic<bool> stop;
-        std::atomic<DelNode *> target;
-        
 
-        UpdateNode(int64_t x, TYPE t) : ListNode(), RU_ALL_Node(),  key(x), type(t), status(INACTIVE), latestNext(nullptr), stop(false), target(nullptr){
+        UpdateNode(int64_t x, TYPE t) : ListNode(), RU_ALL_Node(),  key(x), type(t), status(INACTIVE), latestNext(nullptr){
         
         }
         virtual ~UpdateNode(){}
@@ -39,7 +36,8 @@ class UpdateNode : public ListNode, public RU_ALL_Node{
 
 class InsNode : public UpdateNode{
     public:
-        InsNode(int64_t key): UpdateNode(key, INS){
+        std::atomic<DelNode *> target;
+        InsNode(int64_t key): UpdateNode(key, INS),  target(nullptr){
             
         }
         ~InsNode(){
@@ -54,6 +52,7 @@ class NotifyNode {
     UpdateNode * const updateNode;
     InsNode * const updateNodeMax;
     const int64_t notifyThreshold;
+    
 
     //Pointer to the next node in the notify list....
     NotifyNode *next;
@@ -98,11 +97,12 @@ class DelNode : public UpdateNode{
         PredecessorNode *delPredNode;
         int64_t delPred;
         int64_t delPred2;
+        std::atomic<bool> stop;
 
         std::atomic<int64_t> dNodeCount;
         DelNode(int64_t key, int trieHeight) : 
             UpdateNode(key, DEL), upper0Boundary(0), 
-            lower1Boundary(trieHeight+1), delPredNode(nullptr), delPred(-1), delPred2(-1),  dNodeCount(2){
+            lower1Boundary(trieHeight+1), delPredNode(nullptr), delPred(-1), delPred2(-1), stop(false), dNodeCount(2){
         
         }
         ~DelNode(){

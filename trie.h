@@ -277,7 +277,7 @@ class Trie{
         }
     }
 
-    void insertBinaryTrie(UpdateNode *iNode){
+    void insertBinaryTrie(InsNode *iNode){
         //For each binary trie node t on the path from the parent of the leaf with iNode.key to the root, do 
         int64_t key = iNode->key;
         for(int depth = b-1;depth >= 0;--depth){
@@ -319,8 +319,9 @@ class Trie{
             TrieNode *t = &trieNodes[depth][key];
 
             DelNode *d = t->dNodePtr; //d is the oldValue of t->dNodePtr
-            if(firstActivated(dNode) == false)return;
+            
             if(dNode->stop || dNode->lower1Boundary.minRead() != b+1)return;
+            if(firstActivated(dNode) == false)return;
             
             DelNode *expected = d;
             int count = dNode->dNodeCount.fetch_add(1); 
@@ -328,7 +329,8 @@ class Trie{
             t->dNodePtr.compare_exchange_strong(expected, dNode);
             if(expected != d){
                 d = t->dNodePtr;
-                if(firstActivated(dNode) == false || dNode->stop || (dNode->lower1Boundary.minRead() != b+1)){
+
+                if(dNode->stop || (dNode->lower1Boundary.minRead() != b+1 || firstActivated(dNode) == false)){
                     count = dNode->dNodeCount.fetch_add(-1);
                     assert(count > 1);
                     return;
@@ -480,8 +482,9 @@ class Trie{
         dNode->status.compare_exchange_strong(expectedStatus, ACTIVE);
         iNode->status = STALE;
 
-        UpdateNode *target = iNode->target;
-        if(target)target->stop = true;
+        DelNode *target = ((InsNode*)iNode)->target;
+        if(target && firstActivated(target))target->stop = true;
+
         //Swap dNode's latestNext with nullptr.
         UpdateNode *result = dNode->latestNext.exchange(nullptr);
         if(result == iNode){  
@@ -535,7 +538,7 @@ class Trie{
             y = y >> 1;
             --depth;
             if(depth == 0){
-                return -1; //Interpreted bit of root node was 0 on previous iteration. Return <-1, null>
+                return -1; //Interpreted bit of root node was 0 on previous iteration. Return <-1, depth>
             }
 
             //t = tParent;
@@ -551,21 +554,23 @@ class Trie{
         while(depth < b){
             //Right child is at 2*y + 1, left child is at 2 * y.
             int64_t rightIndex = y * 2 + 1;
-            ++depth;
-            if(interpretedBit(rightIndex, depth) == 1){
+            
+            if(interpretedBit(rightIndex, depth+1) == 1){
+                ++depth;
                 y = rightIndex;
                 continue;
             }
             int64_t leftIndex = y * 2;
-            if(interpretedBit(leftIndex, depth) == 1){
+            if(interpretedBit(leftIndex, depth+1) == 1){
+                ++depth;
                 y = leftIndex;
                 continue;
             }
             
             //Interpreted bits of left and right nodes are 0. No predecessor found.
-            return -2;
+            return y; //depth < b. return <y, depth>
         }
-        return y;
+        return y; //depth = b. return <y, b>
     }
     
 
@@ -693,8 +698,8 @@ class Trie{
 
         
         #warning ask Jeremy about this? do I need to do this for -1 also?
-        //Binary trie traversal stopped at an internal node t at depth depthT
-        if(pred0 == -2){
+        //Traversal of the binary trie stopped while traversing back down.....
+        if(pred0 >= 0 && depthT < b){
             //The minimum key among the leaves of the subtree rooted by t
             //pred0 * 2^(b - depthT)
             int minU_t = pred0 * (1 << (b - depthT)); 
