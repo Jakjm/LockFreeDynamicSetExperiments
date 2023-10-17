@@ -173,8 +173,8 @@ class RU_ALL_TYPE {
             
             //This is the descriptor for this thread.
             DescNode *desc = &descs[threadID];
-            desc->seqNum++; //Increment the sequence number....
-            uint64_t seqNum = desc->seqNum;
+            uint64_t seqNum = desc->seqNum + 1;
+            desc->seqNum = seqNum; //Increment the sequence number of this process's desc node
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->other = (uint64_t)node;
             while(next != (uintptr_t)node){
@@ -226,7 +226,7 @@ class RU_ALL_TYPE {
                     succ = prev->successor;
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
-                    if((RU_ALL_Node*)next == curr){ //Help remove curr from the list.
+                    if(state == DelFlag && (RU_ALL_Node*)next == curr){ //Help remove curr from the list.
                         succ = helpMarked(prev, curr);
                         next = succ & NEXT_MASK;
                         state = succ & STATUS_MASK;
@@ -288,7 +288,7 @@ class RU_ALL_TYPE {
                     succ = prev->successor;
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
-                    if(next == (uintptr_t)curr){ //Help remove curr from the list.
+                    if(state == DelFlag && (RU_ALL_Node*)next == curr){ //Help remove curr from the list.
                         succ = helpMarked(prev, curr);
                         next = succ & NEXT_MASK;
                         state = succ & STATUS_MASK;
@@ -312,8 +312,8 @@ class RU_ALL_TYPE {
 
 
             DescNode *desc = &descs[threadID];
-            desc->seqNum++; //Increment the sequence number....
-            uint64_t seqNum = desc->seqNum;
+            uint64_t seqNum = desc->seqNum + 1;
+            desc->seqNum = seqNum; //Increment the sequence number of this process's desc node
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->other = (uint64_t)pNode;
             while(next != (uintptr_t)&tail){ //Continue while next != tail...

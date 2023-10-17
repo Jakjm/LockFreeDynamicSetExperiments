@@ -701,7 +701,6 @@ class Trie{
         //Traversal of the binary trie stopped while traversing back down.....
         if(pred0 >= 0 && depthT < b){
             //The minimum key among the leaves of the subtree rooted by t
-            //pred0 * 2^(b - depthT)
             int minU_t = pred0 * (1 << (b - depthT)); 
             if(k < minU_t){
                 //D_0 must contain a DEL node with key that is in the 

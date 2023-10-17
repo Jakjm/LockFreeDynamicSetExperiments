@@ -29,10 +29,10 @@ struct InsertDescNode{
     }
 };
 
-//The first 3 bits of a ListNode's successor pointer are used for the states...
+//The lowest 4 bits of a ListNode's successor pointer are used for the states...
 //If the state is InsFlag or NotifFlag, then the information to access a descriptor node is contained as follows:
-const uint64_t PROC_MASK = 0x0000000000000FF0; //Process ID contained within lower 8 bits
-const uint64_t SEQ_MASK =  0xFFFFFFFFFFFFF000; //Sequence # contained within upper 52 bits
+const uint64_t PROC_MASK = 0x0000000000000FF0; //Process ID contained within next lowest 8 bits
+const uint64_t SEQ_MASK =  0xFFFFFFFFFFFFF000; //Sequence # contained within highest 52 bits
 
 
 //Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert
@@ -42,7 +42,7 @@ class LinkedList_FRE {
     public:
         ListNode tail, head; //Head, tail of the linked list. 
     public:
-        InsertDescNode descs[NUM_THREADS];
+        InsertDescNode descs[NUM_THREADS]; //Insert descriptor nodes for each process
         LinkedList_FRE() : tail(), head(){
             head.successor.store((uintptr_t)&tail);
         }
@@ -145,8 +145,8 @@ class LinkedList_FRE {
 
             //This is the descriptor for this thread.
             InsertDescNode *desc = &descs[threadID];
-            desc->seqNum++; //Increment the sequence number....
-            uint64_t seqNum = desc->seqNum;
+            uint64_t seqNum = desc->seqNum + 1;
+            desc->seqNum = seqNum; //Increment the sequence number....
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->newNode = node;
             while(next != (uintptr_t)node){
@@ -189,7 +189,7 @@ class LinkedList_FRE {
                     succ = prev->successor;
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
-                    if((ListNode*)next == curr){ //Help remove curr from the list.
+                    if(state == DelFlag && next == (uintptr_t)curr){ //Help remove curr from the list.
                         succ = helpMarked(prev, curr);
                         next = succ & NEXT_MASK;
                         state = succ & STATUS_MASK;
@@ -244,7 +244,7 @@ class LinkedList_FRE {
                     succ = prev->successor;
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
-                    if(next == (uintptr_t)curr){ //Help remove curr from the list.
+                    if(state == DelFlag && next == (uintptr_t)curr){ //Help remove curr from the list.
                         succ = helpMarked(prev, curr);
                         next = succ & NEXT_MASK;
                         state = succ & STATUS_MASK;
