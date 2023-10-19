@@ -243,8 +243,9 @@ void basicTest3(){
 }
 
 int main(){
-    basicTest3();
-    //basicTest();
-    //randomTest();
+    //basicTest3();
+    basicTest();
+    basicTest2();
+    randomTest();
     return 0;
 }

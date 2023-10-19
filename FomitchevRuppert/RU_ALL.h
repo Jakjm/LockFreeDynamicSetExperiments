@@ -41,7 +41,6 @@ class RU_ALL_TYPE {
             head.successor.store((uintptr_t)&tail);
         }
         ~RU_ALL_TYPE(){ 
-            //Deinitialize all threads.
 
         }
 
@@ -177,7 +176,7 @@ class RU_ALL_TYPE {
             desc->seqNum = seqNum; //Increment the sequence number of this process's desc node
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->other = (uint64_t)node;
-            while(next != (uintptr_t)node){
+            while(state == InsFlag || state == NotifFlag || next != (uintptr_t)node){
                 if(state == Normal){
                     if(compNode((RU_ALL_Node*)next,node) <= 0){ //node should be placed further along in the list if next <= node
                         curr = (RU_ALL_Node*)next;
@@ -260,20 +259,23 @@ class RU_ALL_TYPE {
                         state = succ & STATUS_MASK;
                     }
                 }
-                else if(state == InsFlag){
+                else if(state == InsFlag){ 
+                    //next is a seqNum/processID pair
                     uint64_t seq = (next & SEQ_MASK) >> 12;
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpInsert(curr, seq, proc);
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
                 }
-                else if(state == NotifFlag){
+                else if(state == NotifFlag){ 
+                    //next is a seqNum/processID pair
                     uint64_t seq = (next & SEQ_MASK) >> 12;
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpNotify(curr, seq, proc);
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
                 }
+                //next is a ListNode pointer, not a seqnum/processID pair
                 else if(compNode((RU_ALL_Node*)next, node) > 0){
                     return;
                 }
@@ -316,7 +318,7 @@ class RU_ALL_TYPE {
             desc->seqNum = seqNum; //Increment the sequence number of this process's desc node
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->other = (uint64_t)pNode;
-            while(next != (uintptr_t)&tail){ //Continue while next != tail...
+            while(state == InsFlag || state == NotifFlag || next != (uintptr_t)&tail){ //TODO fixContinue while next != tail...
                 if(state == Normal){
                     desc->next = (RU_ALL_Node*)next;
                     succ = next;

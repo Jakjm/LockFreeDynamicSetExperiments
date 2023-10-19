@@ -47,6 +47,7 @@ class LinkedList_FRE {
             head.successor.store((uintptr_t)&tail);
         }
         ~LinkedList_FRE(){ 
+            
         }
 
         uintptr_t helpInsert(ListNode *prev, uint64_t seqNum,  uint64_t procID){
@@ -149,7 +150,7 @@ class LinkedList_FRE {
             desc->seqNum = seqNum; //Increment the sequence number....
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->newNode = node;
-            while(next != (uintptr_t)node){
+            while(state == InsFlag || next != (uintptr_t)node){
                 if(state == Normal){
                     if(compNode((ListNode*)next,node) <= 0){ //node should be placed further along in the list if next <= node
                         curr = (ListNode*)next;
@@ -158,7 +159,9 @@ class LinkedList_FRE {
                         state = succ & STATUS_MASK;
                         continue;
                     }
-                    if((node->successor & STATUS_MASK) == Marked)return;
+                    if((node->successor & STATUS_MASK) == Marked){
+                        return;
+                    }
                     desc->next = (ListNode*)next; //Set the next of the insert descriptor node.
                     succ = next;
 
@@ -230,6 +233,7 @@ class LinkedList_FRE {
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
                 }
+                //next is a pointer to a ListNode
                 else if(compNode((ListNode*)next, node) > 0){
                     return;
                 }
