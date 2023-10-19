@@ -58,12 +58,13 @@ class RU_ALL_TYPE {
             //Update notify threshold.
             pNode->notifyThreshold.compare_exchange_strong(expected, (UpdateNode*)next);
             
-            uint64_t result = (seqNum << 12) + (procID << 4) + NotifFlag;
+            uint64_t expectedSucc = (seqNum << 12) + (procID << 4) + NotifFlag;
+            uint64_t result = expectedSucc;
             prev->successor.compare_exchange_strong(result, (uintptr_t)next);
             
 
             //Return contents of prev->successor immediately following CAS...
-            if(result == (uintptr_t)desc + NotifFlag){
+            if(result == (uintptr_t)expectedSucc){
                 return (uintptr_t)next;
             }
             else{
@@ -83,10 +84,10 @@ class RU_ALL_TYPE {
             uintptr_t result = 0;
             newNode->successor.compare_exchange_strong(result, (uintptr_t)next);
 
-            uint64_t expected = (seqNum << 12) + (procID << 4) + InsFlag;
-            result = expected; 
             //If insert node was marked....
             if((result & STATUS_MASK) == Marked){ 
+                uint64_t expected = (seqNum << 12) + (procID << 4) + InsFlag;
+                result = expected; 
                 //newNode has already been removed.
                 //Attempt to CAS to remove descriptor.
                 prev->successor.compare_exchange_strong(result, (uintptr_t)next);
@@ -98,6 +99,8 @@ class RU_ALL_TYPE {
                 }
             }
             else{
+                uint64_t expected = (seqNum << 12) + (procID << 4) + InsFlag;
+                result = expected; 
                 //Attempt to complete insertion of insert node.
                 prev->successor.compare_exchange_strong(result, (uintptr_t)newNode);
                 if(result == expected){

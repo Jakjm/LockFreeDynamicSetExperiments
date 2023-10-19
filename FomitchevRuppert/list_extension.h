@@ -62,10 +62,11 @@ class LinkedList_FRE {
             uintptr_t result = 0;
             newNode->successor.compare_exchange_strong(result, (uintptr_t)next);
 
-            uint64_t expected = (seqNum << 12) + (procID << 4) + InsFlag;
-            result = expected; 
             //If insert node was marked....
             if((result & STATUS_MASK) == Marked){ 
+                uint64_t expected = (seqNum << 12) + (procID << 4) + InsFlag;
+                result = expected;  
+
                 //newNode has already been removed.
                 //Attempt to CAS to remove descriptor.
                 prev->successor.compare_exchange_strong(result, (uintptr_t)next);
@@ -77,6 +78,9 @@ class LinkedList_FRE {
                 }
             }
             else{
+                uint64_t expected = (seqNum << 12) + (procID << 4) + InsFlag;
+                result = expected;  
+
                 //Attempt to complete insertion of insert node.
                 prev->successor.compare_exchange_strong(result, (uintptr_t)newNode);
                 if(result == expected){
