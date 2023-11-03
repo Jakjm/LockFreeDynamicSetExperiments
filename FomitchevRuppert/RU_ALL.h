@@ -175,8 +175,7 @@ class RU_ALL_TYPE {
             
             //This is the descriptor for this thread.
             DescNode *desc = &descs[threadID];
-            uint64_t seqNum = desc->seqNum + 1;
-            desc->seqNum = seqNum; //Increment the sequence number of this process's desc node
+            uint64_t seqNum = desc->seqNum;
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->other = (uint64_t)node;
             while(state == InsFlag || state == NotifFlag || next != (uintptr_t)node){
@@ -198,6 +197,7 @@ class RU_ALL_TYPE {
                     curr->successor.compare_exchange_strong(succ, (uintptr_t)newVal);
                     if(succ == next){ //If the CAS succeeded....
                         helpInsert(curr, seqNum, threadID);
+                        desc->seqNum = seqNum + 1; //Increment the sequence number of this process's desc node
                         return;
                     }
                     //Read next and state from curr.successor.
@@ -317,8 +317,7 @@ class RU_ALL_TYPE {
 
 
             DescNode *desc = &descs[threadID];
-            uint64_t seqNum = desc->seqNum + 1;
-            desc->seqNum = seqNum; //Increment the sequence number of this process's desc node
+            uint64_t seqNum = desc->seqNum;
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->other = (uint64_t)pNode;
             while(state == InsFlag || state == NotifFlag || next != (uintptr_t)&tail){ //TODO fixContinue while next != tail...
@@ -330,6 +329,7 @@ class RU_ALL_TYPE {
                     node->successor.compare_exchange_strong(succ, newVal);
                     if(succ == next){
                         helpNotify(node, seqNum, threadID);
+                        desc->seqNum = seqNum + 1; //Increment the sequence number of this process's desc node
                         return (RU_ALL_Node*)next; //CAS succeeded, therefore pNode->notifyThreshold was updated to next 
                     } 
                 }

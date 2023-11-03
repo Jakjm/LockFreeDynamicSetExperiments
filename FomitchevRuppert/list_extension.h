@@ -150,8 +150,7 @@ class LinkedList_FRE {
 
             //This is the descriptor for this thread.
             InsertDescNode *desc = &descs[threadID];
-            uint64_t seqNum = desc->seqNum + 1;
-            desc->seqNum = seqNum; //Increment the sequence number....
+            uint64_t seqNum = desc->seqNum;
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->newNode = node;
             while(state == InsFlag || next != (uintptr_t)node){
@@ -173,6 +172,7 @@ class LinkedList_FRE {
                     curr->successor.compare_exchange_strong(succ, (uintptr_t)newVal);
                     if(succ == next){ //If the CAS succeeded....
                         helpInsert(curr, seqNum, threadID);
+                        desc->seqNum = seqNum + 1; //Increment the sequence number....
                         return;
                     }
                     //Read next and state from curr.successor.
