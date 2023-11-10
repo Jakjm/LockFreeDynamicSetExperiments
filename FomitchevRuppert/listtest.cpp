@@ -160,6 +160,11 @@ void basicTest(){
     list.remove(&i4);
     list.printList(intNodeToString);
 }
+inline int __attribute__((always_inline)) reverseCompareUpdate(RU_ALL_Node *u1, RU_ALL_Node *u2){
+    UpdateNode *a = (UpdateNode*)u1;
+    UpdateNode *b = (UpdateNode*)u2;
+    return b->key - a->key;
+}
 void basicTest2(){
     threadID = 0;
     IntNode i1(1);
@@ -241,11 +246,26 @@ void basicTest3(){
     insertPNode(pall, &n2);
 
 }
+void basicTest4(){
+    PredecessorNode n1(5);
+    
+    RU_ALL_TYPE<reverseCompareUpdate> ruall;
+    InsNode n2(3);
+    InsNode n3(1);
+    ruall.insert(&n2);
+    ruall.insert(&n3);
+    UpdateNode *f = ruall.first(&n1);
+    while(f != nullptr){
+        f = ruall.next(&n1,f);
+    }
+}
+
 
 int main(){
     //basicTest3();
-    basicTest();
-    basicTest2();
-    randomTest();
+    //basicTest();
+    //basicTest2();
+    //randomTest();
+    basicTest4();
     return 0;
 }
