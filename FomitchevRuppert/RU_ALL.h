@@ -45,35 +45,30 @@ class RU_ALL_TYPE {
         }
 
         uintptr_t helpNotify(RU_ALL_Node *prev,  uint64_t seqNum,  uint64_t procID){
-            DescNode &desc = descs[procID];
-            PredecessorNode *pNode = (PredecessorNode*)(uintptr_t)desc.other;
-            RU_ALL_Node *next = desc.next;
-            if(seqNum != desc.seqNum){
+            DescNode *desc = &descs[procID];
+            PredecessorNode *pNode = (PredecessorNode*)(uintptr_t)desc->other;
+            RU_ALL_Node *next = desc->next;
+            if(seqNum != desc->seqNum){
                 return prev->successor.load();
             }
 
-            UpdateNode *expected;
-            if(prev == &head)expected = &INFINITY_THRES;
-            else expected = (UpdateNode*)prev;
+            UpdateNode *oldThresh;
+            if(prev == &head)oldThresh = &INFINITY_THRES;
+            else oldThresh = (UpdateNode*)prev;
 
-            UpdateNode *following;
-            if(next == &tail)following = &ZERO_THRES;
-            else following = (UpdateNode*)next;
+            UpdateNode *newThresh;
+            if(next == &tail)newThresh = &ZERO_THRES;
+            else newThresh = (UpdateNode*)next;
             //Update notify threshold.
-            pNode->notifyThreshold.compare_exchange_strong(expected, following);
+            pNode->notifyThreshold.compare_exchange_strong(oldThresh, newThresh);
             
             uint64_t expectedSucc = (seqNum << 12) + (procID << 4) + NotifFlag;
             uint64_t result = expectedSucc;
             prev->successor.compare_exchange_strong(result, (uintptr_t)next);
             
-
             //Return contents of prev->successor immediately following CAS...
-            if(result == (uintptr_t)expectedSucc){
-                return (uintptr_t)next;
-            }
-            else{
-                return result;
-            } 
+            if(result == (uintptr_t)expectedSucc)return (uintptr_t)next;
+            else return result;
         }
 
         uintptr_t helpInsert(RU_ALL_Node *prev, uint64_t seqNum,  uint64_t procID){
@@ -150,7 +145,7 @@ class RU_ALL_TYPE {
                     succ = helpNotify(delNode,  seqNum, procID);
                 }
                 else{ //Attempt to mark the node if the status was normal...
-                    uintptr_t markedSuccessor = (uintptr_t)next + Marked;
+                    uintptr_t markedSuccessor = next + Marked;
                     succ = next;
                     delNode->successor.compare_exchange_strong(succ, markedSuccessor); //Try to update from <next, Normal> to <next, Marked>
                     if(succ == next)break; //The CAS succeeded!
@@ -319,30 +314,28 @@ class RU_ALL_TYPE {
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
 
-            DescNode &desc = descs[threadID];
-            uint64_t seqNum = desc.seqNum;
+            DescNode *desc = &descs[threadID];
+            uint64_t seqNum = desc->seqNum;
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
-            desc.other = (uint64_t)pNode;
-            
-            while(state != Marked){ 
+            desc->other = (uint64_t)pNode;
+            while(state != Marked){ //TODO fixContinue while next != tail...
                 if(state == Normal){
-                    desc.next = (RU_ALL_Node*)next;
+                    desc->next = (RU_ALL_Node*)next;
                     succ = next;
 
                     uint64_t newVal = (seqNum << 12) + (threadID << 4) + NotifFlag;
-                    node->successor.compare_exchange_strong(succ, newVal); //CAS to place notify desc node
-                    if(succ == next){ //If this CAS is successful
-                        helpNotify(node, seqNum, threadID); //Update pNode's notifThreshold and remove desc node.
-                        desc.seqNum = seqNum + 1; //Increment the sequence number of this process's desc node
-                        //Return the UpdateNode following node or nullptr if there was none.
-                        return (next != (uintptr_t)&tail) ? (UpdateNode*)next : nullptr; 
+                    node->successor.compare_exchange_strong(succ, newVal);
+                    if(succ == next){
+                        helpNotify(node, seqNum, threadID);
+                        desc->seqNum = seqNum + 1; //Increment the sequence number of this process's desc node
+                        if(next == (uintptr_t)&tail)return nullptr;
+                        else return (UpdateNode*)next; //CAS succeeded, therefore pNode->notifyThreshold was updated to next 
                     } 
                 }
-                //Helping with various list operations
                 else if(state == DelFlag){ //Help with deletion of its successor, if it is flagged....
                     succ = helpRemove(node, (RU_ALL_Node*)next);
                 }
-                else if(state == InsFlag){ //Help with insertion while it points to an InsertDescNode...
+                else if(state == InsFlag){ //Help with insertion while it points to an insertion descriptor...
                     uint64_t seq = (next & SEQ_MASK) >> 12;
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpInsert(node, seq, proc);
@@ -352,17 +345,19 @@ class RU_ALL_TYPE {
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpNotify(node, seq, proc);
                 }
+                else{ //node is marked, so node.next is permanently equal to next. No need to use a descriptor node!
+                    assert(false);
+                }
+
                 next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;
             }
-
-            //RU_ALL_Node following node is permanently fixed
-            if(next == (uintptr_t)&tail){ //Following node is the tail node...
-                pNode->notifyThreshold.store(&ZERO_THRES); //Write 0 to the notify threshold.
+            if(next == (uintptr_t)&tail){
+                pNode->notifyThreshold.store(&ZERO_THRES);
                 return nullptr;
             }
             else{
-                pNode->notifyThreshold.store((UpdateNode*)next); //Write next to the notify threshold of pNode.
+                pNode->notifyThreshold.store((UpdateNode*)&next);
                 return (UpdateNode*)next;
             }
         }
@@ -383,60 +378,6 @@ class RU_ALL_TYPE {
                 return 'I';
             }
             return ' ';
-        }
-
-        RU_ALL_Node *first(){
-            return next(&head);
-        }
-        RU_ALL_Node *next(RU_ALL_Node *node){
-            uintptr_t succ = node->successor;
-            uintptr_t next = succ & NEXT_MASK;
-            uint64_t state = succ & STATUS_MASK;
-
-            
-            while(state == InsFlag || state == NotifFlag){
-                uint64_t seq = (next & SEQ_MASK) >> 12;
-                uint64_t proc = (next & PROC_MASK) >> 4;
-                DescNode *desc = &descs[proc];
-                next = (uintptr_t)(RU_ALL_Node*)desc->next;
-                if(desc->seqNum == seq)break; //desc was still a valid descriptor node following node...
-                
-                succ = node->successor; //Read node->successor again.
-                next = succ & NEXT_MASK;
-                state = succ & STATUS_MASK;
-            }
-            //next points to a RU_ALL_Node....
-
-            //If the following RU_ALL_Node was the tail, then return nullptr.
-            if(next == (uintptr_t)(&tail)){
-                return nullptr;
-            }
-            else return (RU_ALL_Node*)next; //Otherwise, return the following RU_ALL_Node.
-        }
-
-        RU_ALL_Node *next(RU_ALL_Node *node, int64_t state){
-            uintptr_t succ = node->successor;
-            uintptr_t next = succ & NEXT_MASK;
-            state = succ & STATUS_MASK;
-
-            
-            while(state == InsFlag || state == NotifFlag){
-                uint64_t seq = (next & SEQ_MASK) >> 12;
-                uint64_t proc = (next & PROC_MASK) >> 4;
-                DescNode *desc = &descs[proc];
-                next = (uintptr_t)(RU_ALL_Node*)desc->next;
-                if(desc->seqNum == seq)break; //desc was still a valid descriptor node following node...
-                
-                succ = node->successor; //Read node->successor again.
-                next = succ & NEXT_MASK;
-                state = succ & STATUS_MASK;
-            }
-
-            //If the following RU_ALL_Node was the tail, then return nullptr.
-            if(next == (uintptr_t)(&tail)){
-                return nullptr;
-            }
-            else return (RU_ALL_Node*)next; //Otherwise, return the following RU_ALL_Node.
         }
 
         //Thread safe way of printing list

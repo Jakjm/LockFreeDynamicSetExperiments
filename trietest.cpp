@@ -31,7 +31,7 @@ void randomTask2(Trie *trie, int range, int testSize, int id){
         }
         else{
             trie->predecessor(randomN);
-        } 
+        }
     }
 }
 void multithreadTest(int trieSize, int testSize, int numThreads){
@@ -82,7 +82,7 @@ int compare(int i1, int i2){
 
 int main(int argc, char **argv){
     //simpleTest();
-    multithreadTest(3, 50000, 8);
+    multithreadTest(3, 50, 1);
     //printList();
     return 0;
 }
