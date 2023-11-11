@@ -628,7 +628,7 @@ class Trie{
 
     //Traverse the reverse update announcement linked list.
     void traverseRUALL(PredecessorNode *pNode, unordered_set<InsNode *> &I, unordered_set<DelNode*> &D){
-        UpdateNode *uNode = RU_ALL.first(pNode); //Atomically set pNode.notifyThreshold....
+        UpdateNode *uNode = (UpdateNode*)RU_ALL.first(pNode); //Atomically set pNode.notifyThreshold....
         while(uNode){
             if(uNode->key < pNode->key){
                 if(uNode->status != INACTIVE && firstActivated(uNode)){
@@ -636,7 +636,7 @@ class Trie{
                     else D.insert((DelNode*)uNode);
                 }
             }
-            uNode = RU_ALL.next(pNode,uNode); //Atomically set pNode.notifyThreshold....
+            uNode = (UpdateNode*)RU_ALL.next(pNode,uNode); //Atomically set pNode.notifyThreshold....
         }
         assert(pNode->notifyThreshold == &ZERO_THRES);
     }
