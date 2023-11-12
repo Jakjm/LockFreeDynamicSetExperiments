@@ -62,33 +62,23 @@ class LinkedList_FRE {
             uintptr_t result = 0;
             newNode->successor.compare_exchange_strong(result, (uintptr_t)next);
 
+            uint64_t expected = (seqNum << 12) + (procID << 4) + InsFlag;
+            result = expected; 
+            uint64_t newSucc;
+            
             //If insert node was marked....
             if((result & STATUS_MASK) == Marked){ 
-                uint64_t expected = (seqNum << 12) + (procID << 4) + InsFlag;
-                result = expected;  
-
-                //newNode has already been removed.
-                //Attempt to CAS to remove descriptor.
-                prev->successor.compare_exchange_strong(result, (uintptr_t)next);
-                if(result == expected){
-                    return (uintptr_t)next;
-                }
-                else{
-                    return result;
-                }
+                newSucc = (uintptr_t)next;//newNode has already been removed. Attempt to CAS to remove descriptor.
             }
             else{
-                uint64_t expected = (seqNum << 12) + (procID << 4) + InsFlag;
-                result = expected;  
-
-                //Attempt to complete insertion of insert node.
-                prev->successor.compare_exchange_strong(result, (uintptr_t)newNode);
-                if(result == expected){
-                    return (uintptr_t)newNode;
-                }
-                else{
-                    return result;
-                }
+                newSucc = (uintptr_t)newNode; //Attempt to complete insertion of node.
+            }
+            prev->successor.compare_exchange_strong(result, (uintptr_t)newSucc);
+            if(result == expected){
+                return (uintptr_t)newSucc;
+            }
+            else{
+                return result;
             }
         }
         
@@ -158,38 +148,30 @@ class LinkedList_FRE {
                     if(compNode((ListNode*)next,node) <= 0){ //node should be placed further along in the list if next <= node
                         curr = (ListNode*)next;
                         succ = curr->successor;
-                        next = succ & NEXT_MASK;
-                        state = succ & STATUS_MASK;
-                        continue;
                     }
-                    if((node->successor & STATUS_MASK) == Marked){
-                        return;
-                    }
-                    desc->next = (ListNode*)next; //Set the next of the insert descriptor node.
-                    succ = next;
+                    else{
+                        if((node->successor & STATUS_MASK) == Marked){
+                            return;
+                        }
+                        desc->next = (ListNode*)next; //Set the next of the insert descriptor node.
+                        succ = next;
 
-                    uint64_t newVal = (seqNum << 12) + (threadID << 4) + InsFlag;
-                    curr->successor.compare_exchange_strong(succ, (uintptr_t)newVal);
-                    if(succ == next){ //If the CAS succeeded....
-                        helpInsert(curr, seqNum, threadID);
-                        desc->seqNum = seqNum + 1; //Increment the sequence number....
-                        return;
+                        uint64_t newVal = (seqNum << 12) + (threadID << 4) + InsFlag;
+                        curr->successor.compare_exchange_strong(succ, (uintptr_t)newVal);
+                        if(succ == next){ //If the CAS succeeded....
+                            helpInsert(curr, seqNum, threadID);
+                            desc->seqNum = seqNum + 1; //Increment the sequence number....
+                            return;
+                        }
                     }
-                    //Read next and state from curr.successor.
-                    next = succ & NEXT_MASK;
-                    state = succ & STATUS_MASK;
                 }
                 else if(state == InsFlag){
                     uint64_t seq = (next & SEQ_MASK) >> 12;
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpInsert(curr, seq, proc);
-                    next = succ & NEXT_MASK;
-                    state = succ & STATUS_MASK;
                 }
                 else if(state == DelFlag){
                     succ = helpRemove(curr, (ListNode*)next);
-                    next = succ & NEXT_MASK;
-                    state = succ & STATUS_MASK;
                 }
                 else{
                     ListNode *prev = curr->backlink;
@@ -198,11 +180,12 @@ class LinkedList_FRE {
                     state = succ & STATUS_MASK;
                     if(state == DelFlag && next == (uintptr_t)curr){ //Help remove curr from the list.
                         succ = helpMarked(prev, curr);
-                        next = succ & NEXT_MASK;
-                        state = succ & STATUS_MASK;
                     }
                     curr = prev;
                 }
+                //Read next and state from curr.successor.
+                next = succ & NEXT_MASK;
+                state = succ & STATUS_MASK;
             }
         }
         void remove(ListNode *node){
@@ -216,8 +199,6 @@ class LinkedList_FRE {
                     if((ListNode*)next != node){ //Advance...
                         curr = (ListNode*)next;
                         succ = curr->successor;
-                        next = succ & NEXT_MASK;
-                        state = succ & STATUS_MASK;
                     }
                     else{
                         succ = (uintptr_t)node;
@@ -226,16 +207,12 @@ class LinkedList_FRE {
                             helpRemove(curr, node);
                             return;
                         }
-                        next = succ & NEXT_MASK;
-                        state = succ & STATUS_MASK;
                     }
                 }
                 else if(state == InsFlag){
                     uint64_t seq = (next & SEQ_MASK) >> 12;
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpInsert(curr, seq, proc);
-                    next = succ & NEXT_MASK;
-                    state = succ & STATUS_MASK;
                 }
                 //next is a pointer to a ListNode
                 else if(compNode((ListNode*)next, node) > 0){
@@ -244,8 +221,6 @@ class LinkedList_FRE {
                 else if(state == DelFlag){
                     succ = helpRemove(curr, (ListNode*)next);
                     if((ListNode*)next == node)return;
-                    next = succ & NEXT_MASK;
-                    state = succ & STATUS_MASK;
                 }
                 else{
                     ListNode *prev = curr->backlink;
@@ -254,11 +229,11 @@ class LinkedList_FRE {
                     state = succ & STATUS_MASK;
                     if(state == DelFlag && next == (uintptr_t)curr){ //Help remove curr from the list.
                         succ = helpMarked(prev, curr);
-                        next = succ & NEXT_MASK;
-                        state = succ & STATUS_MASK;
                     }
                     curr = prev;
                 }
+                next = succ & NEXT_MASK;
+                state = succ & STATUS_MASK;
             }
         }
 
