@@ -12,8 +12,7 @@
 
 #include "trieNodeTypes.h"
 #include "BoundedMinReg/minreg.h"
-//#include "FomitchevRuppert/list.h"
-
+#include "DynamicSet.h"
 
 #include <deque>
 #include <thread>
@@ -25,9 +24,7 @@
 #include <unordered_set>
 #include "common.h"
 
-
 //Jeremy's trie structure source code.
-//TODO add comments everywhere
 using std::vector;
 using std::unordered_set;
 using std::set;
@@ -40,16 +37,7 @@ inline int __attribute__((always_inline)) compareUpdate(ListNode *u1, ListNode *
     return a->key - b->key;
 }
 
-
-inline int __attribute__((always_inline)) reverseCompareUpdate(RU_ALL_Node *u1, RU_ALL_Node *u2){
-    UpdateNode *a = (UpdateNode*)u1;
-    UpdateNode *b = (UpdateNode*)u2;
-    return b->key - a->key;
-}
-
-
-//TODO ifdef debug
-class Trie{
+class Trie : public DynamicSet{
     private:
     const int b;
     const int64_t universeSize; //Equal to 2^b 
@@ -57,7 +45,7 @@ class Trie{
     vector<LatestList> latest;
     P_ALL_TYPE P_ALL;
     PermaRemList <compareUpdate> U_ALL;
-    RU_ALL_TYPE<reverseCompareUpdate> RU_ALL;
+    RU_ALL_TYPE RU_ALL;
     public:
     Trie(int size) : b(size), universeSize(1 << b), latest(universeSize), P_ALL(), U_ALL(), RU_ALL()
     {

@@ -16,7 +16,7 @@ using std::string;
 
 #define testStats
 
-//Customized version of the linked list extension that is specifically used for the RUALL of Jeremy's Trie.
+//Customized version of PermaRemList that is specifically used for the RUALL of Jeremy's Trie.
 //DescNode could either be an insert descriptor node or a notify descriptor node.
 struct DescNode{
     std::atomic<uintptr_t> other; //Either a pointer to an update node to be inserted or a pointer to a predecessor node.
@@ -27,9 +27,6 @@ struct DescNode{
     }
 };
 
-//Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert.
-//compare is the function used to compare the nodes of the linked list
-template <int(*compare)(RU_ALL_Node*, RU_ALL_Node*)>
 class RU_ALL_TYPE {
     public:
         RU_ALL_Node tail, head; //Head, tail of the linked list. 
@@ -149,13 +146,6 @@ class RU_ALL_TYPE {
             return succ;
         }
 
-        //Used to compare two nodes in the list
-        //Returns a positive value if n1 must be later in the list than n2
-        inline int __attribute__((always_inline)) compNode(RU_ALL_Node *n1, RU_ALL_Node *n2){
-            if(n1 == &tail)return 1;
-            else return compare(n1,n2);
-        }
-
         void insert(RU_ALL_Node *node){
             if((node->successor & STATUS_MASK) == Marked)return;
 
@@ -171,11 +161,11 @@ class RU_ALL_TYPE {
             desc->other = (uint64_t)node;
             while(state == InsFlag || state == NotifFlag || next != (uintptr_t)node){
                 if(state == Normal){
-                    if(compNode((RU_ALL_Node*)next,node) <= 0){ //node should be placed further along in the list if next <= node
+                    if((next != (uintptr_t)&tail) && (((UpdateNode*)(RU_ALL_Node*)next)->key <= ((UpdateNode*)node)->key)){ //node should be placed further along in the list if next <= node
                         curr = (RU_ALL_Node*)next;
                         succ = curr->successor;
                     }
-                    else{
+                    else{ //Next is either the tail or an update node with a larger key than node.
                         if((node->successor & STATUS_MASK) == Marked){
                             return;
                         }
@@ -226,7 +216,7 @@ class RU_ALL_TYPE {
             uint64_t state = succ & STATUS_MASK;
             while(1){
                 if(state == Normal){
-                    if(compNode((RU_ALL_Node*)next, node) > 0)return;
+                    if((next == (uintptr_t)&tail || ((UpdateNode*)(RU_ALL_Node*)next)->key > ((UpdateNode*)node)->key))return;
                     if((RU_ALL_Node*)next != node){ //Advance...
                         curr = (RU_ALL_Node*)next;
                         succ = curr->successor;
@@ -253,9 +243,7 @@ class RU_ALL_TYPE {
                     succ = helpNotify(curr, seq, proc);
                 }
                 //next is a ListNode pointer, not a seqnum/processID pair
-                else if(compNode((RU_ALL_Node*)next, node) > 0){
-                    return;
-                }
+                else if((next == (uintptr_t)&tail) || (((UpdateNode*)(RU_ALL_Node*)next)->key >((UpdateNode*)node)->key))return;
                 else if(state == DelFlag){
                     succ = helpRemove(curr, (RU_ALL_Node*)next);
                     if((RU_ALL_Node*)next == node)return;
