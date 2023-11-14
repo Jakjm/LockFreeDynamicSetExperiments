@@ -9,7 +9,6 @@
 #include <iterator>
 #include <atomic>
 #include <cassert>
-#include "list_extension.h"
 #include "../common.h"
 #include "../trieNodeTypes.h"
 #pragma once
@@ -18,10 +17,9 @@ using std::string;
 #define testStats
 
 //Customized version of the linked list extension that is specifically used for the RUALL of Jeremy's Trie.
-const uint64_t NotifFlag = 4; 
-
+//DescNode could either be an insert descriptor node or a notify descriptor node.
 struct DescNode{
-    std::atomic<uintptr_t> other;
+    std::atomic<uintptr_t> other; //Either a pointer to an update node to be inserted or a pointer to a predecessor node.
     std::atomic<RU_ALL_Node*> next;
     std::atomic<uint64_t> seqNum; //Sequence number.
     DescNode():  other((uintptr_t)nullptr), next(nullptr), seqNum(0){

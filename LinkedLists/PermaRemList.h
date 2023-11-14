@@ -15,10 +15,8 @@ using std::string;
 
 #define testStats
 
-//An extension of Fomitchev and Ruppert's linked list that allows concurrent insertions of the same node.
+//An extension of Fomitchev and Ruppert's linked list.
 //Additional status used when a ListNode's successor is an insert descriptor node.
-const uint64_t InsFlag = 3; 
-
 //Definition of the Insert Descriptor Node object.
 struct InsertDescNode{
     std::atomic<ListNode*> newNode;
@@ -29,24 +27,19 @@ struct InsertDescNode{
     }
 };
 
-//The lowest 4 bits of a ListNode's successor pointer are used for the states...
-//If the state is InsFlag or NotifFlag, then the information to access a descriptor node is contained as follows:
-const uint64_t PROC_MASK = 0x0000000000000FF0; //Process ID contained within next lowest 8 bits
-const uint64_t SEQ_MASK =  0xFFFFFFFFFFFFF000; //Sequence # contained within highest 52 bits
-
 
 //Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert
 //compare is the function used to compare the nodes of the linked list
 template <int(*compare)(ListNode*, ListNode*)>
-class LinkedList_FRE {
+class PermaRemList {
     public:
         ListNode tail, head; //Head, tail of the linked list. 
     public:
         InsertDescNode descs[NUM_THREADS]; //Insert descriptor nodes for each process
-        LinkedList_FRE() : tail(), head(){
+        PermaRemList() : tail(), head(){
             head.successor.store((uintptr_t)&tail);
         }
-        ~LinkedList_FRE(){ 
+        ~PermaRemList(){ 
             
         }
 

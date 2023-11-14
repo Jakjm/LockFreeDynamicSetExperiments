@@ -11,6 +11,7 @@
 #include "ListNode.h"
 #pragma once
 using std::string;
+
 //An implementation of Eric Ruppert and Michhail Fomitchev's Lock-Free Linked List
 //Specifically made for the P_ALL which is an unsorted linked list
 class P_ALL_TYPE{
@@ -103,10 +104,13 @@ class P_ALL_TYPE{
         }
 
         //List traversal algorithms here: 
-        //Returns the head of the linked list, or null if the list is empty...
+        //Returns the first node in the linked list, or null if the list is empty.
         ListNode *first(){
             return next(&head);
         }
+        //If node is in the list, returns a pointer to the node following it, or nullptr if node is the last node in the list.
+        //If node is not in the list, returns a pointer to the node that followed it when node was removed,
+        //or nullptr if node is the last node in the list.
         ListNode *next(ListNode *node){            
             uintptr_t succ = node->successor;
             ListNode *next = (ListNode*)(succ & NEXT_MASK);

@@ -6,12 +6,14 @@
 #include <stdint.h>
 #include <unordered_map>
 #include <vector>
-#include "FomitchevRuppert/P_ALL.h"
-#include "FomitchevRuppert/RU_ALL.h"
+#include "LinkedLists/P_ALL.h"
+#include "LinkedLists/PermaRemList.h"
+#include "LinkedLists/RU_ALL.h"
+
 #include "trieNodeTypes.h"
 #include "BoundedMinReg/minreg.h"
-#include "FomitchevRuppert/list.h"
-#include "FomitchevRuppert/list_extension.h"
+//#include "FomitchevRuppert/list.h"
+
 
 #include <deque>
 #include <thread>
@@ -54,7 +56,7 @@ class Trie{
     vector<vector<TrieNode>> trieNodes;
     vector<LatestList> latest;
     P_ALL_TYPE P_ALL;
-    LinkedList_FRE<compareUpdate> U_ALL;
+    PermaRemList <compareUpdate> U_ALL;
     RU_ALL_TYPE<reverseCompareUpdate> RU_ALL;
     public:
     Trie(int size) : b(size), universeSize(1 << b), latest(universeSize), P_ALL(), U_ALL(), RU_ALL()

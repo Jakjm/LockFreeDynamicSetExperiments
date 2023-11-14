@@ -2,7 +2,7 @@
 #include <cstddef>
 #include <string>
 #include "BoundedMinReg/minreg.h"
-#include "FomitchevRuppert/ListNode.h"
+#include "LinkedLists/ListNode.h"
 #include "setbench/common/recordmgr/record_manager.h"
 #include "common.h"
 #pragma once
