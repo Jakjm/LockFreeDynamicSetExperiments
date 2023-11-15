@@ -3,7 +3,6 @@
 #include <string>
 #include "BoundedMinReg/minreg.h"
 #include "LinkedLists/ListNode.h"
-#include "setbench/common/recordmgr/record_manager.h"
 #include "common.h"
 #pragma once
 using std::string;
@@ -16,9 +15,6 @@ class PredecessorNode;
 class InsNode;
 class DelNode;
 class NotifyNode;
-
-
-record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
 
 class UpdateNode : public ListNode, public RU_ALL_Node{
     public:

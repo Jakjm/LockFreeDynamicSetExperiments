@@ -10,8 +10,12 @@
 #include <cassert>
 #include "../LinkedLists/ListNode.h"
 #include "../DynamicSet.h"
+#include "../common.h"
+#include "../setbench/common/recordmgr/record_manager.h"
 #pragma once
 using std::string;
+
+
 
 struct KeyNode {
     int64_t key;
@@ -23,6 +27,7 @@ struct KeyNode {
 };
 
 //TODO memory reclamation
+record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, KeyNode> listRecordMgr(NUM_THREADS);
 
 //An implementation of Eric Ruppert and Michhail Fomitchev's Lock-Free Linked List
 //Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert
@@ -77,7 +82,7 @@ class LinkedListSet : public DynamicSet {
             KeyNode *next = (KeyNode*)(succ & NEXT_MASK);
 
             uint64_t state = succ & STATUS_MASK;
-            KeyNode *newNode = new KeyNode(key);
+            KeyNode *newNode = listRecordMgr.allocate<KeyNode>(threadID, key); //TODO reuse node if node is not node not used....
             while(key != next->key){
                 if(state == Normal){
                     if(key > next->key){ //node should be placed further along in the list if next <= key
@@ -110,6 +115,7 @@ class LinkedListSet : public DynamicSet {
                 next = (KeyNode*)(succ & NEXT_MASK);
                 state = succ & STATUS_MASK;
             }
+            listRecordMgr.deallocate(threadID, newNode); //TODO reuse node instead of doing this....
         }
         void remove(int64_t key){
             KeyNode *curr = &head;
@@ -127,6 +133,7 @@ class LinkedListSet : public DynamicSet {
                         curr->successor.compare_exchange_strong(succ, ((uintptr_t)next) + DelFlag);
                         if(succ == (uintptr_t)next){
                             helpRemove(curr, next);
+                            listRecordMgr.retire(threadID, next);
                             return;
                         }
                     }
@@ -175,6 +182,10 @@ class LinkedListSet : public DynamicSet {
             }
             //next->key >= key
             return curr->key;
+        }
+
+        void cleanup(){
+            
         }
 
         //List traversal algorithms here: 

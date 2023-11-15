@@ -25,6 +25,7 @@ struct InsertDescNode{
     InsertDescNode():  newNode(nullptr), next(nullptr), seqNum(0){
 
     }
+    volatile char padding[64 - 3 * sizeof(std::atomic<uintptr_t>)];
 };
 
 

@@ -25,6 +25,7 @@ struct DescNode{
     DescNode():  other((uintptr_t)nullptr), next(nullptr), seqNum(0){
 
     }
+    volatile char padding[64 - 3 * sizeof(std::atomic<uintptr_t>)];
 };
 
 class RU_ALL_TYPE {

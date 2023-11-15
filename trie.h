@@ -23,6 +23,7 @@
 #include <chrono>
 #include <unordered_set>
 #include "common.h"
+#include "setbench/common/recordmgr/record_manager.h"
 
 //Jeremy's trie structure source code.
 using std::vector;
@@ -36,7 +37,7 @@ inline int __attribute__((always_inline)) compareUpdate(ListNode *u1, ListNode *
     UpdateNode *b = (UpdateNode*)u2;
     return a->key - b->key;
 }
-
+record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
 class Trie : public DynamicSet{
     private:
     const int b;

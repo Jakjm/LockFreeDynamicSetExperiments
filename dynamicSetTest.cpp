@@ -53,7 +53,7 @@ void multithreadTest(int trieSize, int time, int numThreads){
     trieRecordManager.initThread(threadID);
     Trie trie(trieSize);
     LinkedListSet listSet;
-    DynamicSet *set = &trie;
+    DynamicSet *set = &listSet;
 
     std::thread *th[NUM_THREADS];
     int range = (1 << trieSize) - 1; 
@@ -107,7 +107,7 @@ int compare(int i1, int i2){
 
 int main(int argc, char **argv){
     //simpleTest();
-    multithreadTest(20, 180, 8);
+    multithreadTest(10, 10, 8);
     //printList();
     return 0;
 }
