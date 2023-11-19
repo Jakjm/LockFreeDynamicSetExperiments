@@ -47,9 +47,12 @@ struct UpdateNodePool{
     InsNode *insNode;
     DelNode *delNode;
     volatile char padding[64 - 2*sizeof(InsNode*)];
+    UpdateNodePool() : insNode(nullptr), delNode(nullptr){
+
+    }
 };
 UpdateNodePool updateNodePool[NUM_THREADS];
-#define reuse 1
+#define reuse 1 //If reuse is defined, update nodes that are not inserted into the trie will be reused.
 
 class Trie : public DynamicSet{
     private:
@@ -114,46 +117,48 @@ class Trie : public DynamicSet{
             for(TrieNode &tNode : trieNodeRow){
                 DelNode *dNode = tNode.dNodePtr;
                 int retire = dNode->dNodeCount.fetch_add(-1);
-                if(retire == 1)trieRecordManager.retire(threadID, dNode);
+                if(retire == 1)trieRecordManager.deallocate(threadID, dNode);
             }
         }
         for(LatestList &list : latest){
             UpdateNode *uNode = list.head;
             UpdateNode *next = uNode->latestNext;
             if(uNode->type == INS){
-                trieRecordManager.retire(threadID, (InsNode*)uNode);
+                trieRecordManager.deallocate(threadID, (InsNode*)uNode);
             }
             else{
                 DelNode *d = (DelNode*)uNode;
                 int retire = d->dNodeCount.fetch_add(-1);
                 assert(retire == 1);
-                trieRecordManager.retire(threadID, d);
+                trieRecordManager.deallocate(threadID, d);
             }
             if(next){
                 if(next->type == INS){
-                    trieRecordManager.retire(threadID, (InsNode*)next);
+                    trieRecordManager.deallocate(threadID, (InsNode*)next);
                 }
                 else{
                     DelNode *d = (DelNode*)next;
                     int retire = d->dNodeCount.fetch_add(-1);
                     assert(retire == 1);
-                    trieRecordManager.retire(threadID, d);
+                    trieRecordManager.deallocate(threadID, d);
                 }
             }
         }
         verifyLists();
-        trieRecordManager.endOp(threadID);
+        //Retire update nodes that are still in pools...
         for(int i = 0;i < NUM_THREADS;++i){
             InsNode * volatile ins = updateNodePool[i].insNode;
             DelNode * volatile del = updateNodePool[i].delNode; 
-            if(ins)trieRecordManager.retire(threadID, ins);
-            if(del)trieRecordManager.retire(threadID, del);
+            if(ins)trieRecordManager.deallocate(threadID, ins);
+            if(del)trieRecordManager.deallocate(threadID, del);
         }
+        trieRecordManager.endOp(threadID);
 
         //Dump all limbo bags of their contents.
         for(int i = 0;i < NUM_THREADS;++i){
             trieRecordManager.deinitThread(i);
         }
+                
     }
     UpdateNode *findLatest(int64_t x){
         UpdateNode *l = latest[x].head;
@@ -380,10 +385,13 @@ class Trie : public DynamicSet{
         //dNode has type DEL and its child, if it has one, is of type INS
 
         #ifdef reuse 
-        if(!updateNodePool[threadID].insNode){ //If there is no available node in the pool, allocate one.
-            updateNodePool[threadID].insNode = trieRecordManager.allocate<InsNode>(threadID);
+        InsNode *iNode;
+        if(updateNodePool[threadID].insNode){ 
+            iNode = updateNodePool[threadID].insNode; //Use the node that is currently in the pool
         }
-        InsNode *iNode = updateNodePool[threadID].insNode; //Use the current insNode in the pool...
+        else{
+            iNode = trieRecordManager.allocate<InsNode>(threadID); //If there is no available node in the pool, allocate one.
+        }
         #else
         InsNode *iNode = trieRecordManager.allocate<InsNode>(threadID); //Allocate a new node for each insert
         #endif
@@ -405,14 +413,16 @@ class Trie : public DynamicSet{
         latest[x].head.compare_exchange_strong(expected, iNode);
         if (expected != dNode){
             helpActivate(expected);
-            #ifndef reuse
+            #ifdef reuse
+            updateNodePool[threadID].insNode = iNode; //This insert node can be reused by subsequent insert operations...
+            #else
             trieRecordManager.deallocate(threadID, iNode);
             #endif
             trieRecordManager.endOp(threadID);
             return;
         }
         #ifdef reuse 
-        updateNodePool[threadID].insNode = nullptr; //Remove iNode from the pool; it should not be reused upon the next insertion.
+        updateNodePool[threadID].insNode = nullptr; //Ensure that iNode has been removed from the pool...
         #endif 
         U_ALL.insert(iNode);
         RU_ALL.insert(iNode);
@@ -459,10 +469,13 @@ class Trie : public DynamicSet{
 
         //Initialize update node for this delete operation.
         #ifdef reuse 
-        if(!updateNodePool[threadID].delNode){ //If there is no available node in the pool, allocate one.
-            updateNodePool[threadID].delNode = trieRecordManager.allocate<DelNode>(threadID, b);
+        DelNode *dNode;
+        if(updateNodePool[threadID].delNode){
+            dNode = updateNodePool[threadID].delNode; //Reuse a delete node from a previous operation that failed to insert delnode into latest list.
         }
-        DelNode *dNode = updateNodePool[threadID].delNode;
+        else{ //If there is no available node in the pool, allocate one.
+            dNode = trieRecordManager.allocate<DelNode>(threadID, b);
+        }
         #else 
         DelNode *dNode = trieRecordManager.allocate<DelNode>(threadID, b); //Allocate a delNode for each delete...
         #endif
@@ -498,7 +511,9 @@ class Trie : public DynamicSet{
             //Remove pNode from P_ALL.
             P_ALL.remove((ListNode*)pNode);
 
-            #ifndef reuse
+            #ifdef reuse
+            updateNodePool[threadID].delNode = dNode; //Place dNode into the pool to be reused for the next delete operation.
+            #else 
             trieRecordManager.deallocate(threadID, dNode);
             #endif
             //Retire pNode as it is no longer in shared memory.
