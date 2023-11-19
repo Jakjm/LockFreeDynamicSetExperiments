@@ -1,5 +1,6 @@
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include "BoundedMinReg/minreg.h"
 #include "LinkedLists/ListNode.h"
@@ -23,7 +24,10 @@ class UpdateNode : public ListNode, public RU_ALL_Node{
         std::atomic<STATUS> status; 
         std::atomic<UpdateNode *> latestNext;
 
-        UpdateNode(int64_t x, TYPE t) : ListNode(), RU_ALL_Node(),  key(x), type(t), status(INACTIVE), latestNext(nullptr){
+        UpdateNode(int64_t k, TYPE t) : ListNode(), RU_ALL_Node(),  key(k), type(t), status(INACTIVE), latestNext(nullptr){
+        
+        }
+        UpdateNode(TYPE t) : ListNode(), RU_ALL_Node(),  key(-1), type(t), status(INACTIVE), latestNext(nullptr){
         
         }
         virtual ~UpdateNode(){}
@@ -34,6 +38,9 @@ class InsNode : public UpdateNode{
     public:
         std::atomic<DelNode *> target;
         InsNode(int64_t key): UpdateNode(key, INS),  target(nullptr){
+            
+        }
+        InsNode(): UpdateNode(INS),  target(nullptr){
             
         }
         ~InsNode(){
@@ -87,18 +94,21 @@ class PredecessorNode :  public ListNode{
 class DelNode : public UpdateNode{
     public:
         std::atomic<int> upper0Boundary;
-        
         #warning 64 as maximum lower 1 boundary.
         MinReg64 lower1Boundary; 
         PredecessorNode *delPredNode;
         int64_t delPred;
         int64_t delPred2;
         std::atomic<bool> stop;
-
         std::atomic<int64_t> dNodeCount;
+        
+
         DelNode(int64_t key, int trieHeight) : 
             UpdateNode(key, DEL), upper0Boundary(0), 
             lower1Boundary(trieHeight+1), delPredNode(nullptr), delPred(-1), delPred2(-1), stop(false), dNodeCount(2){
+        
+        }
+        DelNode(int trieHeight) :  DelNode(0, DEL) {
         
         }
         ~DelNode(){

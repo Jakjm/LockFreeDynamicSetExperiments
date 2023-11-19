@@ -37,7 +37,20 @@ inline int __attribute__((always_inline)) compareUpdate(ListNode *u1, ListNode *
     UpdateNode *b = (UpdateNode*)u2;
     return a->key - b->key;
 }
+
 record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
+
+
+//Structure used to store pointers to insert/delete nodes that go unused after allocations.
+//On subsequent insert/delete operations by the same thread, the previouslly allocated insert/delete node can be used again.
+struct UpdateNodePool{
+    InsNode *insNode;
+    DelNode *delNode;
+    volatile char padding[64 - 2*sizeof(InsNode*)];
+};
+UpdateNodePool updateNodePool[NUM_THREADS];
+#define reuse 1
+
 class Trie : public DynamicSet{
     private:
     const int b;
@@ -130,6 +143,13 @@ class Trie : public DynamicSet{
         }
         verifyLists();
         trieRecordManager.endOp(threadID);
+        for(int i = 0;i < NUM_THREADS;++i){
+            InsNode * volatile ins = updateNodePool[i].insNode;
+            DelNode * volatile del = updateNodePool[i].delNode; 
+            if(ins)trieRecordManager.retire(threadID, ins);
+            if(del)trieRecordManager.retire(threadID, del);
+        }
+
         //Dump all limbo bags of their contents.
         for(int i = 0;i < NUM_THREADS;++i){
             trieRecordManager.deinitThread(i);
@@ -359,7 +379,16 @@ class Trie : public DynamicSet{
         } 
         //dNode has type DEL and its child, if it has one, is of type INS
 
-        InsNode *iNode = trieRecordManager.allocate<InsNode>(threadID, x);
+        #ifdef reuse 
+        if(!updateNodePool[threadID].insNode){ //If there is no available node in the pool, allocate one.
+            updateNodePool[threadID].insNode = trieRecordManager.allocate<InsNode>(threadID);
+        }
+        InsNode *iNode = updateNodePool[threadID].insNode; //Use the current insNode in the pool...
+        #else
+        InsNode *iNode = trieRecordManager.allocate<InsNode>(threadID); //Allocate a new node for each insert
+        #endif
+        iNode->key = x;
+
         iNode->latestNext = dNode;
 
         UpdateNode *latestNext = dNode->latestNext;
@@ -369,19 +398,22 @@ class Trie : public DynamicSet{
             UpdateNode *result = dNode->latestNext.exchange(nullptr); 
             if(result == latestNext){
                 assert(latestNext->type == INS);
-                trieRecordManager.retire(threadID, (InsNode*)latestNext); //Retire the InsertNode.
+                trieRecordManager.retire(threadID, (InsNode*)latestNext); //Retire the InsertNode following dNode in latest list.
             }
         }
         expected = dNode;
         latest[x].head.compare_exchange_strong(expected, iNode);
         if (expected != dNode){
             helpActivate(expected);
-            //No other thread has seen iNode, so iNode can be deallocated.
+            #ifndef reuse
             trieRecordManager.deallocate(threadID, iNode);
+            #endif
             trieRecordManager.endOp(threadID);
             return;
         }
-
+        #ifdef reuse 
+        updateNodePool[threadID].insNode = nullptr; //Remove iNode from the pool; it should not be reused upon the next insertion.
+        #endif 
         U_ALL.insert(iNode);
         RU_ALL.insert(iNode);
 
@@ -426,7 +458,16 @@ class Trie : public DynamicSet{
         int64_t delPred = predHelper(pNode);
 
         //Initialize update node for this delete operation.
-        DelNode *dNode = new DelNode(x, b);
+        #ifdef reuse 
+        if(!updateNodePool[threadID].delNode){ //If there is no available node in the pool, allocate one.
+            updateNodePool[threadID].delNode = trieRecordManager.allocate<DelNode>(threadID, b);
+        }
+        DelNode *dNode = updateNodePool[threadID].delNode;
+        #else 
+        DelNode *dNode = trieRecordManager.allocate<DelNode>(threadID, b); //Allocate a delNode for each delete...
+        #endif
+        dNode->key = x;
+
         dNode->delPredNode = pNode;
         dNode->delPred = delPred;
         dNode->latestNext = iNode;
@@ -457,15 +498,17 @@ class Trie : public DynamicSet{
             //Remove pNode from P_ALL.
             P_ALL.remove((ListNode*)pNode);
 
+            #ifndef reuse
+            trieRecordManager.deallocate(threadID, dNode);
+            #endif
             //Retire pNode as it is no longer in shared memory.
-            //Deallocate dNode as it never was in shared memory.
             trieRecordManager.retire(threadID, pNode);
-            trieRecordManager.deallocate(threadID, dNode); 
             trieRecordManager.endOp(threadID);
             return;
         }
-
-
+        #ifdef reuse
+        updateNodePool[threadID].delNode = nullptr; //Remove dNode from the pool; it should not be reused for the next deletion
+        #endif
         U_ALL.insert(dNode);
         RU_ALL.insert(dNode);
 

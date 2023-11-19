@@ -51,9 +51,9 @@ void randomTask2(DynamicSet *set, int range, int time, int id, std::atomic<int64
 void multithreadTest(int trieSize, int time, int numThreads){
     threadID = 0;
     trieRecordManager.initThread(threadID);
-    Trie trie(trieSize);
+    Trie trieSet(trieSize);
     LinkedListSet listSet;
-    DynamicSet *set = &listSet;
+    DynamicSet *set = &trieSet;
 
     std::thread *th[NUM_THREADS];
     int range = (1 << trieSize) - 1; 
