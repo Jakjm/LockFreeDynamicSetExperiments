@@ -1,6 +1,0 @@
-Random test of 8 threads doing 40000 random ops each.
-		       1 
-		      1 1 
-		    1 0 1 1 
-		1 0 0 0 1 1 1 0 
-Verifying interpreted bits: 1
