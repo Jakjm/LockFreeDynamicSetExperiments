@@ -160,6 +160,9 @@ class Trie : public DynamicSet{
         }
                 
     }
+    void initThread(){
+        trieRecordManager.initThread(threadID);
+    }
     UpdateNode *findLatest(int64_t x){
         UpdateNode *l = latest[x].head;
         if(l->status == INACTIVE){

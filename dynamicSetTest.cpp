@@ -21,7 +21,8 @@ inline int randomNum(int range){
 }
 void randomTask2(DynamicSet *set, int range, int time, int id, std::atomic<int64_t> *insOps, std::atomic<int64_t> *remOps, std::atomic<int64_t> *predOps){
     threadID = id;
-    trieRecordManager.initThread(threadID);
+    set->initThread();
+
     uint64_t startTime = millis();
     uint64_t endTime = startTime + (time * 1000);
 
@@ -53,7 +54,7 @@ void multithreadTest(int trieSize, int time, int numThreads){
     trieRecordManager.initThread(threadID);
     Trie trieSet(trieSize);
     LinkedListSet listSet;
-    DynamicSet *set = &trieSet;
+    DynamicSet *set = &listSet;
 
     std::thread *th[NUM_THREADS];
     int range = (1 << trieSize) - 1; 
