@@ -6,19 +6,9 @@
 #include <iostream>
 #include <string>
 #include <thread>
-#include <random>
+
 using std::cout;
 
-//Produces a random integer between 0 and range (inclusive).
-inline int randomNum(int range){
-    //A random number seed that is local to this thread.
-	thread_local static std::random_device seed;
-	//Random number generator using seed.
-	thread_local static std::mt19937 rng(seed());
-	//Ask for a distribution from this random number generator.
-	std::uniform_int_distribution<int> dist(0,range);
-	return dist(rng);
-}
 void randomTask2(DynamicSet *set, int range, int time, int id, std::atomic<int64_t> *insOps, std::atomic<int64_t> *remOps, std::atomic<int64_t> *predOps){
     threadID = id;
     set->initThread();

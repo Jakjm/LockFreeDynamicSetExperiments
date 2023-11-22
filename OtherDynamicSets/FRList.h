@@ -43,8 +43,6 @@ KeyNodePool keyNodePool[NUM_THREADS];
 
 //An implementation of Eric Ruppert and Michhail Fomitchev's Lock-Free Linked List
 //Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert
-//With an additional extension.
-//compare is the function used to compare the nodes of the linked list
 class LinkedListSet : public DynamicSet {
     private:
         KeyNode tail, head; //Head, tail of the linked list. 
