@@ -7,9 +7,8 @@
 #include <unordered_map>
 #include <vector>
 #include "LinkedLists/P_ALL.h"
-#include "LinkedLists/PermaRemList.h"
 #include "LinkedLists/RU_ALL.h"
-
+#include "LinkedLists/UALL.h"
 #include "trieNodeTypes.h"
 #include "BoundedMinReg/minreg.h"
 #include "DynamicSet.h"
@@ -56,32 +55,33 @@ UpdateNodePool updateNodePool[NUM_THREADS];
 
 class Trie : public DynamicSet{
     private:
-    const int b;
+    const int trieHeight; //The height of the trie.
     const int64_t universeSize; //Equal to 2^b 
     vector<vector<TrieNode>> trieNodes;
     vector<LatestList> latest;
     P_ALL_TYPE P_ALL;
-    PermaRemList <compareUpdate> U_ALL;
+    UALL_Type U_ALL;
     RU_ALL_TYPE RU_ALL;
     public:
-    Trie(int size) : b(size), universeSize(1 << b), latest(universeSize), P_ALL(), U_ALL(), RU_ALL()
+    Trie(int height) : trieHeight(height), universeSize(1 << height), latest(universeSize), P_ALL(), U_ALL(), RU_ALL()
     {
+        initThread();
         auto guard = trieRecordManager.getGuard(threadID);
         //Initialize the binary trie nodes for each level of the trie.
-        for(int i = 0; i < b;++i){
+        for(int i = 0; i < trieHeight;++i){
             int64_t rowSize = (1 << i); //Row size = 2^i
             vector<TrieNode> trieNodeRow(rowSize);
             trieNodes.push_back(trieNodeRow);
         }
 
-        vector<TrieNode> &baseRow = trieNodes[b - 1];
+        vector<TrieNode> &baseRow = trieNodes[trieHeight - 1];
 
         //Initialize the latest lists for each key in the universe.
         //Initialize row b of binary trie nodes.
         //Initially, each latest list's head = a DelNode with
         for(int64_t key = 0; key < universeSize;++key){
-            DelNode *initialDelNode = trieRecordManager.allocate<DelNode>(threadID, key, b);
-            initialDelNode->upper0Boundary = b; // The initial delNodes for the trie have upper0Boundary = b.
+            DelNode *initialDelNode = trieRecordManager.allocate<DelNode>(threadID, key, trieHeight);
+            initialDelNode->upper0Boundary = trieHeight; // The initial delNodes for the trie have upper0Boundary = trieHeight.
             latest[key].head = initialDelNode;
             initialDelNode->status = ACTIVE;
             if((key & 1) == 0){ //If the key is even, 
@@ -93,9 +93,9 @@ class Trie : public DynamicSet{
             }
         }
 
-        //Initialize rows 0 through b-2, such that every trieNode that is a parent of two trieNodes
+        //Initialize rows 0 through trieHeight-2, such that every trieNode that is a parent of two trieNodes
         //Has its dNodePtr set to the dNodePtr of its left child.
-        for(int row = b-2; row >= 0; row--){
+        for(int row = trieHeight-2; row >= 0; row--){
             int64_t rowSize = (1 << row);
             vector<TrieNode> &trieNodeRow = trieNodes[row];
             vector<TrieNode> &childRow = trieNodes[row + 1];
@@ -186,7 +186,7 @@ class Trie : public DynamicSet{
     }
     char interpretedBit(int index, int depth){
         UpdateNode *uNode;
-        if(depth == b){
+        if(depth == trieHeight){
             uNode = findLatest(index); //Check the latest list for key = index.
         }
         else{
@@ -196,7 +196,7 @@ class Trie : public DynamicSet{
         if(uNode->type == INS)return 1;
         else{
             DelNode *d = (DelNode*)uNode;
-            int height = b - depth;
+            int height = trieHeight - depth;
             if (height >= d->lower1Boundary.minRead()) return 1;
             else if(height <= d->upper0Boundary)return 0;
             else return 1;
@@ -299,7 +299,7 @@ class Trie : public DynamicSet{
     void insertBinaryTrie(InsNode *iNode){
         //For each binary trie node t on the path from the parent of the leaf with iNode.key to the root, do 
         int64_t key = iNode->key;
-        for(int depth = b-1;depth >= 0;--depth){
+        for(int depth = trieHeight-1;depth >= 0;--depth){
             key = key >> 1;
             TrieNode &t = trieNodes[depth][key]; //Start from parent of 
             UpdateNode *dNodePtr = t.dNodePtr;
@@ -307,7 +307,7 @@ class Trie : public DynamicSet{
 
             if (uNode->type == DEL){
                 DelNode *delNode = (DelNode*)uNode;
-                int height = b - depth;
+                int height = trieHeight - depth;
                 if (height < delNode->lower1Boundary.minRead() && height <= delNode->upper0Boundary){
                     iNode->target = delNode;
                     if(firstActivated(iNode) == false)return;
@@ -327,7 +327,7 @@ class Trie : public DynamicSet{
     #define siblingIndex(index) (index + 1 - ((index & 1) * 2))
 
     void deleteBinaryTrie(DelNode *dNode){
-        int depth = b;
+        int depth = trieHeight;
         int64_t key = dNode->key;
         while(depth > 0){
             if(interpretedBit(key, depth) == 1 || interpretedBit(siblingIndex(key), depth) == 1)return;
@@ -339,7 +339,7 @@ class Trie : public DynamicSet{
 
             DelNode *d = t->dNodePtr; //d is the oldValue of t->dNodePtr
             
-            if(dNode->stop || dNode->lower1Boundary.minRead() != b+1)return;
+            if(dNode->stop || dNode->lower1Boundary.minRead() != trieHeight+1)return;
             if(firstActivated(dNode) == false)return;
             
             DelNode *expected = d;
@@ -349,7 +349,7 @@ class Trie : public DynamicSet{
             if(expected != d){
                 d = t->dNodePtr;
 
-                if(dNode->stop || (dNode->lower1Boundary.minRead() != b+1 || firstActivated(dNode) == false)){
+                if(dNode->stop || (dNode->lower1Boundary.minRead() != trieHeight+1 || firstActivated(dNode) == false)){
                     count = dNode->dNodeCount.fetch_add(-1);
                     assert(count > 1);
                     return;
@@ -370,7 +370,7 @@ class Trie : public DynamicSet{
 
             //Increment dNodeCount of dNode
             if(interpretedBit(key * 2, depth + 1) == 1 || interpretedBit(key * 2 + 1, depth + 1))return;
-            dNode->upper0Boundary = (b - depth);
+            dNode->upper0Boundary = (trieHeight - depth);
         }
     }
 
@@ -477,10 +477,10 @@ class Trie : public DynamicSet{
             dNode = updateNodePool[threadID].delNode; //Reuse a delete node from a previous operation that failed to insert delnode into latest list.
         }
         else{ //If there is no available node in the pool, allocate one.
-            dNode = trieRecordManager.allocate<DelNode>(threadID, b);
+            dNode = trieRecordManager.allocate<DelNode>(threadID, trieHeight);
         }
         #else 
-        DelNode *dNode = trieRecordManager.allocate<DelNode>(threadID, b); //Allocate a delNode for each delete...
+        DelNode *dNode = trieRecordManager.allocate<DelNode>(threadID, trieHeight); //Allocate a delNode for each delete...
         #endif
         dNode->key = x;
 
@@ -575,13 +575,13 @@ class Trie : public DynamicSet{
     //y = 3 
     //height = 2  
     int64_t traverseBinaryTrie(int64_t y, int64_t &depth){
-        if(b <= 1)return -1;
+        if(trieHeight <= 1)return -1;
 
         //Get interpreted bit
-        //TrieNode *t = &trieNodes[b][y];
+        //TrieNode *t = &trieNodes[trieHeight][y];
 
         int64_t parentIndex = y / 2;
-        depth = b;
+        depth = trieHeight;
         char i1 = interpretedBit(parentIndex, depth - 1);
         char i2 = interpretedBit(siblingIndex(y), depth);
         
@@ -590,6 +590,7 @@ class Trie : public DynamicSet{
             y = y >> 1;
             --depth;
             if(depth == 0){
+                depth = -1;
                 return -1; //Interpreted bit of root node was 0 on previous iteration. Return <-1, depth>
             }
 
@@ -603,7 +604,7 @@ class Trie : public DynamicSet{
         //Go to left child of parent. Subtract 1 from y if it is odd. 
         y = y - (y & 1);
     
-        while(depth < b){
+        while(depth < trieHeight){
             //Right child is at 2*y + 1, left child is at 2 * y.
             int64_t rightIndex = y * 2 + 1;
             
@@ -620,9 +621,9 @@ class Trie : public DynamicSet{
             }
             
             //Interpreted bits of left and right nodes are 0. No predecessor found.
-            return y; //depth < b. return <y, depth>
+            return y; //depth < trieHeight. return <y, depth>
         }
-        return y; //depth = b. return <y, b>
+        return y; //depth = trieHeight. return <y, trieHeight>
     }
     
 
@@ -748,12 +749,10 @@ class Trie : public DynamicSet{
             }
         }
 
-        
-        #warning ask Jeremy about this? do I need to do this for -1 also?
         //Traversal of the binary trie stopped while traversing back down.....
-        if(pred0 >= 0 && depthT < b){
+        if(depthT != -1 && depthT < trieHeight){
             //The minimum key among the leaves of the subtree rooted by t
-            int minU_t = pred0 * (1 << (b - depthT)); 
+            int minU_t = pred0 * (1 << (trieHeight - depthT)); 
             if(k < minU_t){
                 //D_0 must contain a DEL node with key that is in the 
                 //range of keys of leaves in the subtree rooted by t
@@ -882,10 +881,10 @@ class Trie : public DynamicSet{
     string interpretedBitsString(){
         std::ostringstream stream;
         //For each level
-        for(int depth = 0;depth <= b;++depth){
+        for(int depth = 0;depth <= trieHeight;++depth){
             stream << "\t\t";
             //Add spaces for fancy formatting.
-            int numSpaces = (1 << b) - (1 << depth);
+            int numSpaces = (1 << trieHeight) - (1 << depth);
             for(int space = 0;space < numSpaces; ++space){
                 stream << ' ';
             }
@@ -904,7 +903,7 @@ class Trie : public DynamicSet{
 
     //Verify that the interpreted bits of the structure are correct.
     bool verifyInterpretedBits(int index=0, int depth=0){
-        if(depth == b)return true;
+        if(depth == trieHeight)return true;
         else{
             int leftIndex = index << 1;
             int rightIndex = leftIndex + 1;

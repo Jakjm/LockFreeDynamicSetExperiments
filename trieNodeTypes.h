@@ -88,17 +88,13 @@ class PredecessorNode :  public ListNode{
     }
 };
 
-
-
-
 class DelNode : public UpdateNode{
     public:
         std::atomic<int> upper0Boundary;
-        #warning 64 as maximum lower 1 boundary.
-        MinReg64 lower1Boundary; 
+        MinReg64 lower1Boundary; //A 65-bounded min register, which is sufficient for trees whose height is 63 or smaller.
         PredecessorNode *delPredNode;
         int64_t delPred;
-        int64_t delPred2;
+        std::atomic<int64_t> delPred2;
         std::atomic<bool> stop;
         std::atomic<int64_t> dNodeCount;
         
@@ -108,7 +104,7 @@ class DelNode : public UpdateNode{
             lower1Boundary(trieHeight+1), delPredNode(nullptr), delPred(-1), delPred2(-1), stop(false), dNodeCount(2){
         
         }
-        DelNode(int trieHeight) :  DelNode(0, DEL) {
+        DelNode(int trieHeight) :  DelNode(0, trieHeight) {
         
         }
         ~DelNode(){

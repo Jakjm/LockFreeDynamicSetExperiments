@@ -3,71 +3,72 @@
 #include "OtherDynamicSets/FRList.h"
 #include "common.h"
 #include "trieNodeTypes.h"
+#include <iomanip>
 #include <iostream>
 #include <string>
 #include <thread>
 
 using std::cout;
 
-void randomTask2(DynamicSet *set, int range, int time, int id, std::atomic<int64_t> *insOps, std::atomic<int64_t> *remOps, std::atomic<int64_t> *predOps){
+
+/**
+* This function has a process repeatedly perform update operations and predecessor operations on a dynamic set.
+* For `time' seconds, a process will flip a coin to determine if it should perform an update operation or a predecessor operation.
+* If performing an update operation, another coin is flipped to determine if the update operation will insert or remove a key from the set.
+* Then the process will perform this update or predecessor operation with a randomly generated integer key, from 0 to range inclusive.
+* id is the ID of the process performing the experiment.
+*/
+void randomExperiment(DynamicSet *set, int64_t range, int time, int id, std::atomic<int64_t> *numOps){
     threadID = id;
     set->initThread();
 
     uint64_t startTime = millis();
     uint64_t endTime = startTime + (time * 1000);
 
-    int64_t ins = 0;
-    int64_t rems = 0;
-    int64_t preds = 0;
+    int64_t opCount = 0;
     while(millis() < endTime){
-        int randomN = randomNum(range);
-        int opType = randomNum(2);
-        if(opType == 0){
-            set->insert(randomN);
-            ins += 1;
-        }
-        else if(opType == 1){
-            set->remove(randomN);
-            rems += 1;
+        int64_t key = randomNum(range);
+        int coinFlip = randomNum(1);
+        if(coinFlip){ //Process should perform an update operation.
+            coinFlip = randomNum(1); //Randomly chose whether to insert key
+            if(coinFlip)set->insert(key);
+            else set->remove(key);
         }
         else{
-            set->predecessor(randomN);
-            preds += 1;
+            set->predecessor(key);
         }
+        ++opCount;
     }
-    *insOps = ins;
-    *remOps = rems;
-    *predOps = preds;
+    *numOps = opCount;
 }
-void multithreadTest(int trieSize, int time, int numThreads){
-    threadID = 0;
-    trieRecordManager.initThread(threadID);
-    Trie trieSet(trieSize);
-    LinkedListSet listSet;
-    DynamicSet *set = &listSet;
+void multithreadTest(){
+    threadID=0;
 
+    int time = 10; //The duration of the test in seconds.
+    int trieHeight = 10; //The height of the trie.
+    int range = (1 << trieHeight) - 1; //The number of keys = 2^(trie height) - 1
+
+    Trie trieSet(trieHeight);
+    LinkedListSet listSet;
+    DynamicSet *set = &trieSet;
     std::thread *th[NUM_THREADS];
-    int range = (1 << trieSize) - 1; 
+    
+    std::atomic<int64_t> opCount[NUM_THREADS];
+
     cout << "Universe of " << (range+1) << " keys" << std::endl;
-    cout << "Random test of " << numThreads << " threads doing random ops for " << time << " seconds." << std::endl;
-    std::atomic<int64_t> insCount[numThreads];
-    std::atomic<int64_t> remCount[numThreads];
-    std::atomic<int64_t> predCount[numThreads];
-    for(int i = 1;i < numThreads;++i){
-        th[i] = new std::thread(randomTask2, set, range, time, i, &insCount[i], &remCount[i], &predCount[i]);
+    cout << "Random test of " << NUM_THREADS << " threads doing random ops for " << time << " seconds." << std::endl;
+    
+    //Allocate NUMTHREADS threads
+    for(int i = 0;i < NUM_THREADS;++i){
+        th[i] = new std::thread(randomExperiment, set, range, time, i, &opCount[i]);
     }
-    randomTask2(set, range, time, 0, &insCount[0], &remCount[0], &predCount[0]);
-    cout << "Thread 0 performed " << insCount[0] << " insert ops, " << remCount[0] << " remove ops and " << predCount[0] << " predecessor ops." << std::endl;
-    cout << (insCount[0] / (double)time) << " inserts/sec, " << (remCount[0] / (double)time) << " removes/sec, " << (predCount[0] / (double)time) << " preds/sec." << std::endl;  
-    for(int i = 1;i < numThreads;++i){
+
+    for(int i = 0;i < NUM_THREADS;++i){
         th[i]->join();
-        cout << "Thread " << i << " performed " << insCount[i] << " insert ops, " << remCount[i] << " remove ops and " << predCount[i] << " predecessor ops." << std::endl;
-        cout << (insCount[i] / (double)time) << " inserts/sec, " << (remCount[i] / (double)time) << " removes/sec, " << (predCount[i] / (double)time) << " preds/sec." << std::endl;  
+        cout << "Thread " << i << " performed " << opCount[i] << " ops, for an average of ";
+        cout << std::setprecision(8) << ((double)opCount[i] / time) << " ops/sec." << std::endl;
         delete th[i];
     }
-
-    //trie.printInterpretedBits();
-    //cout << "Verifying interpreted bits: " << std::to_string(trie.verifyInterpretedBits()) << std::endl;
 }
 
 void simpleTest(){
@@ -92,13 +93,7 @@ void simpleTest(){
     trie.printInterpretedBits();
 }
 
-int compare(int i1, int i2){
-    return i1 - i2;
-}
-
 int main(int argc, char **argv){
-    //simpleTest();
-    multithreadTest(10, 10, 8);
-    //printList();
+    multithreadTest();
     return 0;
 }
