@@ -45,7 +45,7 @@ void multithreadTest(){
     threadID=0;
 
     int time = 10; //The duration of the test in seconds.
-    int trieHeight = 10; //The height of the trie.
+    int trieHeight = 15; //The height of the trie.
     int range = (1 << trieHeight) - 1; //The number of keys = 2^(trie height) - 1
 
     Trie trieSet(trieHeight);

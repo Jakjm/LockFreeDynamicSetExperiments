@@ -22,7 +22,7 @@
 #include <chrono>
 #include <unordered_set>
 #include "common.h"
-#include "setbench/common/recordmgr/record_manager.h"
+
 
 //Jeremy's trie structure source code.
 using std::vector;
@@ -31,13 +31,7 @@ using std::set;
 using std::string;
 using std::deque;
 
-inline int __attribute__((always_inline)) compareUpdate(ListNode *u1, ListNode *u2){
-    UpdateNode *a = (UpdateNode*)u1;
-    UpdateNode *b = (UpdateNode*)u2;
-    return a->key - b->key;
-}
 
-record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
 
 
 //Structure used to store pointers to insert/delete nodes that go unused after allocations.
@@ -176,7 +170,6 @@ class Trie : public DynamicSet{
         return (u == l) || (l->status == INACTIVE && u == l->latestNext);
     }
     bool search(int64_t x){
-        assert(x >= 0 && x <= universeSize);
         trieRecordManager.startOp(threadID);
 
         UpdateNode *l = findLatest(x);
@@ -343,33 +336,33 @@ class Trie : public DynamicSet{
             if(firstActivated(dNode) == false)return;
             
             DelNode *expected = d;
-            int count = dNode->dNodeCount.fetch_add(1); 
-            assert(count > 0);
+            dNode->dNodeCount.fetch_add(1); 
+            //assert(count > 0);
             t->dNodePtr.compare_exchange_strong(expected, dNode);
             if(expected != d){
                 d = t->dNodePtr;
 
                 if(dNode->stop || (dNode->lower1Boundary.minRead() != trieHeight+1 || firstActivated(dNode) == false)){
-                    count = dNode->dNodeCount.fetch_add(-1);
-                    assert(count > 1);
+                    dNode->dNodeCount.fetch_add(-1);
+                    //assert(count > 1);
                     return;
                 }
                 expected = d;
                 t->dNodePtr.compare_exchange_strong(expected, dNode);
                 if(expected != d){
-                    count = dNode->dNodeCount.fetch_add(-1);
-                    assert(count > 1);
+                    dNode->dNodeCount.fetch_add(-1);
+                    //assert(count > 1);
                     return;
                 }
             }
 
             //dNode has successfully taken d's place as t->dNodePtr
             //Retire d if it is no longer in shared memory.
-            count = d->dNodeCount.fetch_add(-1);
+            int count = d->dNodeCount.fetch_add(-1);
             if(count == 1)trieRecordManager.retire(threadID, d);
 
             //Increment dNodeCount of dNode
-            if(interpretedBit(key * 2, depth + 1) == 1 || interpretedBit(key * 2 + 1, depth + 1))return;
+            if(interpretedBit(key * 2, depth + 1) || interpretedBit(key * 2 + 1, depth + 1))return;
             dNode->upper0Boundary = (trieHeight - depth);
         }
     }
@@ -378,7 +371,7 @@ class Trie : public DynamicSet{
     Insert operation on the binary trie.
     */
     void insert(int64_t x){
-        assert(x >= 0 && x <= universeSize);
+        //assert(x >= 0 && x <= universeSize);
         trieRecordManager.startOp(threadID);
         UpdateNode *dNode = findLatest(x), *expected;
         if (dNode->type == INS){
@@ -408,7 +401,7 @@ class Trie : public DynamicSet{
             //dNode->latestNext = nullptr
             UpdateNode *result = dNode->latestNext.exchange(nullptr); 
             if(result == latestNext){
-                assert(latestNext->type == INS);
+                //assert(latestNext->type == INS);
                 trieRecordManager.retire(threadID, (InsNode*)latestNext); //Retire the InsertNode following dNode in latest list.
             }
         }
@@ -439,7 +432,7 @@ class Trie : public DynamicSet{
         UpdateNode *result = iNode->latestNext.exchange(nullptr); 
         if(result == dNode){
             //Retire the delete node if it is no longer in the latest list or stored as a dNodePtr
-            assert(dNode->type == DEL);
+            //assert(dNode->type == DEL);
             int retire = ((DelNode*)dNode)->dNodeCount.fetch_add(-1);
             if(retire == 1)trieRecordManager.retire(threadID, (DelNode*)dNode);
         }
@@ -457,7 +450,7 @@ class Trie : public DynamicSet{
     
 
     void remove(int64_t x){
-        assert(x >= 0 && x <= universeSize);
+        //assert(x >= 0 && x <= universeSize);
         trieRecordManager.startOp(threadID);
 
         UpdateNode *iNode = findLatest(x), *expected;
@@ -487,7 +480,7 @@ class Trie : public DynamicSet{
         dNode->delPredNode = pNode;
         dNode->delPred = delPred;
         dNode->latestNext = iNode;
-        assert(dNode->dNodeCount == 2);
+        //assert(dNode->dNodeCount == 2);
     
         
         UpdateNode *latestNext = iNode->latestNext;
@@ -497,7 +490,7 @@ class Trie : public DynamicSet{
             UpdateNode *result = iNode->latestNext.exchange(nullptr); 
             //Swap iNode's latestNext with nullptr.
             if(result == latestNext){ //If this operation removed latestNext, decrement its dNodeCount.
-                assert(latestNext->type == DEL);
+                //assert(latestNext->type == DEL);
                 int retire = ((DelNode*)latestNext)->dNodeCount.fetch_add(-1);
                 if(retire == 1)trieRecordManager.retire(threadID, (DelNode*)latestNext); //Retire if dNodeCount was lowered to 0.
             }   
@@ -541,14 +534,14 @@ class Trie : public DynamicSet{
         UpdateNode *result = dNode->latestNext.exchange(nullptr);
         if(result == iNode){  
             //If this CAS unlinked iNode from the latest list, retire iNode.
-            assert(iNode->type == INS);
+            //assert(iNode->type == INS);
             trieRecordManager.retire(threadID, (InsNode*)iNode);
         }
         PredecessorNode *pNode2 = trieRecordManager.allocate<PredecessorNode>(threadID, x);
         int64_t delPred2 = predHelper(pNode2);
         dNode->delPred2 = delPred2;
 
-        assert(dNode->dNodeCount > 0);
+        //assert(dNode->dNodeCount > 0);
         deleteBinaryTrie(dNode);
         notifyPredOps(dNode);
 
@@ -680,7 +673,7 @@ class Trie : public DynamicSet{
     }
 
     //Traverse the reverse update announcement linked list.
-    void traverseRUALL(PredecessorNode *pNode, unordered_set<InsNode *> &I, unordered_set<DelNode*> &D){
+    void traverseRUALL(PredecessorNode *pNode, set<InsNode *> &I, set<DelNode*> &D){
         UpdateNode *uNode = (UpdateNode*)RU_ALL.first(pNode); //Atomically set pNode.notifyThreshold....
         while(uNode){
             if(uNode->key < pNode->key){
@@ -691,15 +684,15 @@ class Trie : public DynamicSet{
             }
             uNode = (UpdateNode*)RU_ALL.next(pNode,uNode); //Atomically set pNode.notifyThreshold....
         }
-        assert(pNode->notifyThreshold == &ZERO_THRES);
+        //assert(pNode->notifyThreshold == &ZERO_THRES);
     }
 
     int64_t predHelper(PredecessorNode *pNode){
         deque<PredecessorNode*> Q;
         vector<InsNode*> I_1, I_2;
         vector<DelNode*> D_1, D_2;
-        unordered_set<InsNode*> I_0;
-        unordered_set<DelNode*> D_0;
+        set<InsNode*> I_0;
+        set<DelNode*> D_0;
         int64_t y = pNode->key;
         int64_t depthT;
         
@@ -756,7 +749,7 @@ class Trie : public DynamicSet{
             if(k < minU_t){
                 //D_0 must contain a DEL node with key that is in the 
                 //range of keys of leaves in the subtree rooted by t
-                unordered_set<PredecessorNode*> predNodes;
+                set<PredecessorNode*> predNodes;
                 predNodes.insert(pNode);
                 for(DelNode *d : D_0){
                     predNodes.insert(d->delPredNode);
@@ -780,7 +773,7 @@ class Trie : public DynamicSet{
                     nNode = nNode->next;
                 }
 
-                unordered_set<UpdateNode*> L;
+                set<UpdateNode*> L;
                 //Insert all updateNodes not in I_0 union D_0 of notify nodes of pNode to L
                 nNode = pNode->notifyListHead;
                 while(nNode){
@@ -804,7 +797,7 @@ class Trie : public DynamicSet{
                     UpdateNode *uNode = *rit;
                     if(L.count(uNode) == 0)LDoublePrime.push_back(uNode);
                 }
-                unordered_set<int64_t> R;
+                set<int64_t> R;
                 for(DelNode *dNode : D_0){
                     R.insert(dNode->delPred); //Insert the embedded predecessor value of the delNodes in D_0
                 }
@@ -821,7 +814,7 @@ class Trie : public DynamicSet{
                 //Set of keys X, such that for every key x in X, 
                 //x is in R, and an UpdateNode with key x is in L'', 
                 //and the furthest update node within L'' has type INS
-                std::unordered_set<int64_t> goodKeys;
+                std::set<int64_t> goodKeys;
                 //Go through LDouble prime in reverse
                 for(vector<UpdateNode*>::reverse_iterator iter = LDoublePrime.rbegin(); iter != LDoublePrime.rend(); ++iter){
                     UpdateNode *uNode = *iter;
