@@ -5,10 +5,10 @@
 #include "BoundedMinReg/minreg.h"
 #include "LinkedLists/ListNode.h"
 #include "common.h"
+#include "debra.h"
 #include "setbench/common/recordmgr/record_manager.h"
 #pragma once
 using std::string;
-
 
 enum TYPE {INS, DEL};
 enum STATUS {INACTIVE, ACTIVE, STALE};
@@ -17,8 +17,17 @@ class PredecessorNode;
 class InsNode;
 class DelNode;
 class NotifyNode;
-record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
+class BaseType{
+    public:
+    virtual ~BaseType(){
+        
+    }
+};
 
+
+Debra<BaseType, 4> trieDebra;
+
+//record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
 
 class UpdateNode : public ListNode, public RU_ALL_Node{
     public:
@@ -33,11 +42,10 @@ class UpdateNode : public ListNode, public RU_ALL_Node{
         UpdateNode(TYPE t) : ListNode(), RU_ALL_Node(),  key(-1), type(t), status(INACTIVE), latestNext(nullptr){
         
         }
-        virtual ~UpdateNode(){}
 
 };
 
-class InsNode : public UpdateNode{
+class InsNode : public UpdateNode, public BaseType{
     public:
         std::atomic<DelNode *> target;
         InsNode(int64_t key): UpdateNode(key, INS),  target(nullptr){
@@ -72,7 +80,7 @@ class NotifyNode {
 InsNode INFINITY_THRES(INT64_MAX);
 InsNode ZERO_THRES(0);
 
-class PredecessorNode :  public ListNode{
+class PredecessorNode :  public ListNode, public BaseType{
     public:
     const int64_t key;
     std::atomic<UpdateNode*> notifyThreshold;
@@ -91,7 +99,7 @@ class PredecessorNode :  public ListNode{
     }
 };
 
-class DelNode : public UpdateNode{
+class DelNode : public UpdateNode, public BaseType{
     public:
         std::atomic<int> upper0Boundary;
         MinReg64 lower1Boundary; //A 65-bounded min register, which is sufficient for trees whose height is 63 or smaller.
@@ -99,7 +107,7 @@ class DelNode : public UpdateNode{
         int64_t delPred;
         std::atomic<int64_t> delPred2;
         std::atomic<bool> stop;
-        std::atomic<int64_t> dNodeCount;
+        std::atomic<int8_t> dNodeCount;
         
 
         DelNode(int64_t key, int trieHeight) : 

@@ -1,4 +1,3 @@
-#include <algorithm>
 #include <climits>
 #include <cstdint>
 #include <iterator>
@@ -60,7 +59,6 @@ class Trie : public DynamicSet{
     Trie(int height) : trieHeight(height), universeSize(1 << height), latest(universeSize), P_ALL(), U_ALL(), RU_ALL()
     {
         initThread();
-        auto guard = trieRecordManager.getGuard(threadID);
         //Initialize the binary trie nodes for each level of the trie.
         for(int i = 0; i < trieHeight;++i){
             int64_t rowSize = (1 << i); //Row size = 2^i
@@ -74,7 +72,8 @@ class Trie : public DynamicSet{
         //Initialize row b of binary trie nodes.
         //Initially, each latest list's head = a DelNode with
         for(int64_t key = 0; key < universeSize;++key){
-            DelNode *initialDelNode = trieRecordManager.allocate<DelNode>(threadID, key, trieHeight);
+            DelNode *initialDelNode = new DelNode(key, trieHeight);
+            //trieRecordManager.allocate<DelNode>(threadID, key, trieHeight);
             initialDelNode->upper0Boundary = trieHeight; // The initial delNodes for the trie have upper0Boundary = trieHeight.
             latest[key].head = initialDelNode;
             initialDelNode->status = ACTIVE;
@@ -104,37 +103,44 @@ class Trie : public DynamicSet{
         verifyLists();
     }
     ~Trie(){
-        trieRecordManager.startOp(threadID);
+        //trieRecordManager.startOp(threadID);
         //Attempt to retire all of the UpdateNodes stored in the latest lists
         //And all of the dNodePtrs.
         for(vector<TrieNode> &trieNodeRow : trieNodes){
             for(TrieNode &tNode : trieNodeRow){
                 DelNode *dNode = tNode.dNodePtr;
                 int retire = dNode->dNodeCount.fetch_add(-1);
-                if(retire == 1)trieRecordManager.deallocate(threadID, dNode);
+                if(retire == 1){
+                    delete dNode;
+                    //trieRecordManager.deallocate(threadID, dNode);
+                }
             }
         }
         for(LatestList &list : latest){
             UpdateNode *uNode = list.head;
             UpdateNode *next = uNode->latestNext;
             if(uNode->type == INS){
-                trieRecordManager.deallocate(threadID, (InsNode*)uNode);
+                delete (InsNode*)uNode;
+                //trieRecordManager.deallocate(threadID, (InsNode*)uNode);
             }
             else{
                 DelNode *d = (DelNode*)uNode;
                 int retire = d->dNodeCount.fetch_add(-1);
                 assert(retire == 1);
-                trieRecordManager.deallocate(threadID, d);
+                delete d;
+                //trieRecordManager.deallocate(threadID, d);
             }
             if(next){
                 if(next->type == INS){
-                    trieRecordManager.deallocate(threadID, (InsNode*)next);
+                    delete (InsNode*)next;
+                    //trieRecordManager.deallocate(threadID, (InsNode*)next);
                 }
                 else{
                     DelNode *d = (DelNode*)next;
                     int retire = d->dNodeCount.fetch_add(-1);
                     assert(retire == 1);
-                    trieRecordManager.deallocate(threadID, d);
+                    delete d;
+                    //trieRecordManager.deallocate(threadID, d);
                 }
             }
         }
@@ -143,19 +149,22 @@ class Trie : public DynamicSet{
         for(int i = 0;i < NUM_THREADS;++i){
             InsNode * volatile ins = updateNodePool[i].insNode;
             DelNode * volatile del = updateNodePool[i].delNode; 
-            if(ins)trieRecordManager.deallocate(threadID, ins);
-            if(del)trieRecordManager.deallocate(threadID, del);
+            if(ins)delete ins;
+            
+            //trieRecordManager.deallocate(threadID, ins);
+            if(del)delete del;
+            //trieRecordManager.deallocate(threadID, del);
         }
-        trieRecordManager.endOp(threadID);
+        //trieRecordManager.endOp(threadID);
 
         //Dump all limbo bags of their contents.
-        for(int i = 0;i < NUM_THREADS;++i){
-            trieRecordManager.deinitThread(i);
-        }
+        // for(int i = 0;i < NUM_THREADS;++i){
+        //     trieRecordManager.deinitThread(i);
+        // }
                 
     }
     void initThread(){
-        trieRecordManager.initThread(threadID);
+        //trieRecordManager.initThread(threadID);
     }
     UpdateNode *findLatest(int64_t x){
         UpdateNode *l = latest[x].head;
@@ -170,11 +179,12 @@ class Trie : public DynamicSet{
         return (u == l) || (l->status == INACTIVE && u == l->latestNext);
     }
     bool search(int64_t x){
-        trieRecordManager.startOp(threadID);
-
+        //trieRecordManager.startOp(threadID);
+        trieDebra.startOp();
         UpdateNode *l = findLatest(x);
 
-        trieRecordManager.endOp(threadID);
+        //trieRecordManager.endOp(threadID);
+        trieDebra.endOp();
         return l->type == INS; //Return whether the root of the latest was an insert node.
     }
     char interpretedBit(int index, int depth){
@@ -213,12 +223,16 @@ class Trie : public DynamicSet{
                 UpdateNode *result = uNode->latestNext.exchange(nullptr); 
                 if(result == latestNext){ //This operation unlinked latestNext from the latest list.
                     if(latestNext->type == INS){
-                        trieRecordManager.retire(threadID, (InsNode*)latestNext); //Retire latestNext if it's an insert node.
+                        trieDebra.retire((InsNode*)latestNext);
+                        //trieRecordManager.retire(threadID, (InsNode*)latestNext); //Retire latestNext if it's an insert node.
                     }
                     else{
                         //Otherwise, decrement latestNext's dNodeCount, and retire latestNext if dNodeCount was reduced to 0.
                         int retire = ((DelNode*)latestNext)->dNodeCount.fetch_add(-1); 
-                        if(retire == 1)trieRecordManager.retire(threadID, (DelNode*)latestNext);
+                        if(retire == 1){
+                            trieDebra.retire((DelNode*)latestNext);
+                            //trieRecordManager.retire(threadID, (DelNode*)latestNext);
+                        }
                     }
                 }
             }
@@ -275,8 +289,8 @@ class Trie : public DynamicSet{
             InsNode *updateNodeMax = nullptr;
             for(InsNode* insNode : I){
                 if(insNode->key < pNode->key && insNode->key > maxKey){
-                        maxKey = insNode->key;
-                        updateNodeMax = insNode;
+                    maxKey = insNode->key;
+                    updateNodeMax = insNode;
                 }
             }
 
@@ -359,7 +373,10 @@ class Trie : public DynamicSet{
             //dNode has successfully taken d's place as t->dNodePtr
             //Retire d if it is no longer in shared memory.
             int count = d->dNodeCount.fetch_add(-1);
-            if(count == 1)trieRecordManager.retire(threadID, d);
+            if(count == 1){
+                trieDebra.retire(d);
+            }
+                //trieRecordManager.retire(threadID, d);
 
             //Increment dNodeCount of dNode
             if(interpretedBit(key * 2, depth + 1) || interpretedBit(key * 2 + 1, depth + 1))return;
@@ -372,10 +389,12 @@ class Trie : public DynamicSet{
     */
     void insert(int64_t x){
         //assert(x >= 0 && x <= universeSize);
-        trieRecordManager.startOp(threadID);
+        trieDebra.startOp();
+        //trieRecordManager.startOp(threadID);
         UpdateNode *dNode = findLatest(x), *expected;
         if (dNode->type == INS){
-            trieRecordManager.endOp(threadID); //x already in S, nothing to do!
+            trieDebra.endOp();
+            //trieRecordManager.endOp(threadID); //x already in S, nothing to do!
             return;
         } 
         //dNode has type DEL and its child, if it has one, is of type INS
@@ -386,7 +405,8 @@ class Trie : public DynamicSet{
             iNode = updateNodePool[threadID].insNode; //Use the node that is currently in the pool
         }
         else{
-            iNode = trieRecordManager.allocate<InsNode>(threadID); //If there is no available node in the pool, allocate one.
+            iNode = new InsNode();
+            //trieRecordManager.allocate<InsNode>(threadID); //If there is no available node in the pool, allocate one.
         }
         #else
         InsNode *iNode = trieRecordManager.allocate<InsNode>(threadID); //Allocate a new node for each insert
@@ -402,7 +422,8 @@ class Trie : public DynamicSet{
             UpdateNode *result = dNode->latestNext.exchange(nullptr); 
             if(result == latestNext){
                 //assert(latestNext->type == INS);
-                trieRecordManager.retire(threadID, (InsNode*)latestNext); //Retire the InsertNode following dNode in latest list.
+                trieDebra.retire((InsNode*)latestNext);
+                //trieRecordManager.retire(threadID, (InsNode*)latestNext); //Retire the InsertNode following dNode in latest list.
             }
         }
         expected = dNode;
@@ -414,7 +435,8 @@ class Trie : public DynamicSet{
             #else
             trieRecordManager.deallocate(threadID, iNode);
             #endif
-            trieRecordManager.endOp(threadID);
+            //trieRecordManager.endOp(threadID);
+            trieDebra.endOp();
             return;
         }
         #ifdef reuse 
@@ -434,7 +456,8 @@ class Trie : public DynamicSet{
             //Retire the delete node if it is no longer in the latest list or stored as a dNodePtr
             //assert(dNode->type == DEL);
             int retire = ((DelNode*)dNode)->dNodeCount.fetch_add(-1);
-            if(retire == 1)trieRecordManager.retire(threadID, (DelNode*)dNode);
+            if(retire == 1)trieDebra.retire((DelNode*)dNode);
+            //trieRecordManager.retire(threadID, (DelNode*)dNode);
         }
         
         insertBinaryTrie(iNode);
@@ -445,22 +468,26 @@ class Trie : public DynamicSet{
 
         U_ALL.remove(iNode);
         RU_ALL.remove(iNode);
-        trieRecordManager.endOp(threadID);
+        trieDebra.endOp();
+        //trieRecordManager.endOp(threadID);
     }
     
 
     void remove(int64_t x){
         //assert(x >= 0 && x <= universeSize);
-        trieRecordManager.startOp(threadID);
+        trieDebra.startOp();
+        //trieRecordManager.startOp(threadID);
 
         UpdateNode *iNode = findLatest(x), *expected;
         if(iNode->type == DEL){
-            trieRecordManager.endOp(threadID);
+            trieDebra.endOp();
+            //trieRecordManager.endOp(threadID);
             return; //x is not in S, nothing to do!
         }
         //iNode has type INS. If it has a child, its child has type DEL.
 
-        PredecessorNode *pNode = trieRecordManager.allocate<PredecessorNode>(threadID, x);
+        PredecessorNode *pNode = new PredecessorNode(x);
+        //trieRecordManager.allocate<PredecessorNode>(threadID, x);
         int64_t delPred = predHelper(pNode);
 
         //Initialize update node for this delete operation.
@@ -470,7 +497,8 @@ class Trie : public DynamicSet{
             dNode = updateNodePool[threadID].delNode; //Reuse a delete node from a previous operation that failed to insert delnode into latest list.
         }
         else{ //If there is no available node in the pool, allocate one.
-            dNode = trieRecordManager.allocate<DelNode>(threadID, trieHeight);
+            dNode = new DelNode(trieHeight);
+            //trieRecordManager.allocate<DelNode>(threadID, trieHeight);
         }
         #else 
         DelNode *dNode = trieRecordManager.allocate<DelNode>(threadID, trieHeight); //Allocate a delNode for each delete...
@@ -492,7 +520,8 @@ class Trie : public DynamicSet{
             if(result == latestNext){ //If this operation removed latestNext, decrement its dNodeCount.
                 //assert(latestNext->type == DEL);
                 int retire = ((DelNode*)latestNext)->dNodeCount.fetch_add(-1);
-                if(retire == 1)trieRecordManager.retire(threadID, (DelNode*)latestNext); //Retire if dNodeCount was lowered to 0.
+                if(retire == 1)trieDebra.retire((DelNode*)latestNext);
+                //trieRecordManager.retire(threadID, (DelNode*)latestNext); //Retire if dNodeCount was lowered to 0.
             }   
         }
         notifyPredOps(iNode);
@@ -513,8 +542,10 @@ class Trie : public DynamicSet{
             trieRecordManager.deallocate(threadID, dNode);
             #endif
             //Retire pNode as it is no longer in shared memory.
-            trieRecordManager.retire(threadID, pNode);
-            trieRecordManager.endOp(threadID);
+            trieDebra.retire(pNode);
+            //trieRecordManager.retire(threadID, pNode);
+            trieDebra.endOp();
+            //trieRecordManager.endOp(threadID);
             return;
         }
         #ifdef reuse
@@ -535,9 +566,11 @@ class Trie : public DynamicSet{
         if(result == iNode){  
             //If this CAS unlinked iNode from the latest list, retire iNode.
             //assert(iNode->type == INS);
-            trieRecordManager.retire(threadID, (InsNode*)iNode);
+            trieDebra.retire((InsNode*)iNode);
+            //trieRecordManager.retire(threadID, (InsNode*)iNode);
         }
-        PredecessorNode *pNode2 = trieRecordManager.allocate<PredecessorNode>(threadID, x);
+        PredecessorNode *pNode2 = new PredecessorNode(x);
+        //trieRecordManager.allocate<PredecessorNode>(threadID, x);
         int64_t delPred2 = predHelper(pNode2);
         dNode->delPred2 = delPred2;
 
@@ -550,15 +583,19 @@ class Trie : public DynamicSet{
         P_ALL.remove((ListNode*)pNode2);
 
         //Retire both pNode and pNode2.
-        trieRecordManager.retire(threadID, pNode);
-        trieRecordManager.retire(threadID, pNode2);
+        trieDebra.retire(pNode);
+        trieDebra.retire(pNode2);
+        //trieRecordManager.retire(threadID, pNode);
+        //trieRecordManager.retire(threadID, pNode2);
 
         U_ALL.remove(dNode);
         RU_ALL.remove(dNode);
 
         int retire = dNode->dNodeCount.fetch_add(-1);
-        if(retire == 1)trieRecordManager.retire(threadID, dNode);
-        trieRecordManager.endOp(threadID);
+        if(retire == 1)trieDebra.retire(dNode);
+        //trieRecordManager.retire(threadID, dNode);
+        trieDebra.endOp();
+        //trieRecordManager.endOp(threadID);
     }
 
     //    0
@@ -623,8 +660,8 @@ class Trie : public DynamicSet{
 
     void traverseAndInsertPALL(PredecessorNode *newNode, deque<PredecessorNode*> &q){
         set<PredecessorNode*> qSet;
+
         ListNode *first = (ListNode*)(P_ALL.head.successor.load() & NEXT_MASK);
-        
         PredecessorNode *pNode = (PredecessorNode*)first;
         //Traverse P_ALL from start to end
         while(pNode){
@@ -845,16 +882,19 @@ class Trie : public DynamicSet{
         else return k;
     }
     int64_t predecessor(int64_t y){
-        assert(y >= 0 && y <= universeSize);
-
-        trieRecordManager.startOp(threadID);
+        //assert(y >= 0 && y <= universeSize);
+        trieDebra.startOp();
+        //trieRecordManager.startOp(threadID);
         
-        PredecessorNode *p = trieRecordManager.allocate<PredecessorNode>(threadID, y);
+        PredecessorNode *p = new PredecessorNode(y);
+        //trieRecordManager.allocate<PredecessorNode>(threadID, y);
         int64_t pred = predHelper(p);
         P_ALL.remove((ListNode*)p);
-        trieRecordManager.retire(threadID, p); //PredNode p can be retired, since it is no longer in shared memory.
+        trieDebra.retire(p);
+        //trieRecordManager.retire(threadID, p); //PredNode p can be retired, since it is no longer in shared memory.
 
-        trieRecordManager.endOp(threadID);
+        trieDebra.endOp();
+        //trieRecordManager.endOp(threadID);
         return pred;
     }
     void printS(){

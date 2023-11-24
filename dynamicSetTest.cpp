@@ -6,6 +6,7 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <format>
 #include <thread>
 
 using std::cout;
@@ -18,15 +19,22 @@ using std::cout;
 * Then the process will perform this update or predecessor operation with a randomly generated integer key, from 0 to range inclusive.
 * id is the ID of the process performing the experiment.
 */
-void randomExperiment(DynamicSet *set, int64_t range, int time, int id, std::atomic<int64_t> *numOps){
+void randomExperiment(DynamicSet *set, int64_t range, int time, int id, int64_t volatile *numOps){
     threadID = id;
     set->initThread();
 
     uint64_t startTime = millis();
     uint64_t endTime = startTime + (time * 1000);
+    
 
     int64_t opCount = 0;
-    while(millis() < endTime){
+    uint64_t currentTime = startTime;
+    //uint64_t nextDatapoint = startTime + 50; //Record data points every 50 ms
+    while(currentTime < endTime){
+        // if(currentTime > nextDatapoint){
+        //     dataPoints->push_back(opCount);
+        //     nextDatapoint = currentTime + 50;
+        // }
         int64_t key = randomNum(range);
         int coinFlip = randomNum(1);
         if(coinFlip){ //Process should perform an update operation.
@@ -38,9 +46,38 @@ void randomExperiment(DynamicSet *set, int64_t range, int time, int id, std::ato
             set->predecessor(key);
         }
         ++opCount;
+        currentTime = millis();
     }
     *numOps = opCount;
 }
+void calcTime(long millis, int &hours, int &minutes, int &seconds){
+    millis -= (5 * 60 * 60 * 1000); //Subtract five hours for EST.
+    long numDays = millis / (60 * 60 * 24 * 1000);
+    long time = millis - numDays * (60 * 60 * 24 * 1000);
+    hours = time / (60 * 60 * 1000);
+    minutes = time % (60 * 60 * 1000) / 60000;
+    seconds = time % (60000) / 1000; 
+
+}
+// void outputData(int time, vector<int64_t> data[NUM_THREADS]){
+//     FILE *f = fopen("threadData.txt","w");
+//     for(int i = 0;i < NUM_THREADS;++i){
+//         fprintf(f, "%d ",i);
+//     }
+//     fprintf(f, "\n");
+//     for(uint64_t dp = 0;dp < (uint64_t)time * 20;++dp){
+//         for(int i = 0;i < NUM_THREADS;++i){
+//             if(data[i].size() > dp){
+//                 fprintf(f, "%ld ", data[i][dp]);
+//             }
+//             else{
+//                 fprintf(f, "  ");
+//             }
+//         }
+//         fprintf(f, "\n");
+//     }
+//     fclose(f);
+// }
 void multithreadTest(){
     threadID=0;
 
@@ -52,16 +89,32 @@ void multithreadTest(){
     LinkedListSet listSet;
     DynamicSet *set = &trieSet;
     std::thread *th[NUM_THREADS];
+
+    //Prefill the set to 50% full
+    std::set<int64_t> valSet;
+    while(valSet.size() < ((uint64_t)range / 2)){
+        int64_t key = randomNum(range);
+        set->insert(key);
+        valSet.insert(key);
+    }
     
-    std::atomic<int64_t> opCount[NUM_THREADS];
+    volatile int64_t opCount[NUM_THREADS];
+    //vector<int64_t> dataPoints[NUM_THREADS];
 
     cout << "Universe of " << (range+1) << " keys" << std::endl;
     cout << "Random test of " << NUM_THREADS << " threads doing random ops for " << time << " seconds." << std::endl;
+    int hours, minutes, seconds;
+    calcTime(millis(), hours, minutes, seconds);
+    printf("Test starting at %02d:%02d:%02d\n",hours,minutes,seconds);
+    calcTime(millis() + time * 1000, hours, minutes, seconds);
+    printf("Test will finish at %02d:%02d:%02d\n",hours,minutes,seconds);
     
     //Allocate NUMTHREADS threads
     for(int i = 0;i < NUM_THREADS;++i){
         th[i] = new std::thread(randomExperiment, set, range, time, i, &opCount[i]);
     }
+    
+    //outputData(time, dataPoints);
 
     for(int i = 0;i < NUM_THREADS;++i){
         th[i]->join();
@@ -73,7 +126,7 @@ void multithreadTest(){
 
 void simpleTest(){
     threadID = 0;
-    trieRecordManager.initThread(threadID);
+    //trieRecordManager.initThread(threadID);
     Trie trie(3);
     cout << "Simple test." << std::endl;
     trie.printInterpretedBits();

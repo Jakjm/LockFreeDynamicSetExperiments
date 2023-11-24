@@ -3,7 +3,7 @@
 #pragma once
 
 thread_local int threadID = -1;
-const int NUM_THREADS = 8;
+const int NUM_THREADS = 4;
 
 //Returns the number of milliseconds since the Unix epoch, January 1st 1970 at 00:00:00 UTC.
 uint64_t millis(){
