@@ -87,7 +87,8 @@ void multithreadTest(){
 
     Trie<trieHeight> trieSet;
     LinkedListSet listSet;
-    DynamicSet *set = &trieSet;
+    SkipListSet<20> skipSet;
+    DynamicSet *set = &skipSet;
 
     std::thread *th[NUM_THREADS];
 
@@ -149,16 +150,20 @@ void simpleTest(){
 
 void skipTest(){
     threadID = 0;
-    SkipListSet<3> skipSet;
-    skipSet.insert(5);
-    skipSet.insert(10);
-    cout << skipSet.predecessor(3) << " " << skipSet.predecessor(8) << " " << skipSet.predecessor(12) << std::endl;
-    skipSet.remove(5);
-    skipSet.remove(10);
+    SkipListSet<5> skipSet;
+    skipSet.printList();
+    for(int i = 0;i < 20;++i){
+        skipSet.insert(randomNum(50));
+    }
+    skipSet.printList();
+    for(int i = 0;i < 20;++i){
+        skipSet.remove(randomNum(50));
+    }
+    skipSet.printList();
 }
 
 int main(int argc, char **argv){
-    skipTest();
-    //multithreadTest();
+    //skipTest();
+    multithreadTest();
     return 0;
 }

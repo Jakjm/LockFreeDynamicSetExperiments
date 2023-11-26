@@ -59,6 +59,15 @@ class SkipListSet : public DynamicSet{
             SkipNode * volatile n = pool[i].node;
             if(n)delete n;
         }
+        for(int lv = maxLevels-1; lv >= 0;--lv){
+            SkipNode *cur = (SkipNode*)(head[lv].next & NEXT_MASK); 
+            SkipNode *next;
+            while(cur != &tail){
+                next = (SkipNode*)(cur->next & NEXT_MASK);
+                delete cur;
+                cur = next;
+            }
+        }
         //TODO free each level........
     }
 
@@ -100,18 +109,7 @@ class SkipListSet : public DynamicSet{
         return succ;
     }
 
-    SkipNode* findStart(int &level){
-        int curLevel = 0;
-        uintptr_t succ = head[curLevel + 1].next;
-        SkipNode *next = (SkipNode*)(succ & NEXT_MASK);
-        while(next != &tail || curLevel < level){
-            ++curLevel;
-            succ = head[curLevel + 1].next;
-            next = (SkipNode*)(succ & NEXT_MASK);
-        }
-        level = curLevel;
-        return &head[curLevel];
-    }
+
 
 
     bool tryFlag(SkipNode *&prev, SkipNode *delNode, bool &inList){
@@ -144,23 +142,33 @@ class SkipListSet : public DynamicSet{
             }
         }
     }
-
+    SkipNode* findStart(int &level){
+        int curLevel = 0;
+        uintptr_t succ = head[curLevel + 1].next;
+        SkipNode *next = (SkipNode*)(succ & NEXT_MASK);
+        while(next != &tail || curLevel < level){
+            ++curLevel;
+            succ = head[curLevel + 1].next;
+            next = (SkipNode*)(succ & NEXT_MASK);
+        }
+        level = curLevel;
+        return &head[curLevel];
+    }
     SkipNode *searchRight(int64_t k, SkipNode *&curr){
         uintptr_t succ = curr->next;
         SkipNode *next = (SkipNode*)(succ & NEXT_MASK);
         while(next->key <= k){
             while((next->root->next & STATUS_MASK) == Marked){ //If next is superfluous, try to delete it...
                 //Try to flag the node 
-                succ = (uintptr_t)next;
                 bool status;
                 tryFlag(curr, next, status);
 
                 if(status){ //If next is still in the list....
-                    succ = helpRemove(curr, next);
+                    helpRemove(curr, next);
                 }
-                
+
+                succ = curr->next;
                 next = (SkipNode*)(succ & NEXT_MASK);
-                
             }
             if(next->key <= k){
                 curr = next;
@@ -228,7 +236,7 @@ class SkipListSet : public DynamicSet{
         newNode->root = newNode;
         int height = 0;
         newRoot = newNode;
-        while(randomNum(1) == 0 && height < maxLevels - 1){
+        while(randomNum(2) == 0 && height < maxLevels - 1){
             ++height;
         }
         int level = 0;
@@ -297,6 +305,44 @@ class SkipListSet : public DynamicSet{
         bool keyContained = curr->key == k;
         skipDebra.endOp();
         return keyContained;
+    }
+    char stat_to_char(uint64_t status){
+        if(status == Normal){
+            return ' ';
+        }
+        else if(status == DelFlag){
+            return 'F';
+        }
+        else if(status == Marked){
+            return 'M';
+        }
+        return ' ';
+    }
+
+    //Thread safe way of printing list
+    void printList(){
+        
+
+        for(int i = maxLevels - 1; i >= 0; --i){
+            std::ostringstream stream;
+            SkipNode *node = &head[i];
+            uintptr_t succ;
+            SkipNode *next;
+            int status;
+            stream << "Level: " << i << "{";
+            do{
+                succ = node->next;
+                next = (SkipNode*)(succ & NEXT_MASK);
+                status = (succ & STATUS_MASK);
+                stream << "<" << node->key << ", " << stat_to_char(status)  << ">";
+                node = next;
+            }while(node);
+            stream << "}\n";
+            std::cout << stream.str();
+        }
+    }
+    void printSet(){
+
     }
     
 };
