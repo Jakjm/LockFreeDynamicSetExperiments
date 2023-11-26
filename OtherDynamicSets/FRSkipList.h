@@ -103,7 +103,7 @@ class SkipListSet : public DynamicSet{
         int curLevel = 0;
         uintptr_t succ = head[curLevel + 1].next;
         SkipNode *next = (SkipNode*)(succ & NEXT_MASK);
-        while(next != &tail || curLevel <= level){
+        while(next != &tail || curLevel < level){
             ++curLevel;
             succ = head[curLevel + 1].next;
             next = (SkipNode*)(succ & NEXT_MASK);
@@ -227,7 +227,7 @@ class SkipListSet : public DynamicSet{
         newNode->root = newNode;
         int height = 0;
         newRoot = newNode;
-        while(randomNum(3) == 0 && height < maxLevels - 1){
+        while(randomNum(1) == 0 && height < maxLevels - 1){
             ++height;
         }
         int level = 0;
