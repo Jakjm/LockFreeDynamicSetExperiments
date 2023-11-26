@@ -148,10 +148,13 @@ void simpleTest(){
 
 
 void skipTest(){
+    threadID = 0;
     SkipListSet<3> skipSet;
     skipSet.insert(5);
     skipSet.insert(10);
     cout << skipSet.predecessor(3) << " " << skipSet.predecessor(8) << " " << skipSet.predecessor(12) << std::endl;
+    skipSet.remove(5);
+    skipSet.remove(10);
 }
 
 int main(int argc, char **argv){

@@ -52,6 +52,7 @@ class SkipListSet : public DynamicSet{
             head[i].root = &head[0];
             if(i > 0)head[i].down = &head[i-1];
         }
+        tail.root = &tail;
     }
     ~ SkipListSet(){
         for(int i = 0;i < NUM_THREADS;++i){
