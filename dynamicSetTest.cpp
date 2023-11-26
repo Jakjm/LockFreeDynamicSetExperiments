@@ -1,5 +1,6 @@
 #include "DynamicSet.h"
 #include "trie.h"
+#include "OtherDynamicSets/FRSkipList.h"
 #include "OtherDynamicSets/FRList.h"
 #include "common.h"
 #include "trieNodeTypes.h"
@@ -21,7 +22,6 @@ using std::cout;
 */
 void randomExperiment(DynamicSet *set, int64_t range, int time, int id, int64_t volatile *numOps){
     threadID = id;
-    set->initThread();
 
     uint64_t startTime = millis();
     uint64_t endTime = startTime + (time * 1000);
@@ -81,13 +81,14 @@ void calcTime(long millis, int &hours, int &minutes, int &seconds){
 void multithreadTest(){
     threadID=0;
 
-    int time = 10; //The duration of the test in seconds.
-    int trieHeight = 15; //The height of the trie.
+    int time = 5; //The duration of the test in seconds.
+    const int trieHeight = 15; //The height of the trie.
     int range = (1 << trieHeight) - 1; //The number of keys = 2^(trie height) - 1
 
-    Trie trieSet(trieHeight);
+    Trie<trieHeight> trieSet;
     LinkedListSet listSet;
     DynamicSet *set = &trieSet;
+
     std::thread *th[NUM_THREADS];
 
     //Prefill the set to 50% full
@@ -126,8 +127,7 @@ void multithreadTest(){
 
 void simpleTest(){
     threadID = 0;
-    //trieRecordManager.initThread(threadID);
-    Trie trie(3);
+    Trie<3> trie;
     cout << "Simple test." << std::endl;
     trie.printInterpretedBits();
     trie.insert(3);
@@ -146,7 +146,16 @@ void simpleTest(){
     trie.printInterpretedBits();
 }
 
+
+void skipTest(){
+    SkipListSet<3> skipSet;
+    skipSet.insert(5);
+    skipSet.insert(10);
+    cout << skipSet.predecessor(3) << " " << skipSet.predecessor(8) << " " << skipSet.predecessor(12) << std::endl;
+}
+
 int main(int argc, char **argv){
-    multithreadTest();
+    skipTest();
+    //multithreadTest();
     return 0;
 }

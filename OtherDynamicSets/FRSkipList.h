@@ -11,242 +11,292 @@
 #include "../LinkedLists/ListNode.h"
 #include "../DynamicSet.h"
 #include "../common.h"
-#include "../setbench/common/recordmgr/record_manager.h"
+#include "../debra.h"
 #pragma once
 using std::string;
 
-const int MAX_LEVEL = 20;
-
-struct KeyTower {
+struct SkipNode{
     int64_t key;
-    std::atomic<uintptr_t> successor[MAX_LEVEL]; //Contains <next, state>. The state is contained within the lowest 3 bits of the pointer.
-    std::atomic<KeyTower*> backlink[MAX_LEVEL];  //A pointer to the ListNode preceeding this node before it is removed.
-    KeyTower(int64_t k) : key(k){
+    std::atomic<uintptr_t> next;
+    std::atomic<SkipNode*> backlink;
+    SkipNode * root;
+    SkipNode * down;
+    SkipNode():  key(-1), next(0), backlink(nullptr), root(nullptr), down(nullptr){
+
+    }
+    SkipNode(int64_t k) : key(k), next(0), backlink(nullptr), root(nullptr), down(nullptr){
+
     }
 };
 
-
-//TODO memory reclamation
-record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, KeyTower> skipRecordMgr(NUM_THREADS);
-
-//Structure used to store pointers to insert/delete nodes that go unused after allocations.
-//On subsequent insert/delete operations by the same thread, the previouslly allocated insert/delete node can be used again.
-struct KeyTowerPool{
-    KeyTower *keyNode;
-    KeyTowerPool(): keyNode(nullptr){
+struct SkipListPool{
+    SkipNode *node;
+    volatile char padding[64-sizeof(SkipListPool*)];
+    SkipListPool(): node(nullptr){
 
     }
 };
-KeyTowerPool keyTowerPool[NUM_THREADS];
 
-#define reuse 1 //If reuse is defined, update nodes that are not inserted into the trie will be reused.
+SkipListPool pool[NUM_THREADS];
+Debra<SkipNode, 4> skipDebra;
 
-//An implementation of Eric Ruppert and Michhail Fomitchev's Lock-Free Skip List
-class SkipListSet : public DynamicSet {
-    private:
-        KeyTower tail, head; //Head, tail of the linked list. 
+template <int maxLevels>
+class SkipListSet : public DynamicSet{
     public:
-        SkipListSet() : tail(INT64_MAX), head(-1){
-            for(int level = 0;level < MAX_LEVEL;++level){
-                head.successor[level].store((uintptr_t)&tail);
+    SkipNode head[maxLevels];
+    SkipNode tail;
+    SkipListSet() : tail(INT64_MAX) {
+        for(int i = 0;i < maxLevels;++i){
+            head[i].next = (uintptr_t)&tail;
+            head[i].key = -1;
+            head[i].root = &head[0];
+            if(i > 0)head[i].down = &head[i-1];
+        }
+    }
+    ~ SkipListSet(){
+        for(int i = 0;i < NUM_THREADS;++i){
+            SkipNode * volatile n = pool[i].node;
+            if(n)delete n;
+        }
+        //TODO free each level........
+    }
+
+
+    //Precondition: prev.successor was <delNode, DelFlag> at an earlier point, and delNode is Marked.
+    uintptr_t helpMarked(SkipNode *prev, SkipNode *delNode){
+        SkipNode *next = (SkipNode*)(delNode->next & NEXT_MASK);
+        uintptr_t expected = (uintptr_t)delNode + DelFlag;
+        uintptr_t result = expected;
+        prev->next.compare_exchange_strong(result, (uintptr_t)next);
+        
+        if(result == expected){
+            skipDebra.retire(delNode);
+            return (uintptr_t)next;
+        }
+        else return result;
+    }
+    //Precondition: prev.successor was <delNode, DelFlag> at an earlier point.
+    uintptr_t helpRemove(SkipNode *prev, SkipNode *delNode){
+        delNode->backlink = prev;
+        uintptr_t succ = delNode->next.load(); //The value of delNode's successor pointer
+        uintptr_t state = succ & STATUS_MASK;
+        uintptr_t next = succ & NEXT_MASK;
+
+        while(state != Marked){ //While delNode is not marked...
+            if(state == DelFlag){ //Help with deletion of its successor, if it is flagged....
+                succ = helpRemove(delNode, (SkipNode*)next);
+            }
+            else{ //Attempt to mark the node if the status was normal...
+                uintptr_t markedSuccessor = (uintptr_t)next + Marked;
+                succ = next;
+                delNode->next.compare_exchange_strong(succ, markedSuccessor); //Try to update from <next, Normal> to <next, Marked>
+                if(succ == next)break; //The CAS succeeded!
+            }
+            state = succ & STATUS_MASK;
+            next = succ & NEXT_MASK;
+        }
+        succ = helpMarked(prev, delNode);
+        return succ;
+    }
+
+    SkipNode* findStart(int &level){
+        int curLevel = 0;
+        uintptr_t succ = head[curLevel + 1].next;
+        SkipNode *next = (SkipNode*)(succ & NEXT_MASK);
+        while(next != &tail || curLevel <= level){
+            ++curLevel;
+            succ = head[curLevel + 1].next;
+            next = (SkipNode*)(succ & NEXT_MASK);
+        }
+        level = curLevel;
+        return &head[curLevel];
+    }
+
+
+    bool tryFlag(SkipNode *&prev, SkipNode *delNode, bool &inList){
+        uint64_t succ;
+        while(1){
+            succ = prev->next;
+            if(succ == ((uint64_t)delNode) + DelFlag){
+                inList = true;
+                return false;
+            }
+            succ = (uintptr_t)delNode;
+            prev->next.compare_exchange_strong(succ, ((uintptr_t)delNode) + DelFlag);
+            if(succ == (uintptr_t)delNode){
+                inList = true;
+                return true;
+            }
+            if(succ == ((uintptr_t)delNode) + DelFlag){
+                inList = true;
+                return false;
+            }
+            while((succ & STATUS_MASK) == Marked){
+                prev = prev->backlink;
+                succ = prev->next;
+            }
+            SkipNode *target;
+            target = searchRight(delNode->key,prev);
+            if(target != delNode){
+                inList = false;
+                return false;
             }
         }
-        void initThread(){
-            skipRecordMgr.initThread(threadID);
-        }
-        ~SkipListSet(){ 
-            skipRecordMgr.initThread(threadID);
-            skipRecordMgr.startOp(threadID);
-            for(int i = 0;i < NUM_THREADS;++i){
-                KeyTower * volatile keyN = keyTowerPool[i].keyNode;
-                if(keyN)skipRecordMgr.deallocate(threadID, keyN);
+    }
+
+    SkipNode *searchRight(int64_t k, SkipNode *&curr){
+        uintptr_t succ = curr->next;
+        SkipNode *next = (SkipNode*)(succ & NEXT_MASK);
+        while(next->key <= k){
+            while((next->root->next & STATUS_MASK) == Marked){ //If next is superfluous, try to delete it...
+                //Try to flag the node 
+                succ = (uintptr_t)next;
+                bool status;
+                tryFlag(curr, next, status);
+
+                if(status){ //If next is still in the list....
+                    succ = helpRemove(curr, next);
+                }
+                
+                next = (SkipNode*)(succ & NEXT_MASK);
+                
             }
-
-            //Start iterating through the list from head.
-            //Reclaim any keynodes that remain in the list.
-            KeyTower *curr = &head;
-
-            intptr_t succ = curr->successor[0];
-            KeyTower *next = (KeyTower*)(succ & NEXT_MASK);
-            //While the next node is not the tail node....
-            while(next != &tail){
+            if(next->key <= k){
                 curr = next;
-                succ = curr->successor[0];
-                next = (KeyTower*)(succ & NEXT_MASK);
-                skipRecordMgr.deallocate(threadID, curr); //Reclaim the node...
-            }
-
-            skipRecordMgr.endOp(threadID);
-            for(int i = 0;i < NUM_THREADS;++i){
-                skipRecordMgr.deinitThread(i);
+                succ = curr->next;
+                next = (SkipNode*)(succ & NEXT_MASK);
             }
         }
-        //Precondition: prev.successor was <delNode, DelFlag> at an earlier point, and delNode is Marked.
-        uintptr_t helpMarked(KeyTower *prev, KeyTower *delNode, int level){
-            KeyTower *next = (KeyTower*)(delNode->successor[level] & NEXT_MASK);
-            uintptr_t expected = (uintptr_t)delNode + DelFlag;
-            uintptr_t result = expected;
-            prev->successor[level].compare_exchange_strong(result, (uintptr_t)next);
-            
-            if(result == expected)return (uintptr_t)next;
-            else return result;
+        return next; //Return <curr, next>
+    }
+    SkipNode* searchToLevel(int64_t k, int level, SkipNode *&next){
+        int curLevel = level;
+        SkipNode *curr;
+        curr = findStart(curLevel);
+        while(curLevel > level){
+            next = searchRight(k, curr);
+            curr = curr->down;
+            --curLevel;
         }
-        //Precondition: prev.successor was <delNode, DelFlag> at an earlier point.
-        uintptr_t helpRemove(KeyTower *prev, KeyTower *delNode, int level){
-            delNode->backlink[level] = prev;
-            uintptr_t succ = delNode->successor[level].load(); //The value of delNode's successor pointer
-            uintptr_t state = succ & STATUS_MASK;
-            uintptr_t next = succ & NEXT_MASK;
-
-            while(state != Marked){ //While delNode is not marked...
-                if(state == DelFlag){ //Help with deletion of its successor, if it is flagged....
-                    succ = helpRemove(delNode, (KeyTower*)next, level);
-                }
-                else{ //Attempt to mark the node if the status was normal...
-                    uintptr_t markedSuccessor = (uintptr_t)next + Marked;
-                    succ = next;
-                    delNode->successor[level].compare_exchange_strong(succ, markedSuccessor); //Try to update from <next, Normal> to <next, Marked>
-                    if(succ == next)break; //The CAS succeeded!
-                }
-                state = succ & STATUS_MASK;
-                next = succ & NEXT_MASK;
-            }
-            succ = helpMarked(prev, delNode, level);
-            return succ;
+        next = searchRight(k, curr);
+        return curr; //Return <curr, next>
+    }
+    SkipNode *insertNode(SkipNode *newNode, SkipNode *&prev, SkipNode *next){
+        if(prev->key == newNode->key){
+            return nullptr;
         }
-
-        void insert(int64_t key){
-
-            KeyTower *newTower;
-            #ifdef reuse
-            if(keyTowerPool[threadID].keyNode){
-                newTower = keyTowerPool[threadID].keyNode;
-                newTower->key = key;
+        while(1){ //Keep on trying to insert until node is inserted
+            uint64_t succ = prev->next;
+            if((succ & STATUS_MASK) == DelFlag){
+                helpRemove(prev, (SkipNode*)(succ & NEXT_MASK));
             }
             else{
-                newTower = skipRecordMgr.allocate<KeyTower>(threadID, key); 
-            } 
-            #else
-            newNode = listRecordMgr.allocate<KeyTower>(threadID, key); 
-            #endif
-
-            int numLevels = 0;
-            while(randomNum(1) == 1 && numLevels < MAX_LEVEL){
-                ++numLevels;
-            }
-            int level;
-            for(int level = 0;level < numLevels; ++level){
-                KeyTower *curr = &head;
-                uintptr_t succ = curr->successor[level];
-                KeyTower *next = (KeyTower*)(succ & NEXT_MASK);
-                uint64_t state = succ & STATUS_MASK;
-                while(key != next->key){
-                    if(state == Normal){
-                        if(key > next->key){ //node should be placed further along in the list if next <= key
-                            curr = (KeyTower*)next;
-                            succ = curr->successor[level];
-                        }     
-                        else{
-                            newTower->successor[level] = (uintptr_t)next;
-                            succ = (uintptr_t)next;
-                            curr->successor[level].compare_exchange_strong(succ, (uintptr_t)newTower);
-                            if(succ == (uintptr_t)next){ //If the CAS succeeded, node has been successfully inserted and the operation can stop.
-                                #ifdef reuse
-                                keyTowerPool[threadID].keyNode = nullptr; //Do not reuse keynode...
-                                #endif
-                                break;
-                            }
-                        }
-                    }
-                    else if(state == DelFlag){
-                        succ = helpRemove(curr, (KeyTower*)next, level);
-                    }
-                    else{
-                        KeyTower *prev = (KeyTower*)curr->backlink[level];
-                        succ = prev->successor[level];
-                        next = (KeyTower*)(succ & NEXT_MASK);
-                        state = succ & STATUS_MASK;
-                        if(next == curr){ //Help remove curr from the list.
-                            succ = helpMarked(prev, curr, level);
-                        }
-                        curr = prev;
-                    }
-                    //Read next and state from curr.successor.
-                    next = (KeyTower*)(succ & NEXT_MASK);
-                    state = succ & STATUS_MASK;
+                newNode->next = (uintptr_t)next;
+                succ = (uintptr_t)next;
+                prev->next.compare_exchange_strong(succ, (uintptr_t)newNode);
+                if(succ == (uintptr_t)next){
+                    return newNode; //CAS succeeded in inserting new node :)
                 }
-                    
+                else{
+                    if((succ & STATUS_MASK) == DelFlag){
+                        succ = helpRemove(prev, (SkipNode*)(succ & NEXT_MASK));
+                    }
+                    while((succ & STATUS_MASK) == Marked){
+                        prev = prev->backlink;
+                        succ = prev->next;
+                    }
+                }
             }
-            #ifdef reuse 
-            keyTowerPool[threadID].keyNode = newTower; //This node can be reused for subsequent insert operations.
-            #else 
-            listRecordMgr.deallocate(threadID, newNode); //Reclaim node every time...
-            #endif 
+            next = searchRight(newNode->key, prev);
+            if(prev->key == newNode->key){
+                return nullptr;
+            }
         }
-        // void remove(int64_t key){
-        //     KeyTower *curr = &head;
-        //     uintptr_t succ = curr->successor;
-        //     KeyTower *next = (KeyTower*)(succ & NEXT_MASK);
-        //     uint64_t state = succ & STATUS_MASK;
-        //     while(next->key <= key){
-        //         if(state == Normal){
-        //             if(next->key < key){ //Advance if next's key is smaller than key
-        //                 curr = (KeyTower*)next;
-        //                 succ = curr->successor;
-        //             }
-        //             else{ //next->key = key
-        //                 succ = (uintptr_t)next;
-        //                 curr->successor.compare_exchange_strong(succ, ((uintptr_t)next) + DelFlag);
-        //                 if(succ == (uintptr_t)next){
-        //                     helpRemove(curr, next);
-        //                     listRecordMgr.retire(threadID, next); //Retire a node upon successfully giving its predecessor del flag.
-        //                     return;
-        //                 }
-        //             }
-        //         }
-        //         else if(state == DelFlag){
-        //             succ = helpRemove(curr, next);
-        //         }
-        //         else{
-        //             KeyTower *prev = (KeyTower*)curr->backlink;
-        //             succ = prev->successor;
-        //             next = (KeyTower*)(succ & NEXT_MASK);
-        //             state = succ & STATUS_MASK;
-        //             if(next == curr){ //Help remove curr from the list.
-        //                 succ = helpMarked(prev, curr);
-        //             }
-        //             curr = prev;
-        //         }
-        //         next = (KeyTower*)(succ & NEXT_MASK);
-        //         state = succ & STATUS_MASK;
-        //     }
-        // }
-        // bool search(int64_t key){
-        //     KeyTower *curr = &head;
-        //     uintptr_t succ = curr->successor;
-        //     KeyTower *next = (KeyTower*)(succ & NEXT_MASK);
-        //     //Invariant curr->key < next->key
-        //     //next was equal to curr->next
-        //     while(next->key < key){
-        //         curr = next;
-        //         succ = curr->successor;
-        //         next = (KeyTower*)(succ & NEXT_MASK);
-        //     }
-        //     //next->key >= key
-        //     return next->key == key;
-        // }
-        // int64_t predecessor(int64_t key){
-        //     KeyTower *curr = &head;
-        //     uintptr_t succ = curr->successor;
-        //     KeyTower *next = (KeyTower*)(succ & NEXT_MASK);
-        //     //Invariant curr->key < next->key
-        //     //next was equal to curr->next
-        //     while(next->key < key){
-        //         curr = next;
-        //         succ = curr->successor;
-        //         next = (KeyTower*)(succ & NEXT_MASK);
-        //     }
-        //     //next->key >= key
-        //     return curr->key;
-        // }
+    }
+    void insert(int64_t k){
+        skipDebra.startOp();
+        SkipNode *curr, *next;
+        curr = searchToLevel(k,0, next);
+        if(curr->key == k){
+            skipDebra.endOp();
+            return;
+        }
+        SkipNode *newRoot;
+        SkipNode *newNode = new SkipNode(k);
+        newNode->down = nullptr;
+        newNode->root = newNode;
+        int height = 0;
+        newRoot = newNode;
+        while(randomNum(3) == 0 && height < maxLevels - 1){
+            ++height;
+        }
+        int level = 0;
+        while(1){
+            SkipNode *result = insertNode(newNode, curr, next);
+            if(result == nullptr && level == 0){
+                delete newNode; //TODO pool node instead....
+                skipDebra.endOp();
+                return;
+            }
+            if((newRoot->next & STATUS_MASK) == Marked){
+                if(result == newNode && newNode != newRoot){
+                    removeNode(curr, newNode);
+                }
+                skipDebra.endOp();
+                return;
+            }
+            ++level;
+            if(level >= height){ //Stop building the tower if we've already reached the desired height...
+                skipDebra.endOp();
+                return;
+            }
+            SkipNode *lastNode = newNode;
+            newNode = new SkipNode(k);
+            newNode->down = lastNode;
+            newNode->root = newRoot;
+            curr = searchToLevel(k, level, next);
+
+        }
+        skipDebra.endOp();
+    }
+    SkipNode *removeNode(SkipNode *prev, SkipNode *delNode){
+        bool inList;
+        bool result = tryFlag(prev, delNode, inList);
+        if(inList){
+            helpRemove(prev,delNode);
+        }
+        if(result)return delNode;
+        else return nullptr;
+    }
+    void remove(int64_t k){
+        skipDebra.startOp();
+        SkipNode *curr, *delNode;
+        curr = searchToLevel(k-1,0, delNode);
+        if(delNode->key != k){
+            skipDebra.endOp();
+            return;
+        }
+        removeNode(curr, delNode);
+        SkipNode *next;
+        searchToLevel(k,1, next); //Delete nodes at other levels of the tower
+        skipDebra.endOp();
+    }
+    int64_t predecessor(int64_t k){
+        skipDebra.startOp();
+        SkipNode *curr, *next;
+        curr = searchToLevel(k-1, 0,next);
+        int64_t result = curr->key;
+        skipDebra.endOp();
+        return result;
+    }
+    bool search(int64_t k){
+        skipDebra.startOp();
+        SkipNode *curr, *next;
+        curr = searchToLevel(k, 0,next);
+        bool keyContained = curr->key == k;
+        skipDebra.endOp();
+        return keyContained;
+    }
+    
 };
+

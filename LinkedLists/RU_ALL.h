@@ -183,15 +183,15 @@ class RU_ALL_TYPE {
                         }
                     }
                 }
-                else if(state == InsFlag){
-                    uint64_t seq = (next & SEQ_MASK) >> 12;
-                    uint64_t proc = (next & PROC_MASK) >> 4;
-                    succ = helpInsert(curr,seq, proc);
-                }
                 else if(state == NotifFlag){
                     uint64_t seq = (next & SEQ_MASK) >> 12;
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpNotify(curr, seq, proc);
+                }
+                else if(state == InsFlag){
+                    uint64_t seq = (next & SEQ_MASK) >> 12;
+                    uint64_t proc = (next & PROC_MASK) >> 4;
+                    succ = helpInsert(curr,seq, proc);
                 }
                 else if(state == DelFlag){
                     succ = helpRemove(curr, (RU_ALL_Node*)next);
@@ -231,18 +231,19 @@ class RU_ALL_TYPE {
                         }
                     }
                 }
-                else if(state == InsFlag){ 
-                    //next is a seqNum/processID pair
-                    uint64_t seq = (next & SEQ_MASK) >> 12;
-                    uint64_t proc = (next & PROC_MASK) >> 4;
-                    succ = helpInsert(curr, seq, proc);
-                }
                 else if(state == NotifFlag){ 
                     //next is a seqNum/processID pair
                     uint64_t seq = (next & SEQ_MASK) >> 12;
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpNotify(curr, seq, proc);
                 }
+                else if(state == InsFlag){ 
+                    //next is a seqNum/processID pair
+                    uint64_t seq = (next & SEQ_MASK) >> 12;
+                    uint64_t proc = (next & PROC_MASK) >> 4;
+                    succ = helpInsert(curr, seq, proc);
+                }
+
                 //next is a ListNode pointer, not a seqnum/processID pair
                 else if((next == (uintptr_t)&tail) || (((UpdateNode*)(RU_ALL_Node*)next)->key >((UpdateNode*)node)->key))return;
                 else if(state == DelFlag){
@@ -295,22 +296,20 @@ class RU_ALL_TYPE {
                         else return (RU_ALL_Node*)next; //CAS succeeded, therefore pNode->notifyThreshold was updated to next 
                     } 
                 }
-                else if(state == DelFlag){ //Help with deletion of its successor, if it is flagged....
-                    succ = helpRemove(node, (RU_ALL_Node*)next);
-                }
-                else if(state == InsFlag){ //Help with insertion while it points to an insertion descriptor...
-                    uint64_t seq = (next & SEQ_MASK) >> 12;
-                    uint64_t proc = (next & PROC_MASK) >> 4;
-                    succ = helpInsert(node, seq, proc);
-                }
-                else if(state == NotifFlag){ //Help with notification while node points to a NotifyDescNode....
+                else if(state == NotifFlag) { //Help with notification while node points to a NotifyDescNode....
                     uint64_t seq = (next & SEQ_MASK) >> 12;
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpNotify(node, seq, proc);
                 }
-                else{ //node is marked, so node.next is permanently equal to next. No need to use a descriptor node!
-                    assert(false);
+                else if(state == DelFlag){ //Help with deletion of its successor, if it is flagged....
+                    succ = helpRemove(node, (RU_ALL_Node*)next);
                 }
+                else{ //Help with insertion while it points to an insertion descriptor...
+                    uint64_t seq = (next & SEQ_MASK) >> 12;
+                    uint64_t proc = (next & PROC_MASK) >> 4;
+                    succ = helpInsert(node, seq, proc);
+                }
+
 
                 next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;

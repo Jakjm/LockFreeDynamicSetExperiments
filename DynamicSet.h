@@ -7,5 +7,4 @@ struct DynamicSet{
     virtual void remove(int64_t x) = 0;
     virtual int64_t predecessor(int64_t x) = 0;
     virtual bool search(int64_t) = 0;
-    virtual void initThread() = 0;
 };

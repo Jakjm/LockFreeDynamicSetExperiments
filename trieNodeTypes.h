@@ -6,7 +6,6 @@
 #include "LinkedLists/ListNode.h"
 #include "common.h"
 #include "debra.h"
-#include "setbench/common/recordmgr/record_manager.h"
 #pragma once
 using std::string;
 

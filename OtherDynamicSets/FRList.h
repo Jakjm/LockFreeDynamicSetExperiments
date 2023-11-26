@@ -11,7 +11,7 @@
 #include "../LinkedLists/ListNode.h"
 #include "../DynamicSet.h"
 #include "../common.h"
-#include "../setbench/common/recordmgr/record_manager.h"
+#include "../debra.h"
 #pragma once
 using std::string;
 
@@ -27,13 +27,13 @@ struct KeyNode {
 };
 
 //TODO memory reclamation
-record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, KeyNode> listRecordMgr(NUM_THREADS);
+Debra<KeyNode, 4> keyNodeDebra;
 
 //Structure used to store pointers to insert/delete nodes that go unused after allocations.
 //On subsequent insert/delete operations by the same thread, the previouslly allocated insert/delete node can be used again.
 struct KeyNodePool{
     KeyNode *keyNode;
-    char padding[64-sizeof(KeyNode*)];
+    volatile char padding[64-sizeof(KeyNode*)];
     KeyNodePool(): keyNode(nullptr){
 
     }
@@ -50,15 +50,12 @@ class LinkedListSet : public DynamicSet {
         LinkedListSet() : tail(INT64_MAX), head(-1){
             head.successor.store((uintptr_t)&tail);
         }
-        void initThread(){
-            listRecordMgr.initThread(threadID);
-        }
         ~LinkedListSet(){ 
-            listRecordMgr.initThread(threadID);
-            listRecordMgr.startOp(threadID);
+            //listRecordMgr.startOp(threadID);
             for(int i = 0;i < NUM_THREADS;++i){
                 KeyNode * volatile keyN = keyNodePool[i].keyNode;
-                if(keyN)listRecordMgr.deallocate(threadID, keyN);
+                if(keyN)delete keyN;
+                //listRecordMgr.deallocate(threadID, keyN);
             }
 
             //Start iterating through the list from head.
@@ -72,13 +69,14 @@ class LinkedListSet : public DynamicSet {
                 curr = next;
                 succ = curr->successor;
                 next = (KeyNode*)(succ & NEXT_MASK);
-                listRecordMgr.deallocate(threadID, curr); //Reclaim the node...
+                delete curr;
+                //listRecordMgr.deallocate(threadID, curr); //Reclaim the node...
             }
 
-            listRecordMgr.endOp(threadID);
-            for(int i = 0;i < NUM_THREADS;++i){
-                listRecordMgr.deinitThread(i);
-            }
+            //listRecordMgr.endOp(threadID);
+            //for(int i = 0;i < NUM_THREADS;++i){
+                //listRecordMgr.deinitThread(i);
+            //}
         }
         //Precondition: prev.successor was <delNode, DelFlag> at an earlier point, and delNode is Marked.
         uintptr_t helpMarked(KeyNode *prev, KeyNode *delNode){
@@ -115,6 +113,7 @@ class LinkedListSet : public DynamicSet {
         }
 
         void insert(int64_t key){
+            keyNodeDebra.startOp();
             KeyNode *curr = &head;
             uintptr_t succ = curr->successor;
             KeyNode *next = (KeyNode*)(succ & NEXT_MASK);
@@ -126,7 +125,8 @@ class LinkedListSet : public DynamicSet {
                 newNode = keyNodePool[threadID].keyNode;
                 newNode->key = key;
             }
-            else newNode = listRecordMgr.allocate<KeyNode>(threadID, key); 
+            else newNode = new KeyNode(key);
+            //listRecordMgr.allocate<KeyNode>(threadID, key); 
             #else
             newNode = listRecordMgr.allocate<KeyNode>(threadID, key); 
             #endif
@@ -144,6 +144,7 @@ class LinkedListSet : public DynamicSet {
                             #ifdef reuse
                             keyNodePool[threadID].keyNode = nullptr; //Do not reuse keynode...
                             #endif
+                            keyNodeDebra.endOp();
                             return;
                         }
                     }
@@ -170,8 +171,10 @@ class LinkedListSet : public DynamicSet {
             #else 
             listRecordMgr.deallocate(threadID, newNode); //Reclaim node every time...
             #endif 
+            keyNodeDebra.endOp();
         }
         void remove(int64_t key){
+            keyNodeDebra.startOp();
             KeyNode *curr = &head;
             uintptr_t succ = curr->successor;
             KeyNode *next = (KeyNode*)(succ & NEXT_MASK);
@@ -187,7 +190,9 @@ class LinkedListSet : public DynamicSet {
                         curr->successor.compare_exchange_strong(succ, ((uintptr_t)next) + DelFlag);
                         if(succ == (uintptr_t)next){
                             helpRemove(curr, next);
-                            listRecordMgr.retire(threadID, next); //Retire a node upon successfully giving its predecessor del flag.
+                            keyNodeDebra.retire(next);
+                            //listRecordMgr.retire(threadID, next); //Retire a node upon successfully giving its predecessor del flag.
+                            keyNodeDebra.endOp();
                             return;
                         }
                     }
@@ -208,6 +213,7 @@ class LinkedListSet : public DynamicSet {
                 next = (KeyNode*)(succ & NEXT_MASK);
                 state = succ & STATUS_MASK;
             }
+            keyNodeDebra.endOp();
         }
         bool search(int64_t key){
             KeyNode *curr = &head;
