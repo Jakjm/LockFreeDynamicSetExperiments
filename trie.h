@@ -52,12 +52,12 @@ class Trie : public DynamicSet{
     //const int trieHeight; //The height of the trie.
     const int64_t universeSize; //Equal to 2^b 
     vector<vector<TrieNode>> trieNodes;
-    LatestList latest[(1 << trieHeight)];
+    vector<LatestList> latest;
     P_ALL_TYPE P_ALL;
     UALL_Type U_ALL;
     RU_ALL_TYPE RU_ALL;
     public:
-    Trie() : universeSize(1 << trieHeight), P_ALL(), U_ALL(), RU_ALL()
+    Trie() : universeSize(1 << trieHeight), latest(universeSize), P_ALL(), U_ALL(), RU_ALL()
     {
         //Initialize the binary trie nodes for each level of the trie.
         for(int i = 0; i < trieHeight;++i){

@@ -82,13 +82,13 @@ void multithreadTest(){
     threadID=0;
 
     int time = 5; //The duration of the test in seconds.
-    const int trieHeight = 15; //The height of the trie.
+    const int trieHeight = 20; //The height of the trie.
     int range = (1 << trieHeight) - 1; //The number of keys = 2^(trie height) - 1
 
     Trie<trieHeight> trieSet;
     LinkedListSet listSet;
     SkipListSet<20> skipSet;
-    DynamicSet *set = &skipSet;
+    DynamicSet *set = &trieSet;
 
     std::thread *th[NUM_THREADS];
 
