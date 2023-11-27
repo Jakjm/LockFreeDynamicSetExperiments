@@ -51,22 +51,22 @@ class Trie : public DynamicSet{
     private:
     //const int trieHeight; //The height of the trie.
     const int64_t universeSize; //Equal to 2^b 
-    vector<vector<TrieNode>> trieNodes;
-    vector<LatestList> latest;
+    TrieNode *trieNodes[trieHeight];
+    LatestList *latest;
     P_ALL_TYPE P_ALL;
     UALL_Type U_ALL;
     RU_ALL_TYPE RU_ALL;
     public:
-    Trie() : universeSize(1 << trieHeight), latest(universeSize), P_ALL(), U_ALL(), RU_ALL()
+    Trie() : universeSize(1 << trieHeight), latest(new LatestList[universeSize]), P_ALL(), U_ALL(), RU_ALL()
     {
         //Initialize the binary trie nodes for each level of the trie.
         for(int i = 0; i < trieHeight;++i){
             int64_t rowSize = (1 << i); //Row size = 2^i
-            vector<TrieNode> trieNodeRow(rowSize);
-            trieNodes.push_back(trieNodeRow);
+            TrieNode *trieNodeRow = new TrieNode[rowSize];
+            trieNodes[i] = trieNodeRow;
         }
 
-        vector<TrieNode> &baseRow = trieNodes[trieHeight - 1];
+        TrieNode *baseRow = trieNodes[trieHeight - 1];
 
         //Initialize the latest lists for each key in the universe.
         //Initialize row b of binary trie nodes.
@@ -90,8 +90,8 @@ class Trie : public DynamicSet{
         //Has its dNodePtr set to the dNodePtr of its left child.
         for(int row = trieHeight-2; row >= 0; row--){
             int64_t rowSize = (1 << row);
-            vector<TrieNode> &trieNodeRow = trieNodes[row];
-            vector<TrieNode> &childRow = trieNodes[row + 1];
+            TrieNode *trieNodeRow = trieNodes[row];
+            TrieNode *childRow = trieNodes[row + 1];
             for(int64_t i = 0; i < rowSize;++i){
                 int64_t leftChild = 2 * i;
                 DelNode *dNode = childRow[leftChild].dNodePtr;
@@ -106,18 +106,20 @@ class Trie : public DynamicSet{
         //trieRecordManager.startOp(threadID);
         //Attempt to retire all of the UpdateNodes stored in the latest lists
         //And all of the dNodePtrs.
-        for(vector<TrieNode> &trieNodeRow : trieNodes){
-            for(TrieNode &tNode : trieNodeRow){
-                DelNode *dNode = tNode.dNodePtr;
+        for(int i = 0; i < trieHeight;++i){
+            int numNodes = (1 << i);
+            for(int node = 0;node < numNodes;++node){
+                DelNode *dNode = trieNodes[i][node].dNodePtr;
                 int retire = dNode->dNodeCount.fetch_add(-1);
                 if(retire == 1){
                     delete dNode;
                     //trieRecordManager.deallocate(threadID, dNode);
                 }
             }
+            delete[] trieNodes[i]; //Delete every trie node row...
         }
-        for(LatestList &list : latest){
-            UpdateNode *uNode = list.head;
+        for(int l = 0; l < universeSize;++l){
+            UpdateNode *uNode = latest[l].head;
             UpdateNode *next = uNode->latestNext;
             if(uNode->type == INS){
                 delete (InsNode*)uNode;
@@ -144,6 +146,7 @@ class Trie : public DynamicSet{
                 }
             }
         }
+        delete[] latest; //Delete vector used for the latest lists.
         verifyLists();
         //Retire update nodes that are still in pools...
         for(int i = 0;i < NUM_THREADS;++i){
