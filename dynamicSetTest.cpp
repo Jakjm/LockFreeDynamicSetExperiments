@@ -7,6 +7,7 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
+#include <string.h>
 #include <thread>
 
 
@@ -48,7 +49,7 @@ struct ExperimentData{
 * Then the process will perform this update or predecessor operation with a randomly generated integer key, from 0 to range inclusive.
 * id is the ID of the process performing the experiment.
 */
-void randomExperiment(DynamicSet *set, int64_t range, int time, int id, ExperimentData *data){
+void randomExperiment(DynamicSet *set, int64_t range, double time, int id, ExperimentData *data){
     threadID = id;
     uint64_t opCount = 0;
     
@@ -110,10 +111,11 @@ void calcTime(long millis, int &hours, int &minutes, int &seconds){
 //     }
 //     fclose(f);
 // }
-void multithreadTest(){
+
+//time is the duration of the test in seconds.
+void multithreadTest(double time){
     threadID=0;
 
-    int time = 5; //The duration of the test in seconds.
     const int trieHeight = 20; //The height of the trie.
     int range = (1 << trieHeight) - 1; //The number of keys = 2^(trie height) - 1
 
@@ -136,7 +138,8 @@ void multithreadTest(){
     //volatile int64_t opCount[NUM_THREADS];
     //vector<int64_t> dataPoints[NUM_THREADS];
 
-    cout << NUM_THREADS << " threads performing random ops for " << time << " seconds on " << set->name() << "." << std::endl;
+    cout << NUM_THREADS << " threads performing random ops for " << std::setprecision(5) << time << " seconds on " << set->name() << "." << std::endl;
+    cout <<"Prior to start, the structure was filled with exactly " << ((uint64_t)range / 2) << " keys." << std::endl;
     cout << "50% Update Operations, 50% Predecessor Ops, keys drawn uniformly from " << "Universe of " << (range+1) << " keys" << std::endl;
     
     int hours, minutes, seconds;
@@ -184,7 +187,7 @@ void simpleTest(){
     trie.printInterpretedBits();
 }
 
-
+//Test for the skip list...
 void skipTest(){
     threadID = 0;
     SkipListSet<5> skipSet;
@@ -201,8 +204,26 @@ void skipTest(){
 
 int main(int argc, char **argv){
     //skipTest();
-
     
-    multithreadTest();
+    double runtime = 5.0;
+    if(argc > 1){ 
+        if((strcmp(argv[1], "-t") == 0) || (strcmp(argv[1], "--time") == 0)){
+            char **end = &argv[2];
+            runtime = strtod(argv[2], end);
+            if(runtime <= 0){
+                cout << "Command line arguments invalid. Test length must be a positive number of seconds." << std::endl;
+            }
+        }
+        else if((strcmp(argv[1], "-h") == 0) || (strcmp(argv[1], "--help") == 0)){
+            cout << "Usage: ./dynamicSetTest [options]" << std::endl;
+            cout << "Options:"<< std::endl;
+            cout << "\t-h, --help\t\tDisplay information on running dynamic test."<< std::endl;
+            cout << "\t-t, --time <time in seconds>\t\tRun the experiment for <time in seconds> seconds."<< std::endl;
+        }
+        else{
+            cout << "Did not recognize command line arguments. Defaulting to 5 seconds." << std::endl;
+        }
+    }
+    multithreadTest(runtime);
     return 0;
 }

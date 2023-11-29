@@ -3,7 +3,7 @@
 #pragma once
 
 thread_local int threadID = -1;
-const int NUM_THREADS = 4;
+const int NUM_THREADS = 8;
 //Returns the number of microiseconds since the Unix epoch, January 1st 1970 at 00:00:00 UTC.
 uint64_t micros(){
     return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
