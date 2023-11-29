@@ -13,11 +13,18 @@
 using std::cout;
 #define NUM_OPS_BEFORE_TIME_CHECK 50 //The number of operations that should be performed in between each check if the experiment is over.
 
-struct OP_CNT{
-    volatile int64_t opCount;
+class PADDED_INT{
+    volatile uint64_t i;
     volatile char padding[64 - sizeof(int64_t)]; 
-    OP_CNT(): opCount(0) {
+    public:
+    PADDED_INT(): i(0) {
 
+    }
+    void operator= (const uint64_t& val) volatile{
+        i=val;
+    }
+    uint64_t value() volatile{
+        return i;
     }
 };
 //Data type that holds data shared by threads performing the experiment.
@@ -26,8 +33,9 @@ struct ExperimentData{
     volatile char padding[64 - sizeof(int32_t)];
     std::atomic<bool> done;
     volatile char padding2[64 - sizeof(bool)];
-    volatile OP_CNT opCount[NUM_THREADS];
-
+    volatile PADDED_INT opCount[NUM_THREADS];
+    volatile PADDED_INT startTime[NUM_THREADS];
+    volatile PADDED_INT endTime[NUM_THREADS];
     ExperimentData() : numReady(0), done(false){
 
     }
@@ -42,15 +50,15 @@ struct ExperimentData{
 */
 void randomExperiment(DynamicSet *set, int64_t range, int time, int id, ExperimentData *data){
     threadID = id;
-    int64_t opCount = 0;
+    uint64_t opCount = 0;
     
     ++data->numReady;
     while(data->numReady != NUM_THREADS){ //Continue iterating while not all threads are ready...
     }
 
-    uint64_t startTime = millis();
+    uint64_t startTime = micros();
     uint64_t currentTime = startTime;
-    uint64_t endTime = startTime + (time * 1000);
+    uint64_t endTime = startTime + (time * 1000000);
     while(currentTime < endTime && !(data->done)){
         //Perform a series of operations....
         for(int i = 0;i < NUM_OPS_BEFORE_TIME_CHECK;++i){
@@ -66,10 +74,13 @@ void randomExperiment(DynamicSet *set, int64_t range, int time, int id, Experime
             }
         }
         opCount += NUM_OPS_BEFORE_TIME_CHECK;
-        currentTime = millis();
+        currentTime = micros();
     }
     data->done = true;
-    data->opCount[threadID].opCount = opCount;
+    uint64_t actualEndTime = micros();
+    data->opCount[threadID] = opCount;
+    data->startTime[threadID] = startTime;
+    data->endTime[threadID] = actualEndTime;
 }
 void calcTime(long millis, int &hours, int &minutes, int &seconds){
     millis -= (5 * 60 * 60 * 1000); //Subtract five hours for EST.
@@ -144,8 +155,9 @@ void multithreadTest(){
 
     for(int i = 0;i < NUM_THREADS;++i){
         th[i]->join();
-        cout << "Thread " << i << " performed " << data.opCount[i].opCount << " ops, for an average of ";
-        cout << std::setprecision(8) << ((double)data.opCount[i].opCount / time) << " ops/sec." << std::endl;
+        cout << "Thread " << i << " performed " << data.opCount[i].value() << " ops, for an average of ";
+        cout << std::setprecision(8) << ((double)data.opCount[i].value() / time) << " ops/sec." << std::endl;
+        //cout << data.startTime[i].value() << " " << data.endTime[i].value() << std::endl;
         delete th[i];
     }
 }
@@ -188,6 +200,8 @@ void skipTest(){
 
 int main(int argc, char **argv){
     //skipTest();
+
+    
     multithreadTest();
     return 0;
 }

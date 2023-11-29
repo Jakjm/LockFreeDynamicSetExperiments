@@ -1,0 +1,1 @@
+/usr/bin/cc -O3 -DNDEBUG "CMakeFiles/mimalloc-test-stress.dir/test/test-stress.c.o" -o mimalloc-test-stress  -Wl,-rpath,/home/jakjm/Downloads/mimalloc-2.1.2 libmimalloc.so.2.1 /usr/lib/libpthread.a /usr/lib/librt.a /usr/lib/libatomic.so 
