@@ -7,11 +7,31 @@
 #include <iomanip>
 #include <iostream>
 #include <string>
-#include <format>
 #include <thread>
 
-using std::cout;
 
+using std::cout;
+#define NUM_OPS_BEFORE_TIME_CHECK 50 //The number of operations that should be performed in between each check if the experiment is over.
+
+struct OP_CNT{
+    volatile int64_t opCount;
+    volatile char padding[64 - sizeof(int64_t)]; 
+    OP_CNT(): opCount(0) {
+
+    }
+};
+//Data type that holds data shared by threads performing the experiment.
+struct ExperimentData{
+    std::atomic<int32_t> numReady;
+    volatile char padding[64 - sizeof(int32_t)];
+    std::atomic<bool> done;
+    volatile char padding2[64 - sizeof(bool)];
+    volatile OP_CNT opCount[NUM_THREADS];
+
+    ExperimentData() : numReady(0), done(false){
+
+    }
+};
 
 /**
 * This function has a process repeatedly perform update operations and predecessor operations on a dynamic set.
@@ -20,35 +40,36 @@ using std::cout;
 * Then the process will perform this update or predecessor operation with a randomly generated integer key, from 0 to range inclusive.
 * id is the ID of the process performing the experiment.
 */
-void randomExperiment(DynamicSet *set, int64_t range, int time, int id, int64_t volatile *numOps){
+void randomExperiment(DynamicSet *set, int64_t range, int time, int id, ExperimentData *data){
     threadID = id;
+    int64_t opCount = 0;
+    
+    ++data->numReady;
+    while(data->numReady != NUM_THREADS){ //Continue iterating while not all threads are ready...
+    }
 
     uint64_t startTime = millis();
-    uint64_t endTime = startTime + (time * 1000);
-    
-
-    int64_t opCount = 0;
     uint64_t currentTime = startTime;
-    //uint64_t nextDatapoint = startTime + 50; //Record data points every 50 ms
-    while(currentTime < endTime){
-        // if(currentTime > nextDatapoint){
-        //     dataPoints->push_back(opCount);
-        //     nextDatapoint = currentTime + 50;
-        // }
-        int64_t key = randomNum(range);
-        int coinFlip = randomNum(1);
-        if(coinFlip){ //Process should perform an update operation.
-            coinFlip = randomNum(1); //Randomly chose whether to insert key
-            if(coinFlip)set->insert(key);
-            else set->remove(key);
+    uint64_t endTime = startTime + (time * 1000);
+    while(currentTime < endTime && !(data->done)){
+        //Perform a series of operations....
+        for(int i = 0;i < NUM_OPS_BEFORE_TIME_CHECK;++i){
+            int64_t key = randomNum(range); //Key of the operation that will be performed...
+            int coinFlip = randomNum(1);
+            if(coinFlip){ //Process should perform an update operation.
+                coinFlip = randomNum(1); //Randomly chose whether to insert or remove key
+                if(coinFlip)set->insert(key); //25% chance of inserting key
+                else set->remove(key); //25% chance for removing key
+            }
+            else{
+                set->predecessor(key); //50% chance of performing predecessor(key)
+            }
         }
-        else{
-            set->predecessor(key);
-        }
-        ++opCount;
+        opCount += NUM_OPS_BEFORE_TIME_CHECK;
         currentTime = millis();
     }
-    *numOps = opCount;
+    data->done = true;
+    data->opCount[threadID].opCount = opCount;
 }
 void calcTime(long millis, int &hours, int &minutes, int &seconds){
     millis -= (5 * 60 * 60 * 1000); //Subtract five hours for EST.
@@ -88,7 +109,7 @@ void multithreadTest(){
     Trie<trieHeight> trieSet;
     LinkedListSet listSet;
     SkipListSet<20> skipSet;
-    DynamicSet *set = &trieSet;
+    DynamicSet *set = &skipSet;
 
     std::thread *th[NUM_THREADS];
 
@@ -100,7 +121,8 @@ void multithreadTest(){
         valSet.insert(key);
     }
     
-    volatile int64_t opCount[NUM_THREADS];
+    ExperimentData data;
+    //volatile int64_t opCount[NUM_THREADS];
     //vector<int64_t> dataPoints[NUM_THREADS];
 
     cout << "Universe of " << (range+1) << " keys" << std::endl;
@@ -113,15 +135,17 @@ void multithreadTest(){
     
     //Allocate NUMTHREADS threads
     for(int i = 0;i < NUM_THREADS;++i){
-        th[i] = new std::thread(randomExperiment, set, range, time, i, &opCount[i]);
+        th[i] = new std::thread(randomExperiment, set, range, time, i, &data);
     }
     
-    //outputData(time, dataPoints);
+    //Put the thread asleep for time seconds + 50 milliseconds to ensure it's not consuming cpu time.
+    long sleep_duration = time * 1000 + 50;
+    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
 
     for(int i = 0;i < NUM_THREADS;++i){
         th[i]->join();
-        cout << "Thread " << i << " performed " << opCount[i] << " ops, for an average of ";
-        cout << std::setprecision(8) << ((double)opCount[i] / time) << " ops/sec." << std::endl;
+        cout << "Thread " << i << " performed " << data.opCount[i].opCount << " ops, for an average of ";
+        cout << std::setprecision(8) << ((double)data.opCount[i].opCount / time) << " ops/sec." << std::endl;
         delete th[i];
     }
 }

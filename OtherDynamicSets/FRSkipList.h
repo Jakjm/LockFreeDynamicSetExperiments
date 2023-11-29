@@ -246,7 +246,11 @@ class SkipListSet : public DynamicSet{
             return;
         }
         SkipNode *newRoot;
-        SkipNode *newNode = new SkipNode(k);
+        SkipNode *newNode;
+        if(pool->node)newNode = pool->node;
+        newNode = new SkipNode(k);
+        pool->node = nullptr;
+
         newNode->down = nullptr;
         newNode->root = newNode;
         int height = 0;
@@ -258,7 +262,8 @@ class SkipListSet : public DynamicSet{
         while(1){
             SkipNode *result = insertNode(newNode, curr, next);
             if(result == nullptr && level == 0){
-                delete newNode; //TODO pool node instead....
+                pool->node = newNode;    
+                //delete newNode; //TODO pool node instead....
                 skipDebra.endOp();
                 return;
             }
