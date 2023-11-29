@@ -37,16 +37,6 @@ struct SkipListPool{
     }
 };
 
-class PaddedNode : public SkipNode{
-    volatile char padding [64 - sizeof(SkipNode)];
-    public:
-    PaddedNode() : SkipNode(){
-
-    }
-    PaddedNode(int64_t k) : SkipNode(k){
-        
-    }
-};
 
 SkipListPool pool[NUM_THREADS];
 Debra<SkipNode, 4> skipDebra;
@@ -54,14 +44,19 @@ Debra<SkipNode, 4> skipDebra;
 template <int maxLevels>
 class SkipListSet : public DynamicSet{
     public:
-    PaddedNode head[maxLevels];
+    SkipNode head[maxLevels];
     SkipNode tail;
     SkipListSet() : tail(INT64_MAX) {
         for(int i = 0;i < maxLevels;++i){
             head[i].next = (uintptr_t)&tail;
             head[i].key = -1;
             head[i].root = &head[0];
-            if(i > 0)head[i].down = &head[i-1];
+            if(i > 0){
+                head[i].down = &head[i-1];
+            }
+            else{
+                head[i].down = &head[i];
+            }
         }
         tail.root = &tail;
     }
@@ -259,7 +254,7 @@ class SkipListSet : public DynamicSet{
         SkipNode *newRoot;
         SkipNode *newNode;
         if(pool->node)newNode = pool->node;
-        newNode = new PaddedNode(k);
+        newNode = new SkipNode(k);
         pool->node = nullptr;
 
         newNode->down = nullptr;
