@@ -120,7 +120,7 @@ void multithreadTest(){
     Trie<trieHeight> trieSet;
     LinkedListSet listSet;
     SkipListSet<20> skipSet;
-    DynamicSet *set = &skipSet;
+    DynamicSet *set = &trieSet;
 
     std::thread *th[NUM_THREADS];
 
@@ -136,8 +136,9 @@ void multithreadTest(){
     //volatile int64_t opCount[NUM_THREADS];
     //vector<int64_t> dataPoints[NUM_THREADS];
 
-    cout << "Universe of " << (range+1) << " keys" << std::endl;
-    cout << "Random test of " << NUM_THREADS << " threads doing random ops for " << time << " seconds." << std::endl;
+    cout << NUM_THREADS << " threads performing random ops for " << time << " seconds on " << set->name() << "." << std::endl;
+    cout << "50% Update Operations, 50% Predecessor Ops, keys drawn uniformly from " << "Universe of " << (range+1) << " keys" << std::endl;
+    
     int hours, minutes, seconds;
     calcTime(millis(), hours, minutes, seconds);
     printf("Test starting at %02d:%02d:%02d\n",hours,minutes,seconds);

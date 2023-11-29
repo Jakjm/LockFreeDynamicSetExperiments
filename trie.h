@@ -934,6 +934,10 @@ class Trie : public DynamicSet{
         std::cout << interpretedBitsString();
     }
 
+    string name(){
+        return "Jeremy's Trie";
+    }
+
     //Verify that the interpreted bits of the structure are correct.
     bool verifyInterpretedBits(int index=0, int depth=0){
         if(depth == trieHeight)return true;

@@ -243,9 +243,8 @@ class LinkedListSet : public DynamicSet {
             //next->key >= key
             return curr->key;
         }
-
-        void cleanup(){
-            
+        string name(){
+            return "Fomitchev/Ruppert ListSet";
         }
 
         //List traversal algorithms here: 

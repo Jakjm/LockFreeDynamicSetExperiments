@@ -341,6 +341,9 @@ class SkipListSet : public DynamicSet{
         skipDebra.endOp();
         return keyContained;
     }
+    string name(){
+        return "Fomitchev/Ruppert SkipListSet";
+    }
     char stat_to_char(uint64_t status){
         if(status == Normal){
             return ' ';
