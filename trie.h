@@ -43,7 +43,7 @@ struct UpdateNodePool{
 
     }
 };
-UpdateNodePool updateNodePool[NUM_THREADS];
+UpdateNodePool updateNodePool[MAX_THREADS];
 #define reuse 1 //If reuse is defined, update nodes that are not inserted into the trie will be reused.
 
 template <int trieHeight>
@@ -149,7 +149,7 @@ class Trie : public DynamicSet{
         delete[] latest; //Delete vector used for the latest lists.
         verifyLists();
         //Retire update nodes that are still in pools...
-        for(int i = 0;i < NUM_THREADS;++i){
+        for(int i = 0;i < MAX_THREADS;++i){
             InsNode * volatile ins = updateNodePool[i].insNode;
             DelNode * volatile del = updateNodePool[i].delNode; 
             if(ins)delete ins;
@@ -161,7 +161,7 @@ class Trie : public DynamicSet{
         //trieRecordManager.endOp(threadID);
 
         //Dump all limbo bags of their contents.
-        // for(int i = 0;i < NUM_THREADS;++i){
+        // for(int i = 0;i < MAX_THREADS;++i){
         //     trieRecordManager.deinitThread(i);
         // }
                 

@@ -36,7 +36,7 @@ class UALL_Type {
     public:
         ListNode tail, head; //Head, tail of the linked list. 
     public:
-        InsertDescNode descs[NUM_THREADS]; //Insert descriptor nodes for each process
+        InsertDescNode descs[MAX_THREADS]; //Insert descriptor nodes for each process
         UALL_Type(): tail(), head(){
             head.successor.store((uintptr_t)&tail);
         }

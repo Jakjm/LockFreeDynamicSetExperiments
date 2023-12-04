@@ -38,7 +38,7 @@ struct SkipListPool{
 };
 
 
-SkipListPool pool[NUM_THREADS];
+SkipListPool pool[MAX_THREADS];
 Debra<SkipNode, 4> skipDebra;
 
 template <int maxLevels>
@@ -61,7 +61,7 @@ class SkipListSet : public DynamicSet{
         tail.root = &tail;
     }
     ~ SkipListSet(){
-        for(int i = 0;i < NUM_THREADS;++i){
+        for(int i = 0;i < MAX_THREADS;++i){
             SkipNode * volatile n = pool[i].node;
             if(n)delete n;
         }

@@ -32,7 +32,7 @@ class RU_ALL_TYPE {
     public:
         RU_ALL_Node tail, head; //Head, tail of the linked list. 
     public:
-        DescNode descs[NUM_THREADS];
+        DescNode descs[MAX_THREADS];
         RU_ALL_TYPE() : tail(), head(){
             head.successor.store((uintptr_t)&tail);
         }

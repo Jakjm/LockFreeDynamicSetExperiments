@@ -34,9 +34,9 @@ struct ExperimentData{
     volatile char padding[64 - sizeof(int32_t)];
     std::atomic<bool> done;
     volatile char padding2[64 - sizeof(bool)];
-    volatile PADDED_INT opCount[NUM_THREADS];
-    volatile PADDED_INT startTime[NUM_THREADS];
-    volatile PADDED_INT endTime[NUM_THREADS];
+    volatile PADDED_INT opCount[MAX_THREADS];
+    volatile PADDED_INT startTime[MAX_THREADS];
+    volatile PADDED_INT endTime[MAX_THREADS];
     ExperimentData() : numReady(0), done(false){
 
     }
@@ -49,12 +49,12 @@ struct ExperimentData{
 * Then the process will perform this update or predecessor operation with a randomly generated integer key, from 0 to range inclusive.
 * id is the ID of the process performing the experiment.
 */
-void randomExperiment(DynamicSet *set, int64_t range, double time, int id, ExperimentData *data){
+void randomExperiment(DynamicSet *set, int numProcs, int64_t range, double time, int id, ExperimentData *data){
     threadID = id;
     uint64_t opCount = 0;
     
     ++data->numReady;
-    while(data->numReady != NUM_THREADS){ //Continue iterating while not all threads are ready...
+    while(data->numReady != numProcs){ //Continue iterating while not all threads are ready...
     }
 
     uint64_t startTime = micros();
@@ -92,14 +92,14 @@ void calcTime(long millis, int &hours, int &minutes, int &seconds){
     seconds = time % (60000) / 1000; 
 
 }
-// void outputData(int time, vector<int64_t> data[NUM_THREADS]){
+// void outputData(int time, vector<int64_t> data[MAX_THREADS]){
 //     FILE *f = fopen("threadData.txt","w");
-//     for(int i = 0;i < NUM_THREADS;++i){
+//     for(int i = 0;i < MAX_THREADS;++i){
 //         fprintf(f, "%d ",i);
 //     }
 //     fprintf(f, "\n");
 //     for(uint64_t dp = 0;dp < (uint64_t)time * 20;++dp){
-//         for(int i = 0;i < NUM_THREADS;++i){
+//         for(int i = 0;i < MAX_THREADS;++i){
 //             if(data[i].size() > dp){
 //                 fprintf(f, "%ld ", data[i][dp]);
 //             }
@@ -113,7 +113,7 @@ void calcTime(long millis, int &hours, int &minutes, int &seconds){
 // }
 
 //time is the duration of the test in seconds.
-void multithreadTest(double time){
+void multithreadTest(double time, int numProcs, double prefill){
     threadID=0;
 
     const int trieHeight = 20; //The height of the trie.
@@ -124,7 +124,7 @@ void multithreadTest(double time){
     SkipListSet<20> skipSet;
     DynamicSet *set = &trieSet;
 
-    std::thread *th[NUM_THREADS];
+    std::thread *th[MAX_THREADS];
 
     //Prefill the set to 50% full
     std::set<int64_t> valSet;
@@ -135,10 +135,10 @@ void multithreadTest(double time){
     }
     
     ExperimentData data;
-    //volatile int64_t opCount[NUM_THREADS];
-    //vector<int64_t> dataPoints[NUM_THREADS];
+    //volatile int64_t opCount[MAX_THREADS];
+    //vector<int64_t> dataPoints[MAX_THREADS];
 
-    cout << NUM_THREADS << " threads performing random ops for " << std::setprecision(5) << time << " seconds on " << set->name() << "." << std::endl;
+    cout << numProcs << " threads performing random ops for " << std::setprecision(5) << time << " seconds on " << set->name() << "." << std::endl;
     cout <<"Prior to start, the structure was filled with exactly " << ((uint64_t)range / 2) << " keys." << std::endl;
     cout << "50% Update Operations, 50% Predecessor Ops, keys drawn uniformly from " << "Universe of " << (range+1) << " keys" << std::endl;
     
@@ -149,15 +149,15 @@ void multithreadTest(double time){
     printf("Test will finish at %02d:%02d:%02d\n",hours,minutes,seconds);
     
     //Allocate NUMTHREADS threads
-    for(int i = 0;i < NUM_THREADS;++i){
-        th[i] = new std::thread(randomExperiment, set, range, time, i, &data);
+    for(int i = 0;i < numProcs;++i){
+        th[i] = new std::thread(randomExperiment, set, numProcs, range, time, i, &data);
     }
     
     //Put the thread asleep for time seconds + 50 milliseconds to ensure it's not consuming cpu time.
     long sleep_duration = time * 1000 + 50;
     std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
 
-    for(int i = 0;i < NUM_THREADS;++i){
+    for(int i = 0;i < numProcs;++i){
         th[i]->join();
         cout << "Thread " << i << " performed " << data.opCount[i].value() << " ops, for an average of ";
         cout << std::setprecision(8) << ((double)data.opCount[i].value() / time) << " ops/sec." << std::endl;
@@ -206,24 +206,44 @@ int main(int argc, char **argv){
     //skipTest();
     
     double runtime = 5.0;
-    if(argc > 1){ 
-        if((strcmp(argv[1], "-t") == 0) || (strcmp(argv[1], "--time") == 0)){
-            char **end = &argv[2];
-            runtime = strtod(argv[2], end);
-            if(runtime <= 0){
-                cout << "Command line arguments invalid. Test length must be a positive number of seconds." << std::endl;
-            }
-        }
-        else if((strcmp(argv[1], "-h") == 0) || (strcmp(argv[1], "--help") == 0)){
+    int numProcs = 4;
+    double prefill = 0.5;
+    if(argc == 2 && ((strcmp(argv[1], "-h") == 0) || (strcmp(argv[1], "--help") == 0))){
             cout << "Usage: ./dynamicSetTest [options]" << std::endl;
             cout << "Options:"<< std::endl;
-            cout << "\t-h, --help\t\tDisplay information on running dynamic test."<< std::endl;
-            cout << "\t-t, --time <time in seconds>\t\tRun the experiment for <time in seconds> seconds."<< std::endl;
-        }
-        else{
-            cout << "Did not recognize command line arguments. Defaulting to 5 seconds." << std::endl;
+            cout << "\t-h, --help\t\t\t\t\t\tDisplay information on running dynamic test."<< std::endl;
+            cout << "\t-t, --time <T>\t\t\t\t\tRun the experiment for <T> seconds."<< std::endl;
+            cout << "\t-n, --numProcs <N>\t\t\t\tRun the experiment with <N> processes (threads)."<< std::endl;
+            return 0;
+    }
+    else if(argc > 2){ 
+        int numParams = (argc - 1) / 2;
+        int paramCount = 0;
+        while(paramCount < numParams){
+            char *currentParam = argv[2*paramCount + 1];
+            char *paramSetting = argv[2*paramCount + 2];
+        
+            if((strcmp(currentParam, "-t") == 0) || (strcmp(currentParam, "--time") == 0)){
+                runtime = strtod(paramSetting, nullptr);
+                if(runtime <= 0){
+                    cout << "Command line arguments invalid. Test length must be a positive number of seconds." << std::endl;
+                    exit(1);
+                }   
+            }
+            else if((strcmp(currentParam, "-n") == 0) || (strcmp(currentParam, "--numProcs") == 0)){
+                numProcs = strtol(paramSetting, nullptr, 10);
+                if(numProcs < 1 || numProcs > MAX_THREADS){
+                    cout << "Command line arguments invalid. Number of threads must be in range [1, 512] inclusive.";
+                    exit(1);
+                }
+            }
+            else{
+                cout << "Did not recognize command line arguments." << std::endl;
+                exit(1);
+            }
+            ++paramCount;
         }
     }
-    multithreadTest(runtime);
+    multithreadTest(runtime, numProcs, prefill);
     return 0;
 }

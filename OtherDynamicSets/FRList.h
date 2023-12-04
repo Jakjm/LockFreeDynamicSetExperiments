@@ -38,7 +38,7 @@ struct KeyNodePool{
 
     }
 };
-KeyNodePool keyNodePool[NUM_THREADS];
+KeyNodePool keyNodePool[MAX_THREADS];
 #define reuse 1 //If reuse is defined, update nodes that are not inserted into the trie will be reused.
 
 //An implementation of Eric Ruppert and Michhail Fomitchev's Lock-Free Linked List
@@ -52,7 +52,7 @@ class LinkedListSet : public DynamicSet {
         }
         ~LinkedListSet(){ 
             //listRecordMgr.startOp(threadID);
-            for(int i = 0;i < NUM_THREADS;++i){
+            for(int i = 0;i < MAX_THREADS;++i){
                 KeyNode * volatile keyN = keyNodePool[i].keyNode;
                 if(keyN)delete keyN;
                 //listRecordMgr.deallocate(threadID, keyN);
@@ -74,7 +74,7 @@ class LinkedListSet : public DynamicSet {
             }
 
             //listRecordMgr.endOp(threadID);
-            //for(int i = 0;i < NUM_THREADS;++i){
+            //for(int i = 0;i < MAX_THREADS;++i){
                 //listRecordMgr.deinitThread(i);
             //}
         }
