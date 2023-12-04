@@ -46,18 +46,17 @@ struct UpdateNodePool{
 UpdateNodePool updateNodePool[MAX_THREADS];
 #define reuse 1 //If reuse is defined, update nodes that are not inserted into the trie will be reused.
 
-template <int trieHeight>
 class Trie : public DynamicSet{
     private:
-    //const int trieHeight; //The height of the trie.
-    const int64_t universeSize; //Equal to 2^b 
-    TrieNode *trieNodes[trieHeight];
+    const int trieHeight; //The height of the trie.
+    const int64_t universeSize; //Equal to 2^trieHeight
+    TrieNode **trieNodes;
     LatestList *latest;
     P_ALL_TYPE P_ALL;
     UALL_Type U_ALL;
     RU_ALL_TYPE RU_ALL;
     public:
-    Trie() : universeSize(1 << trieHeight), latest(new LatestList[universeSize]), P_ALL(), U_ALL(), RU_ALL()
+    Trie(int height) : trieHeight(height), universeSize(1 << trieHeight), trieNodes(new TrieNode*[trieHeight]), latest(new LatestList[universeSize]), P_ALL(), U_ALL(), RU_ALL()
     {
         //Initialize the binary trie nodes for each level of the trie.
         for(int i = 0; i < trieHeight;++i){

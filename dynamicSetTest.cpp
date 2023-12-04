@@ -113,22 +113,38 @@ void calcTime(long millis, int &hours, int &minutes, int &seconds){
 // }
 
 //time is the duration of the test in seconds.
-void multithreadTest(double time, int numProcs, double prefill){
+//numProcs is the number of threads that will participate in the test.
+//trieHeight is the base-2 logarithm of the universe size.
+//prefill is the amount the data structure should be prefilled prior to testing.
+void multithreadTest(char *setType, double time, int numProcs, int trieHeight, double prefill, bool verbose){
     threadID=0;
+    
+    int universeSize = (1 << trieHeight); //The number of keys in the universe.
+    int range = universeSize - 1; //The maximum key in the universe.
 
-    const int trieHeight = 20; //The height of the trie.
-    int range = (1 << trieHeight) - 1; //The number of keys = 2^(trie height) - 1
-
-    Trie<trieHeight> trieSet;
+    Trie trieSet(trieHeight);
     LinkedListSet listSet;
-    SkipListSet<20> skipSet;
-    DynamicSet *set = &trieSet;
+    SkipListSet<20> skipList;
+    DynamicSet *set;
+    if(strcmp(setType,"trie") == 0){
+        set = &trieSet;
+    }
+    else if(strcmp(setType, "list") == 0){
+        set = &listSet;
+    }
+    else if(strcmp(setType, "skip") == 0){
+        set = &skipList;
+    }
+    else{
+        perror("Did not recognize set type.\n");
+        exit(1);
+    }
 
     std::thread *th[MAX_THREADS];
 
     //Prefill the set to 50% full
     std::set<int64_t> valSet;
-    while(valSet.size() < ((uint64_t)range / 2)){
+    while(valSet.size() < ceil(universeSize * prefill)){
         int64_t key = randomNum(range);
         set->insert(key);
         valSet.insert(key);
@@ -137,16 +153,17 @@ void multithreadTest(double time, int numProcs, double prefill){
     ExperimentData data;
     //volatile int64_t opCount[MAX_THREADS];
     //vector<int64_t> dataPoints[MAX_THREADS];
-
-    cout << numProcs << " threads performing random ops for " << std::setprecision(5) << time << " seconds on " << set->name() << "." << std::endl;
-    cout <<"Prior to start, the structure was filled with exactly " << ((uint64_t)range / 2) << " keys." << std::endl;
-    cout << "50% Update Operations, 50% Predecessor Ops, keys drawn uniformly from " << "Universe of " << (range+1) << " keys" << std::endl;
+    if(verbose){
+        cout << numProcs << " threads performing random ops for " << std::setprecision(5) << time << " seconds on " << set->name() << "." << std::endl;
+        cout <<"Prior to start, the structure was filled with exactly " << valSet.size() << " keys." << std::endl;
+        cout << "50% Update Operations, 50% Predecessor Ops, keys drawn uniformly from " << "Universe of " << (universeSize) << " keys" << std::endl;
     
-    int hours, minutes, seconds;
-    calcTime(millis(), hours, minutes, seconds);
-    printf("Test starting at %02d:%02d:%02d\n",hours,minutes,seconds);
-    calcTime(millis() + time * 1000, hours, minutes, seconds);
-    printf("Test will finish at %02d:%02d:%02d\n",hours,minutes,seconds);
+        int hours, minutes, seconds;
+        calcTime(millis(), hours, minutes, seconds);
+        printf("Test starting at %02d:%02d:%02d\n",hours,minutes,seconds);
+        calcTime(millis() + time * 1000, hours, minutes, seconds);
+        printf("Test will finish at %02d:%02d:%02d\n",hours,minutes,seconds);
+    }
     
     //Allocate NUMTHREADS threads
     for(int i = 0;i < numProcs;++i){
@@ -157,18 +174,23 @@ void multithreadTest(double time, int numProcs, double prefill){
     long sleep_duration = time * 1000 + 50;
     std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
 
+    long totalThroughput = 0;
     for(int i = 0;i < numProcs;++i){
         th[i]->join();
-        cout << "Thread " << i << " performed " << data.opCount[i].value() << " ops, for an average of ";
-        cout << std::setprecision(8) << ((double)data.opCount[i].value() / time) << " ops/sec." << std::endl;
+        totalThroughput += data.opCount[i].value();
+        if(verbose){
+            cout << "Thread " << i << " performed " << data.opCount[i].value() << " ops, for an average of ";
+            cout << std::setprecision(8) << ((double)data.opCount[i].value() / time) << " ops/sec." << std::endl;
+        }
         //cout << data.startTime[i].value() << " " << data.endTime[i].value() << std::endl;
         delete th[i];
     }
+    cout << "Total throughput (in ops): " << totalThroughput << std::endl;
 }
 
 void simpleTest(){
     threadID = 0;
-    Trie<3> trie;
+    Trie trie(3);
     cout << "Simple test." << std::endl;
     trie.printInterpretedBits();
     trie.insert(3);
@@ -208,42 +230,74 @@ int main(int argc, char **argv){
     double runtime = 5.0;
     int numProcs = 4;
     double prefill = 0.5;
+    int keyRange = 20;
+    bool verbose = false;
+    char defaultType[5] = "trie";
+    char *setType = NULL;
+
     if(argc == 2 && ((strcmp(argv[1], "-h") == 0) || (strcmp(argv[1], "--help") == 0))){
             cout << "Usage: ./dynamicSetTest [options]" << std::endl;
             cout << "Options:"<< std::endl;
             cout << "\t-h, --help\t\t\t\t\t\tDisplay information on running dynamic test."<< std::endl;
             cout << "\t-t, --time <T>\t\t\t\t\tRun the experiment for <T> seconds."<< std::endl;
             cout << "\t-n, --numProcs <N>\t\t\t\tRun the experiment with <N> processes (threads)."<< std::endl;
+            cout << "\t-k, --keyRange <K>\t\t\t\tRun the experiment with a universe of 2^K keys." << std::endl;
+            cout << "\t-v, --verbose\t\t\t\t\tPrint additional information about the test." << std::endl;
+            cout << "\t--skip\t\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert skip list." << std::endl;
+            cout << "\t--list\t\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert linked list." << std::endl;
+            cout << "\t--trie\t\t\t\t\t\tPerform the experiment on Jeremy's Binary Trie." << std::endl;
             return 0;
     }
-    else if(argc > 2){ 
-        int numParams = (argc - 1) / 2;
-        int paramCount = 0;
-        while(paramCount < numParams){
-            char *currentParam = argv[2*paramCount + 1];
-            char *paramSetting = argv[2*paramCount + 2];
-        
-            if((strcmp(currentParam, "-t") == 0) || (strcmp(currentParam, "--time") == 0)){
+    else{ 
+        int curArg = 1;
+        while(curArg < argc){
+            char *currentParam = argv[curArg];
+            char *paramSetting = argv[curArg+1];
+            if(curArg + 1 < argc && (strcmp(currentParam, "-t") == 0 || strcmp(currentParam, "--time") == 0)){
                 runtime = strtod(paramSetting, nullptr);
                 if(runtime <= 0){
                     cout << "Command line arguments invalid. Test length must be a positive number of seconds." << std::endl;
                     exit(1);
-                }   
+                }
+                curArg += 2;  
             }
-            else if((strcmp(currentParam, "-n") == 0) || (strcmp(currentParam, "--numProcs") == 0)){
+            else if(curArg + 1 < argc && (strcmp(currentParam, "-n") == 0 || strcmp(currentParam, "--numProcs") == 0)){
                 numProcs = strtol(paramSetting, nullptr, 10);
                 if(numProcs < 1 || numProcs > MAX_THREADS){
-                    cout << "Command line arguments invalid. Number of threads must be in range [1, 512] inclusive.";
+                    cout << "Command line arguments invalid. Number of threads must be in range [1, 512] inclusive." << std::endl;
                     exit(1);
                 }
+                curArg += 2;
+            }
+            else if(curArg + 1 < argc && (strcmp(currentParam, "-k") == 0 || strcmp(currentParam, "--keyRange") == 0)){
+                keyRange = strtod(paramSetting, nullptr);
+                if(keyRange <= 2 || keyRange >= 25){
+                    cout << "Key range outside of acceptable limit." << std::endl;
+                    exit(1);
+                }
+                curArg += 2;
+            }
+            else if(!verbose && (strcmp(currentParam, "-v") == 0 || strcmp(currentParam, "--verbose") == 0)){
+                verbose = true;
+                curArg += 1;
+            }
+            else if(!setType){
+                if(strcmp(currentParam, "--list") == 0 || strcmp(currentParam, "--skip") == 0 || strcmp(currentParam, "--trie") == 0){
+                    setType = &currentParam[2]; //Remove two dashes...
+                }
+                else{
+                    cout << "Did not recognize command line arguments." << std::endl;
+                    exit(1);
+                }
+                curArg += 1;
             }
             else{
                 cout << "Did not recognize command line arguments." << std::endl;
                 exit(1);
             }
-            ++paramCount;
         }
     }
-    multithreadTest(runtime, numProcs, prefill);
+    if(!setType)setType = defaultType;
+    multithreadTest(setType, runtime, numProcs, keyRange, prefill, verbose);
     return 0;
 }
