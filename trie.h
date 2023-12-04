@@ -605,7 +605,6 @@ class Trie : public DynamicSet{
     //y = 3 
     //height = 2  
     int64_t traverseBinaryTrie(int64_t y, int64_t &depth){
-        if(trieHeight <= 1)return -1;
 
         //Get interpreted bit
         //TrieNode *t = &trieNodes[trieHeight][y];

@@ -84,7 +84,7 @@ class PredecessorNode :  public ListNode, public BaseType{
     const int64_t key;
     std::atomic<UpdateNode*> notifyThreshold;
     std::atomic<NotifyNode*> notifyListHead;
-
+    volatile char padding[64 - (sizeof(ListNode) + 3 * sizeof(int64_t) + sizeof(BaseType))];
     PredecessorNode(int64_t k) :  ListNode(), key(k), notifyThreshold(&INFINITY_THRES), notifyListHead(nullptr) {
     
     }
