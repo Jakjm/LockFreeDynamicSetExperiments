@@ -117,6 +117,7 @@ class Trie : public DynamicSet{
             }
             delete[] trieNodes[i]; //Delete every trie node row...
         }
+        delete[] trieNodes;
         for(int l = 0; l < universeSize;++l){
             UpdateNode *uNode = latest[l].head;
             UpdateNode *next = uNode->latestNext;
