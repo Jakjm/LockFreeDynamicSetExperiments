@@ -29,7 +29,28 @@
 \usetikzlibrary{graphs}
 \usetikzlibrary{matrix}
 \usetikzlibrary{decorations.pathreplacing}
+\usepackage[noend]{algpseudocode}
+\usepackage{algorithm}
 
+
+
+\newcommand{\algorithmicbreak}{\textbf{break}}
+\newcommand{\Break}{\State \algorithmicbreak}
+\newcommand{\algorithmiccontinue}{\textbf{continue}}
+\newcommand{\Continue}{\State \algorithmiccontinue}
+\algdef{SE}[SUBALG]{Indent}{EndIndent}{}{\algorithmicend\ }%
+\algdef{SE}[DOWHILE]{Do}{doWhile}{\algorithmicdo}[1]{\algorithmicwhile\ #1}
+\newcommand{\alglinenoNew}[1]{\newcounter{ALG@line@#1}}
+\newcommand{\alglinenoPop}[1]{\setcounter{ALG@line}{\value{ALG@line@#1}}}
+\newcommand{\alglinenoPush}[1]{\setcounter{ALG@line@#1}{\value{ALG@line}}}
+\algtext*{Indent}
+\algtext*{EndIndent}
+\algrenewcommand\algorithmicindent{1.0em}
+\tikzset{vertex/.style = {circle,draw=black}}
+\tikzset{edge/.style = {->,very thick}}
+\tikzset{dottedEdge/.style = {->,thin,dotted}}
+\tikzset{dottedVertex/.style = {circle,draw=black,dotted}}
+\tikzset{subtree/.style = {isosceles triangle, text width=4em, draw=black, shape border rotate=90, align=center, anchor=north}}
 
 %Using this so that I don't have to always reference the name of a theorem
 \usepackage{theoremref}
@@ -88,28 +109,69 @@
 \setbeamertemplate{theorems}[ams style]
 \begin{document}
 \frame{\titlepage}
-
 \begin{frame}
-\frametitle{$b$-bounded min register}
-	A $b$-bounded min register is a shared object with initial value $b$, supporting the $minRead()$ and $minWrite(v)$ operations:
+\frametitle{Introduction}
+In this presentation, we will be discussing wait-free implementations of $k$-bounded min registers.
+\begin{itemize}
+	\item I'll introduce the model, what bounded min registers are, what wait-free means
+	\item We'll discuss existing an existing implementation in the literature
+	\item Then we'll discuss improvements to existing techniques that Faith and I have come up with
+	\item And some open problems
+\end{itemize}
+\end{frame}
+\begin{frame}
+\frametitle{Computational model}
+We are considering a system in which many processes communicate by performing operations on shared memory.
+A process can perform the following operations on a word $w$ in memory, which holds some integer value:
+\begin{itemize}
+	\item $w.read()$: Returns the current value of $w$.
+	\item $w.write(v)$: Updates the value of $w$ to $v$.
+	\item $w.CAS(v,v')$: If $w$'s value is $v$, $w$'s value is updated to $v'$.
+	\item $w.FAA(v)$: Computes the bitwise-and $b$ of $w$'s value and $v$, and updates $w$ to hold $b$.
+\end{itemize}
+\end{frame}
+\begin{frame}
+\frametitle{$k$-bounded min register}
+	A $k$-bounded min register $r$ is a shared object that stores an integer value in $\{0, \dots, k-1\}$, initially holding $k-1$.
+	It supports the following operations:
 	\begin{itemize}
-		\item $minRead()$: 
+		\item $r.minRead()$: 
 		\begin{itemize}
-			\item Return the current value of the register.
+			\item Return the current value of $r$.
 		\end{itemize}
-		\item $minWrite(v)$, $0 \le v \le b$ 
+		\item $r.minWrite(v)$, where $0 \le v < k$ 
 		\begin{itemize}
-			\item If $v$ is less than the current value of the register, write $v$ to the register. 
+			\item If $v$ is less than the value of $r$, set $r$'s value to $v$. 
 			\item Otherwise do nothing.
 		\end{itemize}
 	\end{itemize}
 \end{frame}
 \begin{frame}
-\frametitle{Implementation}
-	Based on the Max Register implementation by Aspnes, Attiya and Censor in their paper \textit{Max Registers, Counters, and Monotone Circuits}
-	\\~\
-	\\~\
-	$0$-bounded min register $z$:
+	\frametitle{What does it mean for an implementation to be correct?}
+	The correctness condition typically used for shared data structures is linearizability.
+	\begin{itemize}
+		\item For every operation, there should be a point during the operation in which we could say it `took effect'
+		\item e.g. If an instance of $r.minRead()$ returns $v$, then at some point during the instance $r$ was equal to $v$.
+		\item If an instance of $r.minWrite(v)$ terminates, then at some point during the instance $r$ was less than $v$ or $r$ was updated to $v$.
+	\end{itemize}
+\end{frame}
+\begin{frame}
+	\frametitle{Non-blocking progress guarantees}
+	Here are the possible progress guarantees for non-blocking shared data structures:
+	\begin{itemize}
+		\item Obstruction-free: If a process $p$ performs a sufficient number 
+		of steps without another process taking steps, it completes its operation.
+		\item Lock-free: If a process $p$ performs a sufficient number of steps, 
+		some process (which may or may not be $p$) has finished an operation.
+		\item Wait-free: If a process $p$ performs a sufficient number of steps, 
+		$p$ completes its operation.
+	\end{itemize}
+\end{frame}
+\begin{frame}
+	\frametitle{Related work}
+	Aspnes, Attiya and Censor give a recursive wait-free implementation of a $k$-bounded min register\footnote{Their paper was actually about max registers, but we're giving an equivalent implementation for min registers.}.
+
+	A 1-bounded min-register $z$ can be trivially implemented without memory, as so:
 	\begin{itemize}
 		\item $z.minRead():$
 			\begin{itemize}
@@ -120,46 +182,118 @@
 				\item Do nothing.
 			\end{itemize}
 	\end{itemize}
+	This is clearly wait-free and linearizable.
 \end{frame}
 \begin{frame}
-	\begin{lemma}
-		$z$ is wait-free and linearizable.
-	\end{lemma}
-	\begin{lemma}
-		The $minWrite$ function is a no-op and the $minRead$ function returns after one instruction.
-		For every execution an operation on $z$ is linearized immediately upon the step it is invoked - 
-		since $z$ already has value 0 in the initial configuration, the $minWrite$ function, by definition, has no effect.
-		The $minRead$ function always returns 0 which is consistent with the state of the object when 
-		the $minRead$ was invoked -- $z$ has value 0 throughout the execution.
-	\end{lemma}
+	\frametitle{Aspnes, Attiya, Censor Implementation}
+	Suppose we have access to:
+	\begin{itemize}
+		\item a wait-free $L$-bounded min register $left$,
+		\item a wait-free $R$-bounded min register $right$, 
+		\item a single bit $sw$ stored in memory, initially $sw = 1$ (ON).
+	\end{itemize}
+	We can implement an $L$ + $R$ bounded min register $r$.
 \end{frame}
 \begin{frame}
-\frametitle{Implementation}
-	Suppose we have a $left.size$-bounded min register $left$, a $right.size$ bounded min register $right$, 
-	and a one bit multi-writer register $sw$ with initial value $1$,
-	where $0 \le right.size \le left.size$.
-	\\~\
-	\\~\
-	\noindent $(left.size + right.size + 1)$-bounded min register $r$:
+	\frametitle{Aspnes, Attiya, Censor Implementation}
+	Initially, the min register looks like this:
+	\begin{figure}[H]
+		\centering
+		\begin{tikzpicture}
+			\node[vertex](sw) at (0,1.5){$sw = 1$};
+			\node[subtree](left) at (-1.5,0){$left = L - 1$};
+			\node[subtree](right) at (1.5,0){$right = R - 1$};
+	
+			\draw[edge](sw) -- (right);
+			\draw[edge](sw) -- (left);
+		\end{tikzpicture}
+		\caption{Their implementation takes the form of a binary tree. If the $sw$ bit is 1, then the value of $r$ is $L$ + $right$'s value.
+		Otherwise the value of $r$ is $left$'s value.}
+	\end{figure}
+\end{frame}
+\begin{frame}
+	\frametitle{Aspnes, Attiya, Censor Implementation}
+\begin{figure}[H]
+    \begin{algorithmic}[1]
+        \State $minRead()$
+        \Indent
+            \If{$switch = 0$} 
+                \State \Return $left.minRead()$
+            \Else
+                \State \Return $right.minRead() + L$
+            \EndIf
+        \EndIndent   
+    \alglinenoNew{alg2}
+    \alglinenoPush{alg2}
+    \end{algorithmic}
+	\begin{algorithmic}[1]
+		\alglinenoPop{alg2}
+			\State $minWrite(v)$
+			\Indent
+				\If{$v < L$}
+					\State $left.minWrite(v)$
+					\State $switch \gets 0$ 
+				\Else
+					\If{$switch = 1$}
+						\State $right.minWrite(v - L)$
+					\EndIf
+				\EndIf
+			\EndIndent   
+		\alglinenoPush{alg2}
+		\end{algorithmic}
+\end{figure}
+\end{frame}
 
-	$r.minRead():$
-			\begin{itemize}
-				\item if $sw = 1$, return $right.minRead()$ + $left.size$ + 1 
-				\item else return $left.minRead()$
-			\end{itemize} 
-		$r.minWrite(v)$:
-			\begin{itemize}
-				\item if $v > left.size$
-				\begin{itemize}
-					\item if $sw = 1$, $right.minWrite(v - left.size - 1)$
-				\end{itemize}
-				\item else
-				\begin{itemize}
-					\item $left.minWrite(v)$
-					\item $sw \leftarrow 0$
-				\end{itemize}
-			\end{itemize}
+\begin{frame}
+	\begin{figure}[H]
+		\centering
+		Suppose $L = 10$, $R = 10$, and we're implementing a 16-bounded min register.
+
+		\begin{tikzpicture}
+			\node[vertex](sw) at (0,1.5){$1$};
+			\node[subtree](left) at (-1.5,0){$8$};
+			\node[subtree](right) at (1.5,0){$8$};
+
+			\draw[edge](sw) -- (right);
+			\draw[edge](sw) -- (left);
+		\end{tikzpicture}
+		\caption{The min register initially looks like this.}
+	\end{figure}
 \end{frame}
+
+\begin{frame}
+	\begin{figure}[H]
+		\centering
+		After performing $r.minWrite(12)$, $r$ looks like this:
+		\begin{tikzpicture}
+			\node[vertex](sw) at (0,1.5){$1$};
+			\node[subtree](left) at (-1.5,0){$8$};
+			\node[subtree](right) at (1.5,0){$4$};
+
+			\draw[edge](sw) -- (right);
+			\draw[edge](sw) -- (left);
+		\end{tikzpicture}
+	\end{figure}
+\end{frame}
+
+
+\begin{frame}
+	\begin{figure}[H]
+		\centering
+		After performing $r.minWrite(3)$, $r$ looks like this:
+		\begin{tikzpicture}
+			\node[vertex](sw) at (0,1.5){$0$};
+			\node[subtree](left) at (-1.5,0){$3$};
+			\node[subtree](right) at (1.5,0){$4$};
+
+			\draw[edge](sw) -- (right);
+			\draw[edge](sw) -- (left);
+		\end{tikzpicture}
+		\caption{Essentially sw = 0 indicates that $r$'s value $< L$, and that $left$ holds the value of $r$.}
+	\end{figure}
+\end{frame}
+
+
 \begin{frame}
 	\begin{lemma}
 	Suppose $left$ and $right$ are wait-free bounded min registers. Then so is $r$.
@@ -169,14 +303,15 @@
 		the $minRead()$ and $minWrite()$ functions of $left$ and $right$. 
 	\end{proof}
 \end{frame}
+\begin{comment}
 \begin{frame}
 	\begin{lemma}
 		Suppose $left$ and $right$ are linearizable bounded min registers. Then so is $r$.
 	\end{lemma}
 	\begin{proof}
 		Consider an execution in which every instance of $r.minRead()$ and $r.minWrite(v)$ instance
-		is allowed to complete. Given an incomplete execution $e$, since $r$ is wait-free, we can
-		append an extension to allow incomplete instances to finish.
+		is allowed to complete.\footnote{Given an incomplete execution $e$, since $r$ is wait-free, we can
+		append an extension to allow incomplete instances to finish}
 
 		\begin{itemize}
 		\item Let $C_{right}$ be the set of $r.readMin()$ instances that read 1 from $sw$ and 
@@ -260,38 +395,39 @@
 		%\caption{}
 	\end{figure}
 \end{frame}
-   
+\end{comment}
+\begin{frame}
+	\frametitle{How can we implement this practically?}
+	How can we implement this on a real machine?
+\end{frame}
 \begin{frame}
 \frametitle{Practical Implementations of a $b$-bounded min register}
-Idea 1: A $b$-bounded min register object stores fields $sw$ (the multiwriter bit register), $size$ (equal to $b$), 
-and $left$, $right$ which are pointers to $\ceil{\frac{b-1}{2}}$ and $\floor{\frac{b-1}{2}}$-bounded min register objects respectively.
+Idea 1: A $b$-bounded min register object stores the bit $sw$, 
+and $left$, $right$ which are pointers to $\ceil{\frac{b}{2}}$ and $\floor{\frac{b}{2}}$-bounded min register objects respectively.
 \\
 Pros:
 \begin{itemize}
 	\item Very simple to implement.
-	\item Might reduce contention to store objects at different places in memory
+	\item Might reduce memory contention to store bits in different objects at different places in memory
 \end{itemize}
 Cons
 \begin{itemize}
-	\item A lot of wasted space. On 64 bit systems, at least 24 bytes per node used, so total space used is $24b$ bytes.
-	\begin{itemize}
-		\item Jeremy's trie, with height = $b$ requires a $b+1$ bounded min register for every DelNode
-		\item A trie of height = 31 has $2^{30}$ delete nodes initially, thus this would be 500gb for the min registers alone!
-	\end{itemize}
+	\item A lot of wasted space. On real machines, objects use at least 24 bytes per node used, so total space used is $24(b-1)$ bytes.
 	\item Slow to traverse to different bounded min register objects from $left/right$.
 \end{itemize}
 \end{frame}
 \begin{frame}
 \frametitle{Practical Implementations of a $b$-bounded min register}
-Idea 2: We can use an array-based tree, with where each array element (node) stores a switch register.
+Idea 2: We can use a byte array-based tree, where each byte stores a switch register, and is the root of a subtree.
 \end{frame}
 \begin{frame}[fragile]
 \frametitle{Array-based leveled binary tree}
 \begin{definition}
 	A binary tree is leveled if every row, except possibly the last is filled.
 \end{definition}
-We can use a $b$-element array of atomic registers as a $b$ node leveled binary tree. 
-In a leveled binary tree, the left child (if it exists) of a node at index $i$ is at index $2i + 1$, and the right child (if it exists) is at index $2i + 2$.
+We can use a $b$-byte array of atomic registers as a $b$ node leveled binary tree. 
+In a leveled binary tree, the left child of a node at index $i$, if one exists, is at index $2i + 1$.
+The right child, if it exists, is at index $2i + 2$.
 \begin{figure}
 	\begin{subfigure}[b]{0.47\textwidth}
 	\centering
@@ -329,6 +465,7 @@ In a leveled binary tree, the left child (if it exists) of a node at index $i$ i
 	\end{subfigure}
 \end{figure}
 \end{frame}
+\begin{comment}
 \begin{frame}
 %size formula from integer sequences website....
 The number of nodes in the left subtree in a leveled binary tree of size $n$:
@@ -346,18 +483,15 @@ and
 Proof by Bozinovski available here.
 https://oeis.org/A279521
 \end{frame}
+\end{comment}
 \begin{frame}
 Pros:
 \begin{itemize}
-	\item More cache friendly - on x86-64 machines, accessing a single byte results in loading the next 63 bytes.
-	If the cache is not invalidated after accessing first element of array, successive accesses do no incur a cache miss!
+	\item More space efficient
 \end{itemize}
 Cons:
 \begin{itemize}
-	\item Now need $b$ bytes for a size $b$ register, which is better, but a Trie of height $32$ would require 32 extra bytes per node 
-	for the min register alone, which is not great.
-	\item If contention is high, cache may be invalidated by other threads that modify even different parts of the array, causing 
-	cache misses on successive reads/writes. (False sharing)
+	\item Now need $b-1$ bytes for a $b$-bounded register, which is still not great
 \end{itemize}
 \end{frame}
 \begin{frame}[fragile]
@@ -392,48 +526,121 @@ What if instead we could use \emph{every bit} in the array rather than one per b
 \end{frame}
 \begin{frame}[fragile]
 \frametitle{Reads and Writes to individual bits}
-Reading a particular bit atomically is trivial...
-But what about writing 0 to particular bit? 
-There's an atomic operation for that, we can use $fetch\&and$!
+Reading a particular bit atomically is trivial. Can a byte and then use bitshifting.
 
-To write 0 to bit $i$ of a particular byte $a$ atomically, we can use $fetch\&and(address(a), 11111111_2 - (1 << (7 - i)))$ 
+But what about writing 0 to particular bit? We can use $fetch\&and$!
 
-For example to write 0 to bit 4 of a byte $x = 01001100_2$, we can use $fetch\&and(\&x,11110111_2)$, which will turn off bit 4 and leave the other bits unchanged.
+To write 0 to bit $i$ of a particular byte $a$ atomically, we can use $a.FAA(11111111_2 - (1 << (7 - i)))$ 
 \end{frame}
 \begin{frame}
-	\frametitle{Implementation for $Jeremy$'s trie}
-	If we restrict the maximum size of the register to $2^k - 1$ for some $k$, 
-	then the size of the left subtree = size of right subtree = $\floor{\frac{2^k-1}{2}}$.
-	\\~\
-	I have reimplemented the $minWrite$ and $minRead$ functions to be iterative, 
-	and I use a 63-bounded min register using an array of 8 bytes.
-	Initially the min register has value 63 but can be initialized to $b$ with the use of
-	$minWrite(b)$.
-\end{frame}
-\begin{frame}
-	\frametitle{Consequences}
-	Pros:
-	\begin{itemize}
-		\item Can use use 8 bytes for a 63 bit bounded min register, rather than 63 bytes.
-		\item No more risk of false sharing than with the array implementation.
-	\end{itemize}
-	Cons
-	\begin{itemize}
-		\item Contention costs may be higher since more registers are stored within the same byte.
-		\item Doing a lot of reads from/writes to shared memory since we only read or write one bit at a time
-	\end{itemize}
-\end{frame}
-\begin{frame}
-	\frametitle{One more thing}
+	\frametitle{Optimizing number of steps}
 	Notice that any reads occur before any writes in both minRead and minWrite operations.
-	
-	Reads will read switches before going down the tree.
-	Writes will read switches before going down the tree, then write on their way back up the tree.
+	\begin{itemize}
+		\item minReads will read switches before going down the tree
+		\item minWrites will read switches before going down the tree and then write to switches on the way back up
+	\end{itemize}
+	We could read and write multiple switches at a time if they're in the same word in memory.
+	So we could implement word size min registers in this way. But is there a better way?
+\end{frame}
 
-	There's no need for a gap between any two successive reads -- or any two successive $fetch\&and$s!
-	Why not do all reads at the same time, and all $fetch\&ands$ at the same time!
-	Then reads only need to read one 8 byte integer from memory, 
-	and writes only need to read one 8 byte integer from memory, then $fetch\&and$ one.
+\begin{frame}
+	\frametitle{Word sized min registers}
+	When I mentioned that most computers have FAA, Faith came up with a better idea:
+
+	Let $w$ be a word of $W$ bits such that the system supports FAA on $w$.
+	\begin{itemize}
+		\item We can implement a $(W+1)$-bounded min register from $w$.
+		\item Initially, $w$ is all 1s.
+		\item The value of $w$ at any time is the position of the rightmost off bit, or $W$ if all bits are on.
+		\item A minRead will read $w$ and return the position of the rightmost off bit.
+		\item A minWrite($v$) will use FAA to turn off the $v$-th bit, leaving the other bits unchanged.
+	\end{itemize}
+	This is a better implementation; minWrites now don't need to read, and we don't need to do any recursion or iteration to read/write 
+	different bits.
+\end{frame}
+
+\begin{frame}
+	\frametitle{Larger min registers that are slightly more efficient}
+	What about for larger min registers? Notice that in the earlier implementation, $sw$ acts as a 2-bounded min register.
+	It initially holds the value 1, and processes only read it or write 0 to it.
+	\begin{itemize}
+		\item What if we instead used our new word-size min register as the switch?
+		\item Then we could use it to `pick' between $(W+1)$ subtrees which are each min registers, rather than 2.
+		\item Reduces the step complexity of a $k$-bounded register from $\log_2(k)$ to $\log_{W+1}(k)$.
+	\end{itemize}
+\end{frame}
+\begin{frame}
+	\frametitle{Larger min registers that are slightly more efficient}
+	Given we have words of size $W$ and $S$-bounded min registers,
+	\begin{itemize}
+		\item We use a $(W+1)$-bounded min register $sw$, as the switch,
+		\item and $(W+1)$ $S$-bounded min registers, $tree_0 \dots tree_W$,
+		\item to obtain a $(W+1)S$-bounded min register $r$.
+	\end{itemize}
+\end{frame}
+
+\begin{frame}
+	\begin{figure}[H]
+		\begin{algorithmic}[1]
+			\State $minRead()$
+			\Indent
+				\State $i \gets sw.minRead()$ 
+				\State \Return $tree_i.minRead() + is$
+			\EndIndent 
+		\alglinenoNew{alg3}
+		\alglinenoPush{alg3}
+		\end{algorithmic}
+		\begin{algorithmic}[1]
+			\alglinenoPop{alg3}
+				\State $minWrite(v)$
+				\Indent
+					\State $d \gets \floor{\frac{v}{S}}$
+					\State $i \gets sw.minRead()$ 
+					\If{$i \ge d$}
+						\State $tree_d.minWrite(v - d \cdot S)$
+						\If{$i > d$}
+							$sw.minWrite(d)$
+						\EndIf
+					\EndIf
+				\EndIndent   
+			\alglinenoPush{alg3}
+			\end{algorithmic}
+	\end{figure}
+\end{frame}
+
+
+\begin{frame}
+	\begin{figure}[H]
+		\centering
+		\begin{tikzpicture}
+			\node[vertex](sw) at (0,1.5){$sw$};
+			\node(zero) at (-1.5,0){$tree_0$};
+			\node(w) at (1.5,0){$tree_W$};
+			\node(dots) at (0, 0){$\dots$};
+
+			\draw[edge](sw) -- (zero);
+			\draw[edge](sw) -- (dots);
+			\draw[edge](sw) -- (w);
+		\end{tikzpicture}
+	\end{figure}
+\end{frame}
+
+\begin{frame}
+	\frametitle{Open question}
+		In both implementations, a wait-free $b$-bounded min register requires $b-1$ bits and has $O(\log b)$ step complexity.
+		Is there an implementation that uses fewer bits that has $O(\log b)$ or better step complexity?
+\end{frame}
+\begin{frame}
+	\frametitle{Open questions}
+	While technically wait-free, brute force implementations from CAS are slow. Given a word $w$ of $W$ bits, 
+	we could implement a $2^W$ bounded min register as follows:
+	\begin{itemize}
+		\item A minRead would return the current value of $w$.
+		\item A minWrite($v$) would read the current value $c$ of $w$, and if $c$ is greater than $v$, 
+		perform $w.CAS(c,v)$, repeatedly trying until the value of $r$ less than $v$.
+	\end{itemize}
+	The step complexity of minWrites in this implementation would be $O(b-v)$, since a $minWrite$ might have to perform a $b-v-1$ CAS operations on $w$
+	before $w$ holds a value that is less than or equal to $v$. Other processes could perform CAS($2^W - 1$,$2^W - 2$), CAS($2^W - 2$,$2^W - 3$), etc....
 \end{frame}
 
 \end{document}
