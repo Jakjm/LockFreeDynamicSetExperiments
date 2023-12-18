@@ -9,7 +9,6 @@
 #include <atomic>
 #include <cassert>
 #include "../common.h"
-#include "ListNode.h"
 #include "../trieNodeTypes.h"
 #pragma once
 using std::string;
@@ -17,11 +16,11 @@ using std::string;
 #define testStats
 
 //An extension of Fomitchev and Ruppert's linked list.
-//Additional status used when a ListNode's successor is an insert descriptor node.
+//Additional status used when a UpdateNode's succ is an insert descriptor node.
 //Definition of the Insert Descriptor Node object.
 struct InsertDescNode{
-    std::atomic<ListNode*> newNode;
-    std::atomic<ListNode*> next;
+    std::atomic<UpdateNode*> newNode;
+    std::atomic<UpdateNode*> next;
     std::atomic<uint64_t> seqNum; //Sequence number.
     InsertDescNode():  newNode(nullptr), next(nullptr), seqNum(0){
 
@@ -34,27 +33,27 @@ struct InsertDescNode{
 //compare is the function used to compare the nodes of the linked list
 class UALL_Type {
     public:
-        ListNode tail, head; //Head, tail of the linked list. 
+        UpdateNode tail, head; //Head, tail of the linked list. 
     public:
         InsertDescNode descs[MAX_THREADS]; //Insert descriptor nodes for each process
-        UALL_Type(): tail(), head(){
-            head.successor.store((uintptr_t)&tail);
+        UALL_Type(): tail(INT64_MAX,INS), head(INT64_MIN, INS){
+            head.succ.store((uintptr_t)&tail);
         }
         ~UALL_Type(){ 
             
         }
 
-        uintptr_t helpInsert(ListNode *prev, uint64_t seqNum,  uint64_t procID){
+        uintptr_t helpInsert(UpdateNode *prev, uint64_t seqNum,  uint64_t procID){
             InsertDescNode *desc = &descs[procID];
-            ListNode *newNode = desc->newNode;
-            ListNode *next = desc->next;
+            UpdateNode *newNode = desc->newNode;
+            UpdateNode *next = desc->next;
             if(seqNum != desc->seqNum){
-                return prev->successor.load();
+                return prev->succ.load();
             }
 
             //Attempt to initialize newNode....
             uintptr_t result = 0;
-            newNode->successor.compare_exchange_strong(result, (uintptr_t)next);
+            newNode->succ.compare_exchange_strong(result, (uintptr_t)next);
 
             uint64_t expected = (seqNum << 12) + (procID << 4) + InsFlag;
             result = expected; 
@@ -67,7 +66,7 @@ class UALL_Type {
             else{
                 newSucc = (uintptr_t)newNode; //Attempt to complete insertion of node.
             }
-            prev->successor.compare_exchange_strong(result, (uintptr_t)newSucc);
+            prev->succ.compare_exchange_strong(result, (uintptr_t)newSucc);
             if(result == expected){
                 return (uintptr_t)newSucc;
             }
@@ -76,26 +75,26 @@ class UALL_Type {
             }
         }
         
-        //Precondition: prev.successor was <delNode, DelFlag> at an earlier point, and delNode is Marked.
-        uintptr_t helpMarked(ListNode *prev, ListNode *delNode){
-            ListNode *next = (ListNode*)((uintptr_t)delNode->successor & NEXT_MASK);
+        //Precondition: prev.succ was <delNode, DelFlag> at an earlier point, and delNode is Marked.
+        uintptr_t helpMarked(UpdateNode *prev, UpdateNode *delNode){
+            UpdateNode *next = (UpdateNode*)((uintptr_t)delNode->succ & NEXT_MASK);
             uintptr_t expected = (uintptr_t)delNode + DelFlag;
             uintptr_t result = expected;
-            prev->successor.compare_exchange_strong(result, (uintptr_t)next);
+            prev->succ.compare_exchange_strong(result, (uintptr_t)next);
             
             if(result == expected)return (uintptr_t)next;
             else return result;
         }
-        //Precondition, prev.successor was <delNode, DelFlag> at an earlier point.
-        uintptr_t helpRemove(ListNode *prev, ListNode *delNode){
+        //Precondition, prev.succ was <delNode, DelFlag> at an earlier point.
+        uintptr_t helpRemove(UpdateNode *prev, UpdateNode *delNode){
             delNode->backlink = prev;
-            uintptr_t succ = delNode->successor.load(); //The value of delNode's successor pointer
+            uintptr_t succ = delNode->succ.load(); //The value of delNode's succ pointer
             uintptr_t state = succ & STATUS_MASK;
             uintptr_t next = succ & NEXT_MASK;
 
             while(state != Marked){ //While delNode is not marked...
-                if(state == DelFlag){ //Help with deletion of its successor, if it is flagged....
-                    succ = helpRemove(delNode, (ListNode*)next);
+                if(state == DelFlag){ //Help with deletion of its succ, if it is flagged....
+                    succ = helpRemove(delNode, (UpdateNode*)next);
                 }
                 else if(state == InsFlag){ //Help with insertion if prev.next points to an InsertDescNode....
                     uint64_t seqNum = (next & SEQ_MASK) >> 12;
@@ -106,7 +105,7 @@ class UALL_Type {
                 else{ //Attempt to mark the node if the status was normal...
                     uintptr_t markedSuccessor = (uintptr_t)next + Marked;
                     succ = next;
-                    delNode->successor.compare_exchange_strong(succ, markedSuccessor); //Try to update from <next, Normal> to <next, Marked>
+                    delNode->succ.compare_exchange_strong(succ, markedSuccessor); //Try to update from <next, Normal> to <next, Marked>
                     if(succ == next)break; //The CAS succeeded!
                 }
                 state = succ & STATUS_MASK;
@@ -116,19 +115,10 @@ class UALL_Type {
             return succ;
         }
 
-        //Used to compare two nodes in the list
-        //Returns 1 if n1 must be placed after n2
-        //Returns 0 if n1 may be placed after or before n2.
-        //Returns -1 if n1 must be placed before n2
-        //inline int __attribute__((always_inline)) compNode(ListNode *n1, ListNode *n2){
-        //    if(n1 == &tail)return 1;
-        //    else return compare(n1,n2);
-        //}
-
-        void insert(ListNode *node){
-            if((node->successor & STATUS_MASK) == Marked)return;
-            ListNode *curr = &head;
-            uintptr_t succ = curr->successor;
+        void insert(UpdateNode *node){
+            if((node->succ & STATUS_MASK) == Marked)return;
+            UpdateNode *curr = &head;
+            uintptr_t succ = curr->succ;
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
 
@@ -140,20 +130,20 @@ class UALL_Type {
             while(state == InsFlag || next != (uintptr_t)node){
                 if(state == Normal){
                     //If Next's key <= node's key
-                    if(next != (uintptr_t)&tail && ((UpdateNode*)(ListNode*)next)->key <= ((UpdateNode*)node)->key){ 
+                    if(next != (uintptr_t)&tail && ((UpdateNode*)next)->key <= node->key){ 
                         //node should be placed further along in the list if next <= node
-                        curr = (ListNode*)next;
-                        succ = curr->successor;
+                        curr = (UpdateNode*)next;
+                        succ = curr->succ;
                     }
                     else{
-                        if((node->successor & STATUS_MASK) == Marked){
+                        if((node->succ & STATUS_MASK) == Marked){
                             return;
                         }
-                        desc->next = (ListNode*)next; //Set the next of the insert descriptor node.
+                        desc->next = (UpdateNode*)next; //Set the next of the insert descriptor node.
                         succ = next;
 
                         uint64_t newVal = (seqNum << 12) + (threadID << 4) + InsFlag;
-                        curr->successor.compare_exchange_strong(succ, (uintptr_t)newVal);
+                        curr->succ.compare_exchange_strong(succ, (uintptr_t)newVal);
                         if(succ == next){ //If the CAS succeeded....
                             helpInsert(curr, seqNum, threadID);
                             desc->seqNum = seqNum + 1; //Increment the sequence number....
@@ -167,11 +157,11 @@ class UALL_Type {
                     succ = helpInsert(curr, seq, proc);
                 }
                 else if(state == DelFlag){
-                    succ = helpRemove(curr, (ListNode*)next);
+                    succ = helpRemove(curr, (UpdateNode*)next);
                 }
                 else{
-                    ListNode *prev = curr->backlink;
-                    succ = prev->successor;
+                    UpdateNode *prev = curr->backlink;
+                    succ = prev->succ;
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
                     if(state == DelFlag && next == (uintptr_t)curr){ //Help remove curr from the list.
@@ -179,26 +169,26 @@ class UALL_Type {
                     }
                     curr = prev;
                 }
-                //Read next and state from curr.successor.
+                //Read next and state from curr.succ.
                 next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;
             }
         }
-        void remove(ListNode *node){
-            ListNode *curr = &head;
-            uintptr_t succ = curr->successor;
+        void remove(UpdateNode *node){
+            UpdateNode *curr = &head;
+            uintptr_t succ = curr->succ;
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
             while(1){
                 if(state == Normal){
-                    if(next == (uintptr_t)&tail || ((UpdateNode*)(ListNode*)next)->key > ((UpdateNode*)node)->key)return;
-                    if((ListNode*)next != node){ //Advance...
-                        curr = (ListNode*)next;
-                        succ = curr->successor;
+                    if(next == (uintptr_t)&tail || ((UpdateNode*)next)->key > node->key)return;
+                    if((UpdateNode*)next != node){ //Advance...
+                        curr = (UpdateNode*)next;
+                        succ = curr->succ;
                     }
                     else{
                         succ = (uintptr_t)node;
-                        curr->successor.compare_exchange_strong(succ, (uintptr_t)node + DelFlag);
+                        curr->succ.compare_exchange_strong(succ, (uintptr_t)node + DelFlag);
                         if(succ == (uintptr_t)node){
                             helpRemove(curr, node);
                             return;
@@ -210,17 +200,17 @@ class UALL_Type {
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpInsert(curr, seq, proc);
                 }
-                //next is a pointer to a ListNode
-                else if(next == (uintptr_t)&tail || ((UpdateNode*)(ListNode*)next)->key > ((UpdateNode*)node)->key){
+                //next is a pointer to a UpdateNode
+                else if(next == (uintptr_t)&tail || ((UpdateNode*)next)->key > node->key){
                     return;
                 }
                 else if(state == DelFlag){
-                    succ = helpRemove(curr, (ListNode*)next);
-                    if((ListNode*)next == node)return;
+                    succ = helpRemove(curr, (UpdateNode*)next);
+                    if((UpdateNode*)next == node)return;
                 }
                 else{
-                    ListNode *prev = curr->backlink;
-                    succ = prev->successor;
+                    UpdateNode *prev = curr->backlink;
+                    succ = prev->succ;
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
                     if(state == DelFlag && next == (uintptr_t)curr){ //Help remove curr from the list.
@@ -236,11 +226,11 @@ class UALL_Type {
         //List traversal algorithms here: 
 
         //Returns the head of the linked list, or null if the list is empty...
-        ListNode *first(){
+        UpdateNode *first(){
             return next(&head);
         }
-        ListNode *next(ListNode *node){
-            uintptr_t succ = node->successor;
+        UpdateNode *next(UpdateNode *node){
+            uintptr_t succ = node->succ;
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
 
@@ -249,25 +239,25 @@ class UALL_Type {
                 uint64_t seq = (next & SEQ_MASK) >> 12;
                 uint64_t proc = (next & PROC_MASK) >> 4;
                 InsertDescNode *desc = &descs[proc];
-                next = (uintptr_t)(ListNode*)desc->next;
+                next = (uintptr_t)(UpdateNode*)desc->next;
                 if(desc->seqNum == seq)break; //desc was still a valid insert descriptor node following node...
                 
-                succ = node->successor; //Read node->successor again.
+                succ = node->succ; //Read node->succ again.
                 next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;
             }
-            //next points to a ListNode....
+            //next points to a UpdateNode....
 
-            //If the following ListNode was the tail, then return nullptr.
+            //If the following UpdateNode was the tail, then return nullptr.
             if(next == (uintptr_t)(&tail)){
                 return nullptr;
             }
-            else return (ListNode*)next; //Otherwise, return the following ListNode.
+            else return (UpdateNode*)next; //Otherwise, return the following UpdateNode.
         }
 
 
-        ListNode *next(ListNode *node, uint64_t state){
-            uintptr_t succ = node->successor;
+        UpdateNode *next(UpdateNode *node, uint64_t state){
+            uintptr_t succ = node->succ;
             uintptr_t next = succ & NEXT_MASK;
             state = succ & STATUS_MASK;
 
@@ -276,20 +266,20 @@ class UALL_Type {
                 uint64_t seq = (next & SEQ_MASK) >> 12;
                 uint64_t proc = (next & PROC_MASK) >> 4;
                 InsertDescNode *desc = &descs[proc];
-                next = (uintptr_t)(ListNode*)desc->next;
+                next = (uintptr_t)(UpdateNode*)desc->next;
                 if(desc->seqNum == seq)break; //desc was still a valid insert descriptor node following node...
                 
-                succ = node->successor; //Read node->successor again.
+                succ = node->succ; //Read node->succ again.
                 next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;
             }
-            //next points to a ListNode....
+            //next points to a UpdateNode....
 
-            //If the following ListNode was the tail, then return nullptr.
+            //If the following UpdateNode was the tail, then return nullptr.
             if(next == (uintptr_t)(&tail)){
                 return nullptr;
             }
-            else return (ListNode*)next; //Otherwise, return the following ListNode.
+            else return (UpdateNode*)next; //Otherwise, return the following UpdateNode.
         }
         
         char stat_to_char(uint64_t status){
@@ -308,12 +298,12 @@ class UALL_Type {
             return ' ';
         }
 
-        //Thread safe way of printing list
-        void printList(std::string (*nodeToString)(ListNode*)){
+        //Thread safe way of prqinting list
+        void printList(std::string (*nodeToString)(UpdateNode*)){
             std::ostringstream stream;
 
             uint64_t status;
-            ListNode *node = next(&head, status);
+            UpdateNode *node = next(&head, status);
             stream << "{";
             while(node){
                 stream << "<" << nodeToString(node) << ", " << stat_to_char(status)  << ">";

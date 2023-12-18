@@ -3,11 +3,15 @@
 #include <cstdint>
 #include <string>
 #include "BoundedMinReg/minreg.h"
-#include "LinkedLists/ListNode.h"
 #include "common.h"
 #include "debra.h"
+#include "swCopy.h"
 #pragma once
 using std::string;
+
+
+
+
 
 enum TYPE {INS, DEL};
 enum STATUS {INACTIVE, ACTIVE, STALE};
@@ -24,24 +28,43 @@ class BaseType{
 };
 
 
+
+
 Debra<BaseType, 4> trieDebra;
 
 //record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
 
-class UpdateNode : public ListNode, public RU_ALL_Node{
+class UpdateNode{
     public:
         int64_t key;
         const TYPE type; 
         std::atomic<STATUS> status; 
         std::atomic<UpdateNode *> latestNext;
-
-        UpdateNode(int64_t k, TYPE t) : ListNode(), RU_ALL_Node(),  key(k), type(t), status(INACTIVE), latestNext(nullptr){
+        volatile char padding1[64 - sizeof(int64_t) - sizeof(TYPE) - sizeof(std::atomic<STATUS>) - sizeof(std::atomic<UpdateNode*>)];
+        std::atomic<uintptr_t> succ; //Successor for the UALL
+        std::atomic<UpdateNode*> backlink; //Backlink for the UALL
+        volatile char padding2[64 - sizeof(uintptr_t) - sizeof(UpdateNode*)];
+        std::atomic<uintptr_t> rSucc; //Successor for the RUALL
+        std::atomic<UpdateNode*> rBacklink; //Backlink for the RUALL.
+        volatile char padding3[64 - sizeof(uintptr_t) - sizeof(UpdateNode*)];
+        UpdateNode(int64_t k, TYPE t) : key(k), type(t), status(INACTIVE), latestNext(nullptr), succ(0), backlink(0), rSucc(0), rBacklink(0){
         
         }
-        UpdateNode(TYPE t) : ListNode(), RU_ALL_Node(),  key(-1), type(t), status(INACTIVE), latestNext(nullptr){
+        UpdateNode(TYPE t): UpdateNode(-1, t){
         
         }
 
+};
+
+//Customized version of PermaRemList that is specifically used for the RUALL of Jeremy's Trie.
+//DescNode could either be an insert descriptor node or a notify descriptor node.
+struct InsertDesc{
+    UpdateNode *newNode; //Either a pointer to an update node to be inserted or a pointer to a predecessor node.
+    UpdateNode *next;
+    InsertDesc(): newNode(nullptr), next(nullptr) {
+
+    }
+    volatile char padding[64 - 3 * sizeof(std::atomic<uintptr_t>)];
 };
 
 class InsNode : public UpdateNode, public BaseType{
@@ -65,7 +88,7 @@ class NotifyNode {
     UpdateNode * const updateNode;
     InsNode * const updateNodeMax;
     const int64_t notifyThreshold;
-    
+    volatile char padding[64 - 4*sizeof(int64_t)];
 
     //Pointer to the next node in the notify list....
     NotifyNode *next;
@@ -75,17 +98,38 @@ class NotifyNode {
     }
 };
 
-//UpdateNodes that are meant to represent the values of infinity and zero for the notifyThreshold
-InsNode INFINITY_THRES(INT64_MAX);
-InsNode ZERO_THRES(0);
+struct UpdateNodeAtomicCopy : private SW_AtomicCopy{
+    UpdateNodeAtomicCopy(uintptr_t u) : SW_AtomicCopy(u){
 
-class PredecessorNode :  public ListNode, public BaseType{
+    }
+    void swcopy(std::atomic<uintptr_t> *src){
+        SW_AtomicCopy::swcopy(src);
+    }
+    void write(uintptr_t newVal){
+        SW_AtomicCopy::write(newVal);
+    }
+    UpdateNode *read(){
+        uintptr_t succ = SW_AtomicCopy::read();
+        uintptr_t next = succ & NEXT_MASK;
+        uint64_t state = succ & STATUS_MASK; 
+
+        if(state == InsFlag){
+            return ((InsertDesc*)next)->next;
+        }
+        return (UpdateNode*)next;
+    }
+};
+
+class PredecessorNode:  public BaseType{
     public:
     const int64_t key;
-    std::atomic<UpdateNode*> notifyThreshold;
+    std::atomic<uintptr_t> succ;
+    std::atomic<PredecessorNode*> backlink;
+    volatile char padding1[64 - 3*sizeof(UpdateNode*)];
     std::atomic<NotifyNode*> notifyListHead;
-    volatile char padding[64 - (sizeof(ListNode) + 3 * sizeof(int64_t) + sizeof(BaseType))];
-    PredecessorNode(int64_t k) :  ListNode(), key(k), notifyThreshold(&INFINITY_THRES), notifyListHead(nullptr) {
+    volatile char padding2[64 - (sizeof(NotifyNode*))];
+    UpdateNodeAtomicCopy notifyThreshold;
+    PredecessorNode(int64_t k, UpdateNode *ruallHead): key(k), notifyListHead(nullptr), notifyThreshold((uintptr_t)ruallHead) {
     
     }
     ~PredecessorNode(){
@@ -106,6 +150,7 @@ class DelNode : public UpdateNode, public BaseType{
         int64_t delPred;
         std::atomic<int64_t> delPred2;
         std::atomic<bool> stop;
+        volatile char padding [64 - sizeof(int8_t)];
         std::atomic<int8_t> dNodeCount;
         
 

@@ -224,9 +224,8 @@ void skipTest(){
     skipSet.printList();
 }
 
-int main(int argc, char **argv){
-    //skipTest();
-    
+
+int experimentProg(int argc, char **argv){
     double runtime = 5.0;
     int numProcs = 4;
     double prefill = 0.5;
@@ -299,5 +298,11 @@ int main(int argc, char **argv){
     }
     if(!setType)setType = defaultType;
     multithreadTest(setType, runtime, numProcs, keyRange, prefill, verbose);
+    return 0;
+}
+
+int main(int argc, char **argv){
+    //skipTest();
+    experimentProg(argc, argv);
     return 0;
 }

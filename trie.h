@@ -279,7 +279,7 @@ class Trie : public DynamicSet{
         PredecessorNode *pNode = (PredecessorNode*)P_ALL.first();
         while(pNode){
             int64_t tau;
-            UpdateNode *notifyThres = pNode->notifyThreshold;
+            UpdateNode *notifyThres = pNode->notifyThreshold.read();
             tau = notifyThres->key;
 
             if(!firstActivated(uNode)){
@@ -486,7 +486,7 @@ class Trie : public DynamicSet{
         }
         //iNode has type INS. If it has a child, its child has type DEL.
 
-        PredecessorNode *pNode = new PredecessorNode(x);
+        PredecessorNode *pNode = new PredecessorNode(x,&RU_ALL.head);
         //trieRecordManager.allocate<PredecessorNode>(threadID, x);
         int64_t delPred = predHelper(pNode);
 
@@ -534,7 +534,7 @@ class Trie : public DynamicSet{
             helpActivate(expected);
 
             //Remove pNode from P_ALL.
-            P_ALL.remove((ListNode*)pNode);
+            P_ALL.remove(pNode);
 
             #ifdef reuse
             updateNodePool[threadID].delNode = dNode; //Place dNode into the pool to be reused for the next delete operation.
@@ -569,7 +569,7 @@ class Trie : public DynamicSet{
             trieDebra.retire((InsNode*)iNode);
             //trieRecordManager.retire(threadID, (InsNode*)iNode);
         }
-        PredecessorNode *pNode2 = new PredecessorNode(x);
+        PredecessorNode *pNode2 = new PredecessorNode(x, &RU_ALL.head);
         //trieRecordManager.allocate<PredecessorNode>(threadID, x);
         int64_t delPred2 = predHelper(pNode2);
         dNode->delPred2 = delPred2;
@@ -579,8 +579,8 @@ class Trie : public DynamicSet{
         notifyPredOps(dNode);
 
         // Delete pNode and pNode2 from P-ALL.
-        P_ALL.remove((ListNode*)pNode);
-        P_ALL.remove((ListNode*)pNode2);
+        P_ALL.remove(pNode);
+        P_ALL.remove(pNode2);
 
         //Retire both pNode and pNode2.
         trieDebra.retire(pNode);
@@ -660,41 +660,41 @@ class Trie : public DynamicSet{
     void traverseAndInsertPALL(PredecessorNode *newNode, deque<PredecessorNode*> &q){
         set<PredecessorNode*> qSet;
 
-        ListNode *first = (ListNode*)(P_ALL.head.successor.load() & NEXT_MASK);
+        PredecessorNode *first = (PredecessorNode*)(P_ALL.head.succ.load() & NEXT_MASK);
         PredecessorNode *pNode = (PredecessorNode*)first;
         //Traverse P_ALL from start to end
         while(pNode){
             q.push_back(pNode);
             qSet.insert(pNode);
             //Note the cast to a ListNode is important!
-            pNode = (PredecessorNode*)P_ALL.next((ListNode*)pNode);
+            pNode = (PredecessorNode*)P_ALL.next(pNode);
         }
 
         //Insert newNode into P_ALL
         while(1){
             //Set newNode's next to first.
-            newNode->successor = (uintptr_t)first;
+            newNode->succ = (uintptr_t)first;
             uintptr_t expected = (uintptr_t)first;
 
-            P_ALL.head.successor.compare_exchange_strong(expected, (uintptr_t)(ListNode*)newNode);
+            P_ALL.head.succ.compare_exchange_strong(expected, (uintptr_t)newNode);
             if(expected == (uintptr_t)first){
                 q.push_front(newNode); //Put newNode at the front of q.
                 return; //newNode was successfully inserted
             }
             int64_t state = (int64_t)(expected & STATUS_MASK);
-            ListNode *next = (ListNode*)(expected & NEXT_MASK);
+            PredecessorNode *next = (PredecessorNode*)(expected & NEXT_MASK);
             if(state == DelFlag){
-                first = (ListNode*)(P_ALL.helpRemove(&P_ALL.head, next) & NEXT_MASK);
+                first = (PredecessorNode*)(P_ALL.helpRemove(&P_ALL.head, next) & NEXT_MASK);
             }
 
             vector<PredecessorNode*> qPrime;
-            first = (ListNode*)(P_ALL.head.successor.load() & NEXT_MASK);
+            first = (PredecessorNode*)(P_ALL.head.succ.load() & NEXT_MASK);
             pNode = (PredecessorNode*)first;
             //Traverse P_ALL from start to end, add any nodes not in Q to qPrime
             while(pNode && qSet.count(pNode) == 0){
                 qPrime.push_back(pNode);
                 //Note the cast to a ListNode is important!
-                pNode = (PredecessorNode*)P_ALL.next((ListNode*)pNode);
+                pNode = (PredecessorNode*)P_ALL.next(pNode);
             }
 
             //Go through qPrime in reverse order, and put each element at the front of q.
@@ -885,10 +885,10 @@ class Trie : public DynamicSet{
         trieDebra.startOp();
         //trieRecordManager.startOp(threadID);
         
-        PredecessorNode *p = new PredecessorNode(y);
+        PredecessorNode *p = new PredecessorNode(y, &RU_ALL.head);
         //trieRecordManager.allocate<PredecessorNode>(threadID, y);
         int64_t pred = predHelper(p);
-        P_ALL.remove((ListNode*)p);
+        P_ALL.remove(p);
         trieDebra.retire(p);
         //trieRecordManager.retire(threadID, p); //PredNode p can be retired, since it is no longer in shared memory.
 
@@ -959,9 +959,9 @@ class Trie : public DynamicSet{
 
     //Verify that all of the lists are empty
     void verifyLists(){
-        assert(RU_ALL.head.successor == (uintptr_t)&RU_ALL.tail);
-        assert(U_ALL.head.successor == (uintptr_t)&U_ALL.tail);
-        assert(P_ALL.head.successor == (uintptr_t)&P_ALL.tail);
+        assert(RU_ALL.head.rSucc == (uintptr_t)&RU_ALL.tail);
+        assert(U_ALL.head.succ == (uintptr_t)&U_ALL.tail);
+        assert(P_ALL.head.succ == (uintptr_t)&P_ALL.tail);
     }
 
     //TODO ifdef debug
