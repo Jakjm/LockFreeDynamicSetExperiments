@@ -22,10 +22,10 @@ struct InsertDescNode{
     std::atomic<UpdateNode*> newNode;
     std::atomic<UpdateNode*> next;
     std::atomic<uint64_t> seqNum; //Sequence number.
+    volatile char padding[64 - 3 * sizeof(std::atomic<uintptr_t>)];
     InsertDescNode():  newNode(nullptr), next(nullptr), seqNum(0){
 
     }
-    volatile char padding[64 - 3 * sizeof(std::atomic<uintptr_t>)];
 };
 
 

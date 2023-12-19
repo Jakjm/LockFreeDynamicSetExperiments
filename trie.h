@@ -42,8 +42,12 @@ struct UpdateNodePool{
     UpdateNodePool() : insNode(nullptr), delNode(nullptr){
 
     }
+    ~UpdateNodePool(){
+        delete insNode;
+        delete delNode;
+    }
 };
-UpdateNodePool updateNodePool[MAX_THREADS];
+
 #define reuse 1 //If reuse is defined, update nodes that are not inserted into the trie will be reused.
 
 class Trie : public DynamicSet{
@@ -55,15 +59,24 @@ class Trie : public DynamicSet{
     P_ALL_TYPE P_ALL;
     UALL_Type U_ALL;
     RU_ALL_TYPE RU_ALL;
+    UpdateNodePool updateNodePool[MAX_THREADS];
     public:
     Trie(int height) : trieHeight(height), universeSize(1 << trieHeight), trieNodes(new TrieNode*[trieHeight]), latest(new LatestList[universeSize]), P_ALL(), U_ALL(), RU_ALL()
     {
+
+        for(int i = 0;i < MAX_THREADS;++i){
+            updateNodePool[i].insNode = new InsNode();
+            updateNodePool[i].delNode = new DelNode(trieHeight);
+        }
+
+
         //Initialize the binary trie nodes for each level of the trie.
         for(int i = 0; i < trieHeight;++i){
             int64_t rowSize = (1 << i); //Row size = 2^i
             TrieNode *trieNodeRow = new TrieNode[rowSize];
             trieNodes[i] = trieNodeRow;
         }
+
 
         TrieNode *baseRow = trieNodes[trieHeight - 1];
 
@@ -149,15 +162,6 @@ class Trie : public DynamicSet{
         delete[] latest; //Delete vector used for the latest lists.
         verifyLists();
         //Retire update nodes that are still in pools...
-        for(int i = 0;i < MAX_THREADS;++i){
-            InsNode * volatile ins = updateNodePool[i].insNode;
-            DelNode * volatile del = updateNodePool[i].delNode; 
-            if(ins)delete ins;
-            
-            //trieRecordManager.deallocate(threadID, ins);
-            if(del)delete del;
-            //trieRecordManager.deallocate(threadID, del);
-        }
         //trieRecordManager.endOp(threadID);
 
         //Dump all limbo bags of their contents.
@@ -400,14 +404,7 @@ class Trie : public DynamicSet{
         //dNode has type DEL and its child, if it has one, is of type INS
 
         #ifdef reuse 
-        InsNode *iNode;
-        if(updateNodePool[threadID].insNode){ 
-            iNode = updateNodePool[threadID].insNode; //Use the node that is currently in the pool
-        }
-        else{
-            iNode = new InsNode();
-            //trieRecordManager.allocate<InsNode>(threadID); //If there is no available node in the pool, allocate one.
-        }
+        InsNode *iNode = updateNodePool[threadID].insNode;
         #else
         InsNode *iNode = trieRecordManager.allocate<InsNode>(threadID); //Allocate a new node for each insert
         #endif
@@ -430,8 +427,7 @@ class Trie : public DynamicSet{
         latest[x].head.compare_exchange_strong(expected, iNode);
         if (expected != dNode){
             helpActivate(expected);
-            #ifdef reuse
-            updateNodePool[threadID].insNode = iNode; //This insert node can be reused by subsequent insert operations...
+            #ifdef reuse //This insert node can be reused by subsequent insert operations...
             #else
             trieRecordManager.deallocate(threadID, iNode);
             #endif
@@ -440,7 +436,7 @@ class Trie : public DynamicSet{
             return;
         }
         #ifdef reuse 
-        updateNodePool[threadID].insNode = nullptr; //Ensure that iNode has been removed from the pool...
+        updateNodePool[threadID].insNode = new InsNode(); //Ensure that iNode has been removed from the pool...
         #endif 
         U_ALL.insert(iNode);
         RU_ALL.insert(iNode);
@@ -493,13 +489,7 @@ class Trie : public DynamicSet{
         //Initialize update node for this delete operation.
         #ifdef reuse 
         DelNode *dNode;
-        if(updateNodePool[threadID].delNode){
-            dNode = updateNodePool[threadID].delNode; //Reuse a delete node from a previous operation that failed to insert delnode into latest list.
-        }
-        else{ //If there is no available node in the pool, allocate one.
-            dNode = new DelNode(trieHeight);
-            //trieRecordManager.allocate<DelNode>(threadID, trieHeight);
-        }
+        dNode = updateNodePool[threadID].delNode;
         #else 
         DelNode *dNode = trieRecordManager.allocate<DelNode>(threadID, trieHeight); //Allocate a delNode for each delete...
         #endif
@@ -537,7 +527,6 @@ class Trie : public DynamicSet{
             P_ALL.remove(pNode);
 
             #ifdef reuse
-            updateNodePool[threadID].delNode = dNode; //Place dNode into the pool to be reused for the next delete operation.
             #else 
             trieRecordManager.deallocate(threadID, dNode);
             #endif
@@ -549,7 +538,7 @@ class Trie : public DynamicSet{
             return;
         }
         #ifdef reuse
-        updateNodePool[threadID].delNode = nullptr; //Remove dNode from the pool; it should not be reused for the next deletion
+        updateNodePool[threadID].delNode = new DelNode(trieHeight); //Remove dNode from the pool; it should not be reused for the next deletion
         #endif
         U_ALL.insert(dNode);
         RU_ALL.insert(dNode);

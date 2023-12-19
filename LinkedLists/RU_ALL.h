@@ -18,10 +18,21 @@ using std::string;
 #define testStats
 
 
+struct InsertDescPool{
+    InsertDesc *d;
+    volatile char padding [64 - sizeof(InsertDesc*)];
+    InsertDescPool(){
+        d = new InsertDesc();
+    }
+    ~InsertDescPool(){
+        delete d;
+    }
+};
+
+InsertDescPool descNodePool[MAX_THREADS];
 
 
 
-Debra<InsertDesc, 4> descDebra; //TODO reclaim memory used by insert desc nodes...
 //TODO pool memory from desc nodes that will not be used rather than reclaim
 
 class RU_ALL_TYPE {
@@ -57,6 +68,7 @@ class RU_ALL_TYPE {
             }
             prev->rSucc.compare_exchange_strong(result, (uintptr_t)newSucc);
             if(result == expected){
+                trieDebra.retire(descNode);
                 return (uintptr_t)newSucc;
             }
             else{
@@ -104,7 +116,6 @@ class RU_ALL_TYPE {
 
         void insert(UpdateNode *node){
             if((node->rSucc & STATUS_MASK) == Marked)return;
-            
             UpdateNode *curr = &head;
             uintptr_t succ = curr->rSucc;
             uintptr_t next = succ & NEXT_MASK;
@@ -161,7 +172,9 @@ class RU_ALL_TYPE {
             uint64_t state = succ & STATUS_MASK;
             while(1){
                 if(state == Normal){
-                    if((next == (uintptr_t)&tail || ((UpdateNode*)next)->key > node->key))return;
+                    if((next == (uintptr_t)&tail || ((UpdateNode*)next)->key > node->key)){
+                        return;
+                    }
                     if((UpdateNode*)next != node){ //Advance...
                         curr = (UpdateNode*)next;
                         succ = curr->rSucc;
@@ -180,10 +193,14 @@ class RU_ALL_TYPE {
                     succ = helpInsert(curr,  (InsertDesc*)next);
                 }
                 //next is a ListNode pointer, not a seqnum/processID pair
-                else if((next == (uintptr_t)&tail) || (((UpdateNode*)next)->key > node->key))return;
+                else if((next == (uintptr_t)&tail) || (((UpdateNode*)next)->key > node->key)){
+                    return;
+                }
                 else if(state == DelFlag){
                     succ = helpRemove(curr, (UpdateNode*)next);
-                    if((UpdateNode*)next == node)return;
+                    if((UpdateNode*)next == node){
+                        return;
+                    }
 
                 }
                 else{

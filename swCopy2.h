@@ -6,6 +6,7 @@
 #include <vector>
 #include <list>
 #include <forward_list>
+#include "debra.h"
 
 //Definition of the data stored by the weak LL/SC objects used for our SW_AtomicCopy implementation.
 struct Data{
@@ -19,20 +20,18 @@ struct Data{
     }
 };
 
+
+
 struct Buffer{
     std::atomic<uintptr_t> val; //Atomic pointer
     std::atomic<std::atomic<uintptr_t> *> ptr; //Atomic pointer to atomic pointer
-    std::atomic<int> pid;
-    std::atomic<bool> seen;
     volatile char padding[64 - sizeof(bool) - sizeof(int) - sizeof(Data)];
-    Buffer(Data v = Data(), int pid=-1, bool seen=false): val(v.val), ptr(v.ptr), pid(-1), seen(false){
+    Buffer(Data v = Data(), int pid=-1, bool seen=false): val(v.val), ptr(v.ptr){
 
     }
     void init(Data &v){
         val.store(v.val);
         ptr.store(v.ptr);
-        pid = -1;
-        seen = false;
     }
 };
 
@@ -40,19 +39,19 @@ struct Buffer{
 struct Weak_LLSC_Thread_Data{
     std::atomic<Buffer*> announcement; 
     volatile char padding1[64 - sizeof(std::atomic<Buffer*>)];
-    std::list<Buffer*> rList;
-    std::vector<Buffer*> fList;
-    volatile char padding[64 - 2*sizeof(std::vector<Buffer*>)]; 
+    Buffer *reuse;
+    volatile char padding[64 - sizeof(Buffer*)]; 
     Weak_LLSC_Thread_Data(): announcement(nullptr){
-        //Initially push 2 elements onto the stack...
-        for(int i = 0;i < 2*MAX_THREADS;++i){
-            fList.push_back(new Buffer());
-        }
+        reuse = new Buffer();
+    }
+    ~Weak_LLSC_Thread_Data(){
+        delete reuse;
     }
 };
 
 //Memory used by each process to perform WeakLLSC
 Weak_LLSC_Thread_Data llscData[MAX_THREADS];
+Debra<Buffer, 4> bufferDebra;
 
 //Definition of the WeakLLSC object.
 struct WeakLLSC{
@@ -64,9 +63,11 @@ struct WeakLLSC{
         delete buf;
     }
     Data wLL(bool *succ = nullptr){
+
         Weak_LLSC_Thread_Data &data = llscData[threadID];
         Buffer *tmp = buf;
         data.announcement.store(tmp);
+
         if(buf == tmp){
             if(succ)*succ = true;
             return Data(tmp->val,tmp->ptr);
@@ -79,15 +80,14 @@ struct WeakLLSC{
     bool SC(Data newVal){
         Weak_LLSC_Thread_Data &data = llscData[threadID];
         Buffer *old = data.announcement.load();
-        Buffer *newBuf = data.fList.back();
+        Buffer *newBuf = data.reuse;
         newBuf->init(newVal);
 
-        //If CAS
         Buffer *result = old;
         buf.compare_exchange_strong(result,newBuf);
-        if(result == old){
-            data.fList.pop_back();
-            retire(old);
+        if(result == old){ //CAS succeeded
+            data.reuse = new Buffer();
+            bufferDebra.retire(old);
         }
         data.announcement.store(nullptr);
         return result == old; //Return whether SC succeeded.
@@ -101,42 +101,6 @@ struct WeakLLSC{
         Weak_LLSC_Thread_Data &data = llscData[threadID];
         data.announcement.store(nullptr);
     }
-    void retire(Buffer *old){
-        Weak_LLSC_Thread_Data &data = llscData[threadID];
-        data.rList.push_front(old);
-        if(data.fList.size() == 0){ //If we are out of buffers to use, free ones that are in use...
-            std::vector<Buffer*> reserved;
-            for(int j = 0; j < MAX_THREADS;++j){
-                //TODO if announce non-null?
-                Buffer *announceJ = llscData[j].announcement;
-                if(announceJ)reserved.push_back(announceJ);
-            }
-
-            //Put pointers to buffers that are not announced by processes into fList to be reused.
-            for(Buffer *buf : data.rList){
-                buf->pid = threadID;
-                buf->seen = false; 
-            }
-            for(Buffer *buf : reserved){
-                if(buf->pid == threadID){
-                    buf->seen = true; //Mark that we saw this when going through announcment list.
-                }
-            }
-            auto it = data.rList.begin();
-            while(it != data.rList.end()){
-                Buffer *buf = *it;
-                buf->pid = -1;
-                if(!buf->seen){ //If this buffer was not seen, we can reuse it!
-                    auto prev = it++;
-                    data.rList.erase(prev);
-                    data.fList.push_back(buf);
-                }
-                else{
-                    ++it;
-                }
-            }
-        }
-    }
 };
 
 //Definition of the single writer atomic copy object.
@@ -148,6 +112,7 @@ struct SW_AtomicCopy{
         write(initVal);
     }
     void swcopy(std::atomic<uintptr_t> *src){
+        bufferDebra.startOp();
         bool succ;
         Data d = data.wLL(); //WeakLL guaranteed to succeed.
         old = data.wLL().val;
@@ -160,29 +125,39 @@ struct SW_AtomicCopy{
         else{
             data.CL();
         }
+        bufferDebra.endOp();
     }
     void write(uintptr_t newVal){
+        bufferDebra.startOp();
         data.wLL(); //WeakLL guaranteed to succeed.
         Data newData(newVal, 0);
         data.SC(newData);
+        bufferDebra.endOp();
     }
     intptr_t read(){
+        bufferDebra.startOp();
         bool succ;
         Data d = data.wLL(&succ);
         if(!succ){
             d = data.wLL(&succ);
-            if(!succ)return old;
+            if(!succ){
+                bufferDebra.endOp();
+                return old;
+            }
         }
         if(d.ptr == 0){
             data.CL();
+            bufferDebra.endOp();
             return d.val;
         }
         uintptr_t v = d.ptr->load();
         if(data.SC(Data(v,0))){
+            bufferDebra.endOp();
             return v;
         }
         d = data.wLL(&succ);
         data.CL();
+        bufferDebra.endOp();
         if(succ && d.ptr == 0){
             return d.val;
         }

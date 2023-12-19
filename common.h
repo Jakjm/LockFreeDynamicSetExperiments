@@ -15,6 +15,9 @@ const uint64_t STATUS_MASK = 7; //61 0s, 2 1s = 0000 0000 0000 0007
 const uint64_t PROC_MASK = 0x0000000000000FF0; //Process ID contained within next lowest 8 bits
 const uint64_t SEQ_MASK =  0xFFFFFFFFFFFFF000; //Sequence # contained within highest 52 bits
 
+
+
+
 thread_local int threadID = -1;
 const int MAX_THREADS = 512;
 //Returns the number of microiseconds since the Unix epoch, January 1st 1970 at 00:00:00 UTC.
