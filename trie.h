@@ -335,7 +335,7 @@ class Trie : public DynamicSet{
     //       0  1 2 3  4 5 6 7
     // If the index is odd, it is the right child. Subtract 1 to get the left child.
     // If the index is even, it is the left child. Add 1 to get the right child.
-    #define siblingIndex(index) (index + 1 - ((index & 1) * 2))
+    #define siblingIndex(index) (index ^ 1)
 
     void deleteBinaryTrie(DelNode *dNode){
         int depth = trieHeight;
@@ -604,7 +604,7 @@ class Trie : public DynamicSet{
         char i2 = interpretedBit(siblingIndex(y), depth);
         
         //While i1 = 0, i2 == 0, or t is the leftChild of tParent
-        while(i1 == 0 || (y % 2 == 0) || i2 == 0){
+        while(i1 == 0 || ((y & 1) == 0) || i2 == 0){
             y = y >> 1;
             --depth;
             if(depth == 0){

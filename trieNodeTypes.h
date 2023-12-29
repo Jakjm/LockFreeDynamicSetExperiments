@@ -42,11 +42,11 @@ class UpdateNode{
         std::atomic<uintptr_t> rSucc; //Successor for the RUALL
         std::atomic<UpdateNode*> rBacklink; //Backlink for the RUALL.
         volatile char padding2[64 - sizeof(uintptr_t) - sizeof(UpdateNode*)];
+        std::atomic<UpdateNode *> latestNext;
         int64_t key;
         const TYPE type; 
         std::atomic<STATUS> status; 
-        std::atomic<UpdateNode *> latestNext;
-        UpdateNode(int64_t k, TYPE t) :  succ(0), backlink(0), rSucc(0), rBacklink(0), key(k), type(t), status(INACTIVE), latestNext(nullptr){
+        UpdateNode(int64_t k, TYPE t) :  succ(0), backlink(0), rSucc(0), rBacklink(0), latestNext(nullptr), key(k), type(t), status(INACTIVE){
         
         }
         UpdateNode(TYPE t): UpdateNode(-1, t){
@@ -145,7 +145,7 @@ class DelNode : public UpdateNode, public BaseType{
     public:
         PredecessorNode *delPredNode;
         int64_t delPred;
-        MinReg64 lower1Boundary; //A 65-bounded min register, which is sufficient for trees whose height is 63 or smaller.
+        MinReg64 lower1Boundary; //A 65-bounded min register, which is sufficient for tries whose height is at most 63.
         volatile char padding1[192-sizeof(UpdateNode)-sizeof(PredecessorNode*)-sizeof(int64_t)-sizeof(MinReg64)];
         std::atomic<int64_t> delPred2;
         std::atomic<int> upper0Boundary;
@@ -183,7 +183,7 @@ class TrieNode{
 class LatestList{
     public:
         std::atomic<UpdateNode*> head;
-        volatile char padding[64-sizeof(UpdateNode*)];
+        //volatile char padding[64-sizeof(UpdateNode*)];
         LatestList(): head((UpdateNode*)nullptr){
 
         }

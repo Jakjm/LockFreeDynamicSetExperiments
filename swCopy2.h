@@ -106,8 +106,9 @@ struct WeakLLSC{
 //Definition of the single writer atomic copy object.
 struct SW_AtomicCopy{
     WeakLLSC data;
+    volatile char padding[64 - sizeof(WeakLLSC)];
     std::atomic<uint64_t> old;
-    char padding[64 - sizeof(WeakLLSC) - sizeof(std::atomic<uint64_t>)];
+    volatile char padding2[64 - sizeof(std::atomic<uint64_t>)];
     SW_AtomicCopy(uintptr_t initVal): data(Data(0,0)){
         write(initVal);
     }
