@@ -261,7 +261,7 @@ class SkipListSet : public DynamicSet{
         newNode->root = newNode;
         int height = 0;
         newRoot = newNode;
-        while(randomNum(1) == 0 && height < maxLevels - 1){
+        while(rng(2) == 0 && height < maxLevels - 1){
             ++height;
         }
         int level = 0;

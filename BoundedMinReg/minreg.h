@@ -8,7 +8,90 @@
 using std::cout;
 #pragma once
 
+/**
+*An implementation of a wait-free 65-bounded min register from a 64 bit word,
+*as discussed in my thesis.
+*/
+class MinReg{
+    private:
+        std::atomic<std::uint64_t> value;
+    public:
+    #define MAX_VALUE 64
 
+    //Precondition: 0 <= initVal <= 64
+    MinReg(int initVal = MAX_VALUE): value(UINT64_MAX){
+        if(initVal != MAX_VALUE){
+            minWrite(initVal);
+        }
+    }
+    //Precondition: 0 <= value <= 64
+    //If the min register holds a value greater than x, then this operation reduces the value to x.
+    //Otherwise, this operation does not change the value of the min register.
+    void minWrite(int x){
+        uint64_t mask = UINT64_MAX >> x; //Create a word consisting of 64-x zeros followed by x ones.
+        value.fetch_and(mask);  //Turn off bits 63 through x, provided x is not 64.
+    }
+
+    //This function retrieves the value of the min register,
+    //Which at any time is the number of consecutive bits from the right of value.
+    int minRead(){
+        uint64_t curValue = value.load();
+        //Using library function given here for the number of trailing 0 bits.
+        //https://en.cppreference.com/w/cpp/header/bit
+        //Uses the tzcnt instruction.
+        int minValue = std::__countr_zero(~curValue);
+        return minValue;
+    }
+};
+
+class MutexMinReg64{
+    std::mutex lock;
+    uint64_t value;
+    public:
+    MutexMinReg64(): lock(), value(64){
+
+    }
+    void minWrite(uint64_t x){
+        lock.lock();    //acquire lock
+        if(x < value)value = x;
+        lock.unlock();   //release lock
+    }
+    uint64_t minRead(){
+        lock.lock();    //acquire lock
+        uint64_t min = value; 
+        lock.unlock();  //release lock
+        return min;
+    }
+};
+class LockMinReg64{
+    std::atomic_flag lock;
+    uint64_t value;
+    public:
+    LockMinReg64(): lock(ATOMIC_FLAG_INIT), value(64){
+   
+    }
+    void minWrite(uint64_t x){
+        while (lock.test_and_set(std::memory_order_acquire)) {  // acquire lock
+            #if defined(__cpp_lib_atomic_flag_test)
+                while (lock.test(std::memory_order_relaxed));
+            #endif
+            
+        }
+        if(x < value)value = x;
+        lock.clear(std::memory_order_release);   //release lock
+    }
+    int minRead(){
+        while (lock.test_and_set(std::memory_order_acquire)) {  // acquire lock
+            #if defined(__cpp_lib_atomic_flag_test)
+                while (lock.test(std::memory_order_relaxed));
+            #endif
+            
+        }
+        int min = value; //This read operation must be done before clearing the lock; so we use memory order release
+        lock.clear(std::memory_order_release);   //release lock
+        return min;
+    }
+};
 
 //2 ^ Floor log_2 function 
 //Function for rounding down to the next smallest power of 2.
@@ -378,113 +461,6 @@ class SmallMinReg{
             }
         }while(subTreeSize > 0);
         return sum;
-    }
-};
-
-
-class MinReg64{
-    private:
-        std::atomic<std::uint64_t> value;
-    public:
-    #define MAX_VALUE 64
-
-    //Precondition: 0 <= initVal <= 64
-    MinReg64(int initVal = MAX_VALUE): value(UINT64_MAX){
-        if(initVal != MAX_VALUE){
-            minWrite(initVal);
-        }
-    }
-    //Precondition: 0 <= value <= 64
-    void minWrite(int x){
-        if(x < 64){
-            uint64_t mask = ~(1 << x);  //Create an AND mask of all 1s except at bit x starting from the right.
-            value.fetch_and(mask);   //Turn off bit x within value
-        }
-    }
-    int minRead(){
-        uint64_t curValue = value.load(); //
-        //Using library function given here for detecting bit 
-        //https://en.cppreference.com/w/cpp/header/bit
-        int minValue = std::__countr_one(curValue);
-        return minValue;
-    }
-};
-
-class MinReg64_BAD{
-    private:
-        std::atomic<std::uint64_t> value;
-    public:
-    #define MAX_VALUE 64
-
-    //Precondition: 0 <= initVal <= 64
-    MinReg64_BAD(int initVal = MAX_VALUE): value(UINT64_MAX){
-        if(initVal != MAX_VALUE){
-            minWrite(initVal);
-        }
-    }
-    //Precondition: 0 <= value <= 64
-    void minWrite(int x){
-        if(x < 64){
-            uint64_t mask = ~(1 << x);  //Create an AND mask of all 1s except at bit x starting from the right.
-            value.fetch_and(mask);   //Turn off bit x within value
-        }
-    }
-    int minRead(){
-        uint64_t curValue = value.load(); 
-        //Using library function given here for detecting bit 
-        //https://en.cppreference.com/w/cpp/header/bit
-        int minValue = std::__countr_one(curValue);
-        return minValue;
-    }
-};
-
-
-class MutexMinReg64{
-    std::mutex lock;
-    uint64_t value;
-    public:
-    MutexMinReg64(): lock(), value(64){
-
-    }
-    void minWrite(uint64_t x){
-        lock.lock();    //acquire lock
-        if(x < value)value = x;
-        lock.unlock();   //release lock
-    }
-    uint64_t minRead(){
-        lock.lock();    //acquire lock
-        uint64_t min = value; 
-        lock.unlock();  //release lock
-        return min;
-    }
-};
-class LockMinReg64{
-    std::atomic_flag lock;
-    uint64_t value;
-    public:
-    LockMinReg64(): lock(ATOMIC_FLAG_INIT), value(64){
-   
-    }
-    void minWrite(uint64_t x){
-        while (lock.test_and_set(std::memory_order_acquire)) {  // acquire lock
-            #if defined(__cpp_lib_atomic_flag_test)
-                while (lock.test(std::memory_order_relaxed));
-            #endif
-            
-        }
-        if(x < value)value = x;
-        lock.clear(std::memory_order_release);   //release lock
-    }
-    int minRead(){
-        while (lock.test_and_set(std::memory_order_acquire)) {  // acquire lock
-            #if defined(__cpp_lib_atomic_flag_test)
-                while (lock.test(std::memory_order_relaxed));
-            #endif
-            
-        }
-        int min = value; //This read operation must be done before clearing the lock; so we use memory order release
-        lock.clear(std::memory_order_release);   //release lock
-        return min;
     }
 };
 

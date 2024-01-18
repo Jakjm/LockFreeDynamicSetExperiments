@@ -61,9 +61,7 @@ void speedTest(){
     cout << "\nTesting mutex-based min register\n" << std::endl;
     testReg<MutexMinReg64>();
     cout << "\nTesting wait-free min register\n" << std::endl;
-    testReg<MinReg64>();
-    cout << "\nTesting badly implemented min register\n" << std::endl;
-    testReg<MinReg64_BAD>();
+    testReg<MinReg>();
 }
 
 

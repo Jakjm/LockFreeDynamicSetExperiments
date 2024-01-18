@@ -145,8 +145,8 @@ class DelNode : public UpdateNode, public BaseType{
     public:
         PredecessorNode *delPredNode;
         int64_t delPred;
-        MinReg64 lower1Boundary; //A 65-bounded min register, which is sufficient for tries whose height is at most 63.
-        volatile char padding1[192-sizeof(UpdateNode)-sizeof(PredecessorNode*)-sizeof(int64_t)-sizeof(MinReg64)];
+        MinReg lower1Boundary; //A 65-bounded min register, which is sufficient for tries whose height is at most 63.
+        volatile char padding1[192-sizeof(UpdateNode)-sizeof(PredecessorNode*)-sizeof(int64_t)-sizeof(MinReg)];
         std::atomic<int64_t> delPred2;
         std::atomic<int> upper0Boundary;
         std::atomic<int8_t> dNodeCount;

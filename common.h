@@ -30,12 +30,12 @@ uint64_t millis(){
 }
 
 //Produces a random integer between 0 and range (inclusive).
-inline int randomNum(int range){
+inline int rng(int range){
     //A random number seed that is local to this thread.
 	thread_local static std::random_device seed;
 	//Random number generator using seed.
 	thread_local static std::mt19937 rng(seed());
 	//Ask for a distribution from this random number generator.
-	std::uniform_int_distribution<int> dist(0,range);
+	std::uniform_int_distribution<int> dist(0,range-1);
 	return dist(rng);
 }

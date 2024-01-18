@@ -242,7 +242,6 @@ class Trie : public DynamicSet{
             }
         }
     }
-    
 
     //Notify predecessor operation by placing a new notify node in the notify list.
     bool sendNotification(NotifyNode *newNotifyNode, PredecessorNode *pNode){
