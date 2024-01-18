@@ -261,12 +261,12 @@ int experimentProg(int argc, char **argv){
     if(argc == 2 && ((strcmp(argv[1], "-h") == 0) || (strcmp(argv[1], "--help") == 0))){
             cout << "Usage: ./dynamicSetTest [options]" << std::endl;
             cout << "Options:"<< std::endl;
-            cout << "\t-h, --help\t\t\t\t\t\tDisplay information on running dynamic test."<< std::endl;
-            cout << "\t-t, --time <T>\t\t\t\t\tRun the experiment for <T> seconds."<< std::endl;
-            cout << "\t-n, --numProcs <N>\t\t\t\tRun the experiment with <N> processes (threads)."<< std::endl;
-            cout << "\t-k, --keyRange <K>\t\t\t\tRun the experiment with a universe of 2^K keys." << std::endl;
-            cout << "\t-O, --opDist <I> <R> <P>\t\t\t\t\tRun the experiment with <I> percent Insert ops, <R> percent Remove ops, and <P> percent Predecessor ops." << std::endl;
-            cout << "\t-v, --verbose\t\t\t\t\tPrint additional information about the test." << std::endl;
+            cout << "\t-h, --help\t\t\t\t\tDisplay information on running dynamic test."<< std::endl;
+            cout << "\t-t, --time <T>\t\t\t\tRun the experiment for <T> seconds."<< std::endl;
+            cout << "\t-n, --numProcs <N>\t\t\tRun the experiment with <N> processes (threads)."<< std::endl;
+            cout << "\t-k, --keyRange <K>\t\t\tRun the experiment with a universe of 2^K keys." << std::endl;
+            cout << "\t-O, --opDist <I> <R> <P>\tRun the experiment with ratio of <I> Insert, <R> Remove and <P> Predecessor ops." << std::endl;
+            cout << "\t-v, --verbose\t\t\t\tPrint additional information about the test." << std::endl;
             cout << "\t--skip\t\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert skip list." << std::endl;
             cout << "\t--list\t\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert linked list." << std::endl;
             cout << "\t--trie\t\t\t\t\t\tPerform the experiment on Jeremy's Binary Trie." << std::endl;
