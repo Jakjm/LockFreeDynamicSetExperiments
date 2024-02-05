@@ -8,3 +8,6 @@ trie = swCopy.h swCopy2.h BoundedMinReg/minreg.h trieNodeTypes.h $(linkedLists) 
 
 dynamicSetTest : $(dataStructures) $(trie) $(common) dynamicSetTest.cpp  Makefile 
 	g++ -g -O3 -Wall -fdump-lang-class -pthread -o dynamicSetTest dynamicSetTest.cpp
+
+clean: 
+	rm dynamicSetTest
