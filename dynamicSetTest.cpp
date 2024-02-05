@@ -137,6 +137,11 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
     Trie trieSet(trieHeight);
     LinkedListSet listSet;
     SkipListSet<25> skipList;
+    
+    trieDebra.setActiveThreads(numProcs);
+    bufferDebra.setActiveThreads(numProcs);
+    keyNodeDebra.setActiveThreads(numProcs);
+    skipDebra.setActiveThreads(numProcs);
     DynamicSet *set;
     if(strcmp(setType,"trie") == 0){
         set = &trieSet;

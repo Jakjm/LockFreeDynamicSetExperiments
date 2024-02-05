@@ -51,7 +51,7 @@ struct Weak_LLSC_Thread_Data{
 
 //Memory used by each process to perform WeakLLSC
 Weak_LLSC_Thread_Data llscData[MAX_THREADS];
-Debra<Buffer, 4> bufferDebra;
+Debra<Buffer, 5> bufferDebra;
 
 //Definition of the WeakLLSC object.
 struct WeakLLSC{

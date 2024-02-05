@@ -30,7 +30,7 @@ class BaseType{
 
 
 
-Debra<BaseType, 4> trieDebra;
+Debra<BaseType, 5> trieDebra;
 
 //record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
 
