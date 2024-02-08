@@ -134,7 +134,8 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
     
     int universeSize = (1 << trieHeight); //The number of keys in the universe.
 
-    Trie trieSet(trieHeight);
+    Trie<NotifDescNotifyThreshold> trieSetNotifDesc(trieHeight);
+    Trie<AtomicCopyNotifyThreshold> trieSetSwCopy(trieHeight);
     LinkedListSet listSet;
     SkipListSet<25> skipList;
     
@@ -143,8 +144,11 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
     keyNodeDebra.setActiveThreads(numProcs);
     skipDebra.setActiveThreads(numProcs);
     DynamicSet *set;
-    if(strcmp(setType,"trie") == 0){
-        set = &trieSet;
+    if(strcmp(setType,"trie") == 0 || strcmp(setType, "trieNotifDesc")){
+        set = &trieSetNotifDesc;
+    }
+    else if(strcmp(setType, "trieSwCopy") == 0 ){
+        set = &trieSetSwCopy;
     }
     else if(strcmp(setType, "list") == 0){
         set = &listSet;

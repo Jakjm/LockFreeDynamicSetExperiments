@@ -14,9 +14,10 @@ using std::string;
 
 //An implementation of Eric Ruppert and Michhail Fomitchev's Lock-Free Linked List
 //Specifically made for the P_ALL which is an unsorted linked list
+template <typename NotifyThresholdType = AtomicCopyNotifyThreshold>
 class P_ALL_TYPE{
     public:
-        PredecessorNode tail, head; //Head, tail of the linked list. 
+        PredecessorNode<NotifyThresholdType> tail, head; //Head, tail of the linked list. 
     public:
         P_ALL_TYPE() : tail(0, nullptr), head(0, nullptr){
             head.succ.store((uintptr_t)&tail);
@@ -24,8 +25,8 @@ class P_ALL_TYPE{
         ~P_ALL_TYPE(){ 
         }
         //Precondition: prev.successor was <delNode, DelFlag> at an earlier point, and delNode is Marked.
-        uintptr_t helpMarked(PredecessorNode *prev, PredecessorNode *delNode){
-            PredecessorNode *next = (PredecessorNode*)((uintptr_t)delNode->succ & NEXT_MASK);
+        uintptr_t helpMarked(PredecessorNode<NotifyThresholdType> *prev, PredecessorNode<NotifyThresholdType> *delNode){
+            PredecessorNode<NotifyThresholdType> *next = (PredecessorNode<NotifyThresholdType>*)((uintptr_t)delNode->succ & NEXT_MASK);
             uintptr_t expected = (uintptr_t)delNode + DelFlag;
             uintptr_t result = expected;
             prev->succ.compare_exchange_strong(result, (uintptr_t)next);
@@ -34,7 +35,7 @@ class P_ALL_TYPE{
             else return result;
         }
         //Precondition: prev.successor was <delNode, DelFlag> at an earlier point.
-        uintptr_t helpRemove(PredecessorNode *prev, PredecessorNode *delNode){
+        uintptr_t helpRemove(PredecessorNode<NotifyThresholdType> *prev, PredecessorNode<NotifyThresholdType> *delNode){
             delNode->backlink = prev;
             uintptr_t succ = delNode->succ.load(); //The value of delNode's successor pointer
             uintptr_t state = succ & STATUS_MASK;
@@ -42,7 +43,7 @@ class P_ALL_TYPE{
 
             while(state != Marked){ //While delNode is not marked...
                 if(state == DelFlag){ //Help with deletion of its successor, if it is flagged....
-                    succ = helpRemove(delNode, (PredecessorNode*)next);
+                    succ = helpRemove(delNode, (PredecessorNode<NotifyThresholdType>*)next);
                 }
                 else{ //Attempt to mark the node if the status was normal...
                     uintptr_t markedSuccessor = (uintptr_t)next + Marked;
@@ -58,15 +59,15 @@ class P_ALL_TYPE{
         }
 
         
-        void remove(PredecessorNode *node){
-            PredecessorNode *curr = &head;
+        void remove(PredecessorNode<NotifyThresholdType> *node){
+            PredecessorNode<NotifyThresholdType> *curr = &head;
             uintptr_t succ = curr->succ;
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
-            while((PredecessorNode*)next != &tail){
+            while((PredecessorNode<NotifyThresholdType>*)next != &tail){
                 if(state == Normal){
-                    if((PredecessorNode*)next != node){ //Advance...
-                        curr = (PredecessorNode*)next;
+                    if((PredecessorNode<NotifyThresholdType>*)next != node){ //Advance...
+                        curr = (PredecessorNode<NotifyThresholdType>*)next;
                         succ = curr->succ;
                         next = succ & NEXT_MASK;
                         state = succ & STATUS_MASK;
@@ -83,13 +84,13 @@ class P_ALL_TYPE{
                     }
                 }
                 else if(state == DelFlag){
-                    succ = helpRemove(curr, (PredecessorNode*)next);
-                    if((PredecessorNode*)next == node)return;
+                    succ = helpRemove(curr, (PredecessorNode<NotifyThresholdType>*)next);
+                    if((PredecessorNode<NotifyThresholdType>*)next == node)return;
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
                 }
                 else{
-                    PredecessorNode *prev = curr->backlink;
+                    PredecessorNode<NotifyThresholdType> *prev = curr->backlink;
                     succ = prev->succ;
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
@@ -105,28 +106,28 @@ class P_ALL_TYPE{
 
         //List traversal algorithms here: 
         //Returns the first node in the linked list, or null if the list is empty.
-        PredecessorNode *first(){
+        PredecessorNode<NotifyThresholdType> *first(){
             return next(&head);
         }
         //If node is in the list, returns a pointer to the node following it, or nullptr if node is the last node in the list.
         //If node is not in the list, returns a pointer to the node that followed it when node was removed,
         //or nullptr if node is the last node in the list.
-        PredecessorNode *next(PredecessorNode *node){            
+        PredecessorNode<NotifyThresholdType> *next(PredecessorNode<NotifyThresholdType> *node){            
             uintptr_t succ = node->succ;
-            PredecessorNode *next = (PredecessorNode*)(succ & NEXT_MASK);
+            PredecessorNode<NotifyThresholdType> *next = (PredecessorNode<NotifyThresholdType>*)(succ & NEXT_MASK);
             if(next == &tail){
                 return nullptr;
             }
-            else return (PredecessorNode*)next;
+            else return (PredecessorNode<NotifyThresholdType>*)next;
         }
-        PredecessorNode *next(PredecessorNode *node, uint64_t &state){            
+        PredecessorNode<NotifyThresholdType> *next(PredecessorNode<NotifyThresholdType> *node, uint64_t &state){            
             uintptr_t succ = node->succ;
-            PredecessorNode *next = (PredecessorNode*)(succ & NEXT_MASK);
+            PredecessorNode<NotifyThresholdType> *next = (PredecessorNode<NotifyThresholdType>*)(succ & NEXT_MASK);
             state = succ & STATUS_MASK;
             if(next == &tail){
                 return nullptr;
             }
-            else return (PredecessorNode*)next;
+            else return (PredecessorNode<NotifyThresholdType>*)next;
         }
         char stat_to_char(uint64_t status){
             if(status == Normal){
@@ -142,11 +143,11 @@ class P_ALL_TYPE{
         }
 
         //Thread safe way of printing list
-        void printList(std::string (*nodeToString)(PredecessorNode*)){
+        void printList(std::string (*nodeToString)(PredecessorNode<NotifyThresholdType>*)){
             std::ostringstream stream;
 
             uint64_t status;
-            PredecessorNode *node = next(&head, status);
+            PredecessorNode<NotifyThresholdType> *node = next(&head, status);
             stream << "{";
             while(node){
                 stream << "<" << nodeToString(node) << ", " << stat_to_char(status)  << ">";
