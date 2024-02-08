@@ -238,7 +238,7 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
 
 void simpleTest(){
     threadID = 0;
-    Trie trie(3);
+    Trie<> trie(3);
     cout << "Simple test." << std::endl;
     trie.printInterpretedBits();
     trie.insert(3);
@@ -278,7 +278,8 @@ int experimentProg(int argc, char **argv){
             cout << "\t-v, --verbose\t\t\t\tPrint additional information about the test." << std::endl;
             cout << "\t--skip\t\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert skip list." << std::endl;
             cout << "\t--list\t\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert linked list." << std::endl;
-            cout << "\t--trie\t\t\t\t\t\tPerform the experiment on Jeremy's Binary Trie." << std::endl;
+            cout << "\t--trie --trieNotifDesc\t\t\t\t\t\tPerform the experiment on Jeremy's Binary Trie with notifDesc implementation of RUALL." << std::endl;
+            cout << "\t--trieSwCopy\t\t\t\t\t\tPerform the experiment on Jeremy's Binary Trie with swCopy implementation of RUALL." << std::endl;
             return 0;
     }
     else{ 
@@ -327,7 +328,7 @@ int experimentProg(int argc, char **argv){
                 curArg += 1;
             }
             else if(!setType){
-                if(strcmp(currentParam, "--list") == 0 || strcmp(currentParam, "--skip") == 0 || strcmp(currentParam, "--trie") == 0){
+                if(strcmp(currentParam, "--list") == 0 || strcmp(currentParam, "--skip") == 0 || strcmp(currentParam, "--trie") == 0 || strcmp(currentParam, "--trieSwCopy") == 0|| strcmp(currentParam, "--trieNotifDesc") == 0){
                     setType = &currentParam[2]; //Remove two dashes...
                 }
                 else{
