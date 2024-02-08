@@ -1,2 +1,2 @@
-listtest: listtest.cpp list.h PermaRemList.h RU_ALL.h P_ALL.h
+listtest: RU_ALL_swCopy.h RU_ALL_notifDesc.h listtest.cpp
 	g++ -g -o listtest listtest.cpp

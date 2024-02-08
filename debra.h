@@ -57,7 +57,7 @@ class Debra{
     }
 
     void rotateAndReclaim(){
-        int newBag = (data[threadID].currentBag + 1) % numActiveThreads;
+        int newBag = (data[threadID].currentBag + 1) % numBags;
 	++data[threadID].numRotations;
         data[threadID].currentBag = newBag;
         while(!data[threadID].limboBag[newBag].empty()){

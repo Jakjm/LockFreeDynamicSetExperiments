@@ -31,15 +31,12 @@ struct InsertDescPool{
 
 InsertDescPool descNodePool[MAX_THREADS];
 
-
-
-//TODO pool memory from desc nodes that will not be used rather than reclaim
-
-class RU_ALL_TYPE {
+template <>
+class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
     public:
-        UpdateNode tail, head; //Head, tail of the linked list. 
+        UpdateNode head, tail; //Head, tail of the linked list. 
     public:
-        RU_ALL_TYPE() : tail(0,INS), head(INT64_MAX,INS){
+        RU_ALL_TYPE() : head(INT64_MAX,INS), tail(INT64_MIN,INS) {
             head.rSucc.store((uintptr_t)&tail);
         }
         ~RU_ALL_TYPE(){ 
@@ -126,11 +123,12 @@ class RU_ALL_TYPE {
             desc->newNode = node;
             while(state == InsFlag || next != (uintptr_t)node){
                 if(state == Normal){
-                    if((next != (uintptr_t)&tail) && (((UpdateNode*)next)->key <= ((UpdateNode*)node)->key)){ //node should be placed further along in the list if next <= node
+                    //node should be placed further along in the list if next's key >= node's key
+                    if(((UpdateNode*)next)->key >= node->key){ 
                         curr = (UpdateNode*)next;
                         succ = curr->rSucc;
                     }
-                    else{ //Next is either the tail or an update node with a larger key than node.
+                    else{ //Next is either the tail or an update node with a smaller key than node.
                         if((node->rSucc & STATUS_MASK) == Marked){
                             return;
                         }
@@ -172,7 +170,8 @@ class RU_ALL_TYPE {
             uint64_t state = succ & STATUS_MASK;
             while(1){
                 if(state == Normal){
-                    if((next == (uintptr_t)&tail || ((UpdateNode*)next)->key > node->key)){
+                    //If next points to an UpdateNode of smaller key, node was not in list.
+                    if(((UpdateNode*)next)->key < node->key){
                         return;
                     }
                     if((UpdateNode*)next != node){ //Advance...
@@ -192,8 +191,8 @@ class RU_ALL_TYPE {
                     //Help with insertion...
                     succ = helpInsert(curr,  (InsertDesc*)next);
                 }
-                //next is a ListNode pointer, not a seqnum/processID pair
-                else if((next == (uintptr_t)&tail) || (((UpdateNode*)next)->key > node->key)){
+                //If next points to an UpdateNode of smaller key, node was not in list.
+                else if((((UpdateNode*)next)->key < node->key)){
                     return;
                 }
                 else if(state == DelFlag){
@@ -220,12 +219,12 @@ class RU_ALL_TYPE {
 
         //Special RU-ALL traversal algorithms here: 
         //Returns the head of the linked list, or null if the list is empty...
-        UpdateNode *first(PredecessorNode *pNode){
+        UpdateNode *first(PredecessorNode<AtomicCopyNotifyThreshold> *pNode){
             return next(pNode, &head);
         }
 
         //Returns the node following node, or null if bottom was following node.
-        UpdateNode *next(PredecessorNode *pNode, UpdateNode *node){
+        UpdateNode *next(PredecessorNode<AtomicCopyNotifyThreshold> *pNode, UpdateNode *node){
             pNode->notifyThreshold.swcopy(&node->rSucc);
             UpdateNode *next = pNode->notifyThreshold.read();
             if(next == &tail)return nullptr;
@@ -269,7 +268,19 @@ class RU_ALL_TYPE {
             UpdateNode *node = &head;
             stream << "{";
             while(node){
-                stream << "<" << node << ", " << stat_to_char(status)  << ">";
+                
+                stream << "<";
+                if (node == &head){
+                    stream << "Head";
+                }
+                else if(node == &tail){
+                    stream << "Tail";
+                }
+                else{
+                    stream << node;
+                }
+                stream << ", key:" << node->key;
+                stream << ", Status:" << stat_to_char(status)  << ">";
                 node = nextN(node, status);
             }
             stream << "}\n";

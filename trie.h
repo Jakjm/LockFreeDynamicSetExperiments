@@ -6,7 +6,8 @@
 #include <unordered_map>
 #include <vector>
 #include "LinkedLists/P_ALL.h"
-#include "LinkedLists/RU_ALL.h"
+#include "LinkedLists/RU_ALL_notifDesc.h"
+#include "LinkedLists/RU_ALL_swCopy.h"
 #include "LinkedLists/UALL.h"
 #include "trieNodeTypes.h"
 #include "BoundedMinReg/minreg.h"
@@ -35,10 +36,11 @@ using std::deque;
 
 //Structure used to store pointers to insert/delete nodes that go unused after allocations.
 //On subsequent insert/delete operations by the same thread, the previouslly allocated insert/delete node can be used again.
+template <typename NotifDescType>
 struct UpdateNodePool{
-    InsNode *insNode;
-    DelNode *delNode;
-    volatile char padding[64 - 2*sizeof(InsNode*)];
+    InsNode<NotifDescType> *insNode;
+    DelNode<NotifDescType> *delNode;
+    volatile char padding[64 - 2*sizeof(InsNode<NotifDescType>*)];
     UpdateNodePool() : insNode(nullptr), delNode(nullptr){
 
     }
@@ -50,41 +52,42 @@ struct UpdateNodePool{
 
 #define reuse 1 //If reuse is defined, update nodes that are not inserted into the trie will be reused.
 
+template <typename NotifDescType = NotifDescNotifyThreshold>
 class Trie : public DynamicSet{
     private:
     const int trieHeight; //The height of the trie.
     const int64_t universeSize; //Equal to 2^trieHeight
-    TrieNode **trieNodes;
+    TrieNode<NotifDescType> **trieNodes;
     LatestList *latest;
-    P_ALL_TYPE P_ALL;
+    P_ALL_TYPE<NotifDescType> P_ALL;
     UALL_Type U_ALL;
-    RU_ALL_TYPE RU_ALL;
-    UpdateNodePool updateNodePool[MAX_THREADS];
+    RU_ALL_TYPE<NotifDescType> RU_ALL;
+    UpdateNodePool<NotifDescType> updateNodePool[MAX_THREADS];
     public:
-    Trie(int height) : trieHeight(height), universeSize(1 << trieHeight), trieNodes(new TrieNode*[trieHeight]), latest(new LatestList[universeSize]), P_ALL(), U_ALL(), RU_ALL()
+    Trie(int height) : trieHeight(height), universeSize(1 << trieHeight), trieNodes(new TrieNode<NotifDescType>*[trieHeight]), latest(new LatestList[universeSize]), P_ALL(), U_ALL(), RU_ALL()
     {
 
         for(int i = 0;i < MAX_THREADS;++i){
-            updateNodePool[i].insNode = new InsNode();
-            updateNodePool[i].delNode = new DelNode(trieHeight);
+            updateNodePool[i].insNode = new InsNode<NotifDescType>();
+            updateNodePool[i].delNode = new DelNode<NotifDescType>(trieHeight);
         }
 
 
         //Initialize the binary trie nodes for each level of the trie.
         for(int i = 0; i < trieHeight;++i){
             int64_t rowSize = (1 << i); //Row size = 2^i
-            TrieNode *trieNodeRow = new TrieNode[rowSize];
+            TrieNode<NotifDescType> *trieNodeRow = new TrieNode<NotifDescType>[rowSize];
             trieNodes[i] = trieNodeRow;
         }
 
 
-        TrieNode *baseRow = trieNodes[trieHeight - 1];
+        TrieNode<NotifDescType> *baseRow = trieNodes[trieHeight - 1];
 
         //Initialize the latest lists for each key in the universe.
         //Initialize row b of binary trie nodes.
         //Initially, each latest list's head = a DelNode with
         for(int64_t key = 0; key < universeSize;++key){
-            DelNode *initialDelNode = new DelNode(key, trieHeight);
+            DelNode<NotifDescType> *initialDelNode = new DelNode<NotifDescType>(key, trieHeight);
             //trieRecordManager.allocate<DelNode>(threadID, key, trieHeight);
             initialDelNode->upper0Boundary = trieHeight; // The initial delNodes for the trie have upper0Boundary = trieHeight.
             latest[key].head = initialDelNode;
@@ -102,11 +105,11 @@ class Trie : public DynamicSet{
         //Has its dNodePtr set to the dNodePtr of its left child.
         for(int row = trieHeight-2; row >= 0; row--){
             int64_t rowSize = (1 << row);
-            TrieNode *trieNodeRow = trieNodes[row];
-            TrieNode *childRow = trieNodes[row + 1];
+            TrieNode<NotifDescType> *trieNodeRow = trieNodes[row];
+            TrieNode<NotifDescType> *childRow = trieNodes[row + 1];
             for(int64_t i = 0; i < rowSize;++i){
                 int64_t leftChild = 2 * i;
-                DelNode *dNode = childRow[leftChild].dNodePtr;
+                DelNode<NotifDescType> *dNode = childRow[leftChild].dNodePtr;
                 trieNodeRow[i].dNodePtr = dNode;
                 dNode->dNodeCount.fetch_add(1);
             }
@@ -121,7 +124,7 @@ class Trie : public DynamicSet{
         for(int i = 0; i < trieHeight;++i){
             int numNodes = (1 << i);
             for(int node = 0;node < numNodes;++node){
-                DelNode *dNode = trieNodes[i][node].dNodePtr;
+                DelNode<NotifDescType> *dNode = trieNodes[i][node].dNodePtr;
                 int retire = dNode->dNodeCount.fetch_add(-1);
                 if(retire == 1){
                     delete dNode;
@@ -135,11 +138,11 @@ class Trie : public DynamicSet{
             UpdateNode *uNode = latest[l].head;
             UpdateNode *next = uNode->latestNext;
             if(uNode->type == INS){
-                delete (InsNode*)uNode;
+                delete (InsNode<NotifDescType>*)uNode;
                 //trieRecordManager.deallocate(threadID, (InsNode*)uNode);
             }
             else{
-                DelNode *d = (DelNode*)uNode;
+                DelNode<NotifDescType> *d = (DelNode<NotifDescType>*)uNode;
                 int retire = d->dNodeCount.fetch_add(-1);
                 assert(retire == 1);
                 delete d;
@@ -147,11 +150,11 @@ class Trie : public DynamicSet{
             }
             if(next){
                 if(next->type == INS){
-                    delete (InsNode*)next;
+                    delete (InsNode<NotifDescType>*)next;
                     //trieRecordManager.deallocate(threadID, (InsNode*)next);
                 }
                 else{
-                    DelNode *d = (DelNode*)next;
+                    DelNode<NotifDescType> *d = (DelNode<NotifDescType>*)next;
                     int retire = d->dNodeCount.fetch_add(-1);
                     assert(retire == 1);
                     delete d;
@@ -197,12 +200,12 @@ class Trie : public DynamicSet{
             uNode = findLatest(index); //Check the latest list for key = index.
         }
         else{
-            DelNode *dNode = trieNodes[depth][index].dNodePtr;
+            DelNode<NotifDescType> *dNode = trieNodes[depth][index].dNodePtr;
             uNode = findLatest(dNode->key);
         }
         if(uNode->type == INS)return 1;
         else{
-            DelNode *d = (DelNode*)uNode;
+            DelNode<NotifDescType> *d = (DelNode<NotifDescType>*)uNode;
             int height = trieHeight - depth;
             if (height >= d->lower1Boundary.minRead()) return 1;
             else if(height <= d->upper0Boundary)return 0;
@@ -227,14 +230,14 @@ class Trie : public DynamicSet{
                 UpdateNode *result = uNode->latestNext.exchange(nullptr); 
                 if(result == latestNext){ //This operation unlinked latestNext from the latest list.
                     if(latestNext->type == INS){
-                        trieDebra.retire((InsNode*)latestNext);
+                        trieDebra.retire((InsNode<NotifDescType>*)latestNext);
                         //trieRecordManager.retire(threadID, (InsNode*)latestNext); //Retire latestNext if it's an insert node.
                     }
                     else{
                         //Otherwise, decrement latestNext's dNodeCount, and retire latestNext if dNodeCount was reduced to 0.
-                        int retire = ((DelNode*)latestNext)->dNodeCount.fetch_add(-1); 
+                        int retire = ((DelNode<NotifDescType>*)latestNext)->dNodeCount.fetch_add(-1); 
                         if(retire == 1){
-                            trieDebra.retire((DelNode*)latestNext);
+                            trieDebra.retire((DelNode<NotifDescType>*)latestNext);
                             //trieRecordManager.retire(threadID, (DelNode*)latestNext);
                         }
                     }
@@ -244,16 +247,16 @@ class Trie : public DynamicSet{
     }
 
     //Notify predecessor operation by placing a new notify node in the notify list.
-    bool sendNotification(NotifyNode *newNotifyNode, PredecessorNode *pNode){
+    bool sendNotification(NotifyNode<NotifDescType> *newNotifyNode, PredecessorNode<NotifDescType> *pNode){
         while(1){
-            NotifyNode *nNode = pNode->notifyListHead;
+            NotifyNode<NotifDescType> *nNode = pNode->notifyListHead;
             newNotifyNode->next = nNode;
             if(!firstActivated(newNotifyNode->updateNode)){
                 return false; //If the updateNode is no longer the first activated one, no need to continue....
             }
 
             //Otherwise, attempt to put newNotifyNode at the head of the notifyList for pNode.
-            NotifyNode *expected = nNode;
+            NotifyNode<NotifDescType> *expected = nNode;
             pNode->notifyListHead.compare_exchange_strong(expected,newNotifyNode); 
             if(expected == nNode){
                 return true; //Succeeded in putting newNotifyNode at the head of the notifyList.
@@ -262,12 +265,12 @@ class Trie : public DynamicSet{
     }
 
         //Traverse through the Update Announcement Linked List
-    void traverseUALL(int64_t x, vector<InsNode*> &I, vector<DelNode*> &D){
+    void traverseUALL(int64_t x, vector<InsNode<NotifDescType>*> &I, vector<DelNode<NotifDescType>*> &D){
         UpdateNode *uNode = (UpdateNode*)U_ALL.first();   
         while(uNode && uNode->key <= x){
             if(uNode->status != INACTIVE && firstActivated(uNode)){
-                if(uNode->type == INS)I.push_back((InsNode*)uNode);
-                else D.push_back((DelNode*)uNode);
+                if(uNode->type == INS)I.push_back((InsNode<NotifDescType>*)uNode);
+                else D.push_back((DelNode<NotifDescType>*)uNode);
             }
             uNode = (UpdateNode*)U_ALL.next(uNode);
         }                                                                                             
@@ -275,11 +278,11 @@ class Trie : public DynamicSet{
 
     //Send notifications to predecessor operations.
     void notifyPredOps(UpdateNode *uNode){
-        vector<InsNode*> I; 
-        vector <DelNode*> D;
+        vector<InsNode<NotifDescType>*> I; 
+        vector <DelNode<NotifDescType>*> D;
         traverseUALL(INT64_MAX, I, D);
 
-        PredecessorNode *pNode = (PredecessorNode*)P_ALL.first();
+        PredecessorNode<NotifDescType> *pNode = (PredecessorNode<NotifDescType>*)P_ALL.first();
         while(pNode){
             int64_t tau;
             UpdateNode *notifyThres = pNode->notifyThreshold.read();
@@ -289,34 +292,34 @@ class Trie : public DynamicSet{
                 return;
             }
             int64_t maxKey = -1;
-            InsNode *updateNodeMax = nullptr;
-            for(InsNode* insNode : I){
+            InsNode<NotifDescType> *updateNodeMax = nullptr;
+            for(InsNode<NotifDescType>* insNode : I){
                 if(insNode->key < pNode->key && insNode->key > maxKey){
                     maxKey = insNode->key;
                     updateNodeMax = insNode;
                 }
             }
 
-            NotifyNode *newNotif = new NotifyNode(uNode, updateNodeMax, tau);
+            NotifyNode<NotifDescType> *newNotif = new NotifyNode<NotifDescType>(uNode, updateNodeMax, tau);
             if(!sendNotification(newNotif,pNode)){
                 delete newNotif; //Deallocate newNotif as it was not used.
                 break;
             }
-            pNode = (PredecessorNode*)P_ALL.next(pNode);
+            pNode = (PredecessorNode<NotifDescType>*)P_ALL.next(pNode);
         }
     }
 
-    void insertBinaryTrie(InsNode *iNode){
+    void insertBinaryTrie(InsNode<NotifDescType> *iNode){
         //For each binary trie node t on the path from the parent of the leaf with iNode.key to the root, do 
         int64_t key = iNode->key;
         for(int depth = trieHeight-1;depth >= 0;--depth){
             key = key >> 1;
-            TrieNode &t = trieNodes[depth][key]; //Start from parent of 
+            TrieNode<NotifDescType> &t = trieNodes[depth][key]; //Start from parent of 
             UpdateNode *dNodePtr = t.dNodePtr;
             UpdateNode *uNode = findLatest(dNodePtr->key);
 
             if (uNode->type == DEL){
-                DelNode *delNode = (DelNode*)uNode;
+                DelNode<NotifDescType> *delNode = (DelNode<NotifDescType>*)uNode;
                 int height = trieHeight - depth;
                 if (height < delNode->lower1Boundary.minRead() && height <= delNode->upper0Boundary){
                     iNode->target = delNode;
@@ -336,7 +339,7 @@ class Trie : public DynamicSet{
     // If the index is even, it is the left child. Add 1 to get the right child.
     #define siblingIndex(index) (index ^ 1)
 
-    void deleteBinaryTrie(DelNode *dNode){
+    void deleteBinaryTrie(DelNode<NotifDescType> *dNode){
         int depth = trieHeight;
         int64_t key = dNode->key;
         while(depth > 0){
@@ -345,14 +348,14 @@ class Trie : public DynamicSet{
             //t = t->parent.
             --depth;
             key = key / 2;
-            TrieNode *t = &trieNodes[depth][key];
+            TrieNode<NotifDescType> *t = &trieNodes[depth][key];
 
-            DelNode *d = t->dNodePtr; //d is the oldValue of t->dNodePtr
+            DelNode<NotifDescType> *d = t->dNodePtr; //d is the oldValue of t->dNodePtr
             
             if(dNode->stop || dNode->lower1Boundary.minRead() != trieHeight+1)return;
             if(firstActivated(dNode) == false)return;
             
-            DelNode *expected = d;
+            DelNode<NotifDescType> *expected = d;
             dNode->dNodeCount.fetch_add(1); 
             //assert(count > 0);
             t->dNodePtr.compare_exchange_strong(expected, dNode);
@@ -403,7 +406,7 @@ class Trie : public DynamicSet{
         //dNode has type DEL and its child, if it has one, is of type INS
 
         #ifdef reuse 
-        InsNode *iNode = updateNodePool[threadID].insNode;
+        InsNode<NotifDescType> *iNode = updateNodePool[threadID].insNode;
         #else
         InsNode *iNode = trieRecordManager.allocate<InsNode>(threadID); //Allocate a new node for each insert
         #endif
@@ -418,7 +421,7 @@ class Trie : public DynamicSet{
             UpdateNode *result = dNode->latestNext.exchange(nullptr); 
             if(result == latestNext){
                 //assert(latestNext->type == INS);
-                trieDebra.retire((InsNode*)latestNext);
+                trieDebra.retire((InsNode<NotifDescType>*)latestNext);
                 //trieRecordManager.retire(threadID, (InsNode*)latestNext); //Retire the InsertNode following dNode in latest list.
             }
         }
@@ -435,7 +438,7 @@ class Trie : public DynamicSet{
             return;
         }
         #ifdef reuse 
-        updateNodePool[threadID].insNode = new InsNode(); //Ensure that iNode has been removed from the pool...
+        updateNodePool[threadID].insNode = new InsNode<NotifDescType>(); //Ensure that iNode has been removed from the pool...
         #endif 
         U_ALL.insert(iNode);
         RU_ALL.insert(iNode);
@@ -450,8 +453,8 @@ class Trie : public DynamicSet{
         if(result == dNode){
             //Retire the delete node if it is no longer in the latest list or stored as a dNodePtr
             //assert(dNode->type == DEL);
-            int retire = ((DelNode*)dNode)->dNodeCount.fetch_add(-1);
-            if(retire == 1)trieDebra.retire((DelNode*)dNode);
+            int retire = ((DelNode<NotifDescType>*)dNode)->dNodeCount.fetch_add(-1);
+            if(retire == 1)trieDebra.retire((DelNode<NotifDescType>*)dNode);
             //trieRecordManager.retire(threadID, (DelNode*)dNode);
         }
         
@@ -481,13 +484,13 @@ class Trie : public DynamicSet{
         }
         //iNode has type INS. If it has a child, its child has type DEL.
 
-        PredecessorNode *pNode = new PredecessorNode(x,&RU_ALL.head);
+        PredecessorNode<NotifDescType> *pNode = new PredecessorNode<NotifDescType>(x,&RU_ALL.head);
         //trieRecordManager.allocate<PredecessorNode>(threadID, x);
         int64_t delPred = predHelper(pNode);
 
         //Initialize update node for this delete operation.
         #ifdef reuse 
-        DelNode *dNode;
+        DelNode<NotifDescType> *dNode;
         dNode = updateNodePool[threadID].delNode;
         #else 
         DelNode *dNode = trieRecordManager.allocate<DelNode>(threadID, trieHeight); //Allocate a delNode for each delete...
@@ -508,8 +511,8 @@ class Trie : public DynamicSet{
             //Swap iNode's latestNext with nullptr.
             if(result == latestNext){ //If this operation removed latestNext, decrement its dNodeCount.
                 //assert(latestNext->type == DEL);
-                int retire = ((DelNode*)latestNext)->dNodeCount.fetch_add(-1);
-                if(retire == 1)trieDebra.retire((DelNode*)latestNext);
+                int retire = ((DelNode<NotifDescType>*)latestNext)->dNodeCount.fetch_add(-1);
+                if(retire == 1)trieDebra.retire((DelNode<NotifDescType>*)latestNext);
                 //trieRecordManager.retire(threadID, (DelNode*)latestNext); //Retire if dNodeCount was lowered to 0.
             }   
         }
@@ -537,7 +540,7 @@ class Trie : public DynamicSet{
             return;
         }
         #ifdef reuse
-        updateNodePool[threadID].delNode = new DelNode(trieHeight); //Remove dNode from the pool; it should not be reused for the next deletion
+        updateNodePool[threadID].delNode = new DelNode<NotifDescType>(trieHeight); //Remove dNode from the pool; it should not be reused for the next deletion
         #endif
         U_ALL.insert(dNode);
         RU_ALL.insert(dNode);
@@ -546,7 +549,7 @@ class Trie : public DynamicSet{
         dNode->status.compare_exchange_strong(expectedStatus, ACTIVE);
         iNode->status = STALE;
 
-        DelNode *target = ((InsNode*)iNode)->target;
+        DelNode<NotifDescType> *target = ((InsNode<NotifDescType>*)iNode)->target;
         if(target && firstActivated(target))target->stop = true;
 
         //Swap dNode's latestNext with nullptr.
@@ -554,10 +557,10 @@ class Trie : public DynamicSet{
         if(result == iNode){  
             //If this CAS unlinked iNode from the latest list, retire iNode.
             //assert(iNode->type == INS);
-            trieDebra.retire((InsNode*)iNode);
+            trieDebra.retire((InsNode<NotifDescType>*)iNode);
             //trieRecordManager.retire(threadID, (InsNode*)iNode);
         }
-        PredecessorNode *pNode2 = new PredecessorNode(x, &RU_ALL.head);
+        PredecessorNode<NotifDescType> *pNode2 = new PredecessorNode<NotifDescType>(x, &RU_ALL.head);
         //trieRecordManager.allocate<PredecessorNode>(threadID, x);
         int64_t delPred2 = predHelper(pNode2);
         dNode->delPred2 = delPred2;
@@ -645,17 +648,17 @@ class Trie : public DynamicSet{
     
 
 
-    void traverseAndInsertPALL(PredecessorNode *newNode, deque<PredecessorNode*> &q){
-        set<PredecessorNode*> qSet;
+    void traverseAndInsertPALL(PredecessorNode<NotifDescType> *newNode, deque<PredecessorNode<NotifDescType>*> &q){
+        set<PredecessorNode<NotifDescType>*> qSet;
 
-        PredecessorNode *first = (PredecessorNode*)(P_ALL.head.succ.load() & NEXT_MASK);
-        PredecessorNode *pNode = (PredecessorNode*)first;
+        PredecessorNode<NotifDescType> *first = (PredecessorNode<NotifDescType>*)(P_ALL.head.succ.load() & NEXT_MASK);
+        PredecessorNode<NotifDescType> *pNode = (PredecessorNode<NotifDescType>*)first;
         //Traverse P_ALL from start to end
         while(pNode){
             q.push_back(pNode);
             qSet.insert(pNode);
             //Note the cast to a ListNode is important!
-            pNode = (PredecessorNode*)P_ALL.next(pNode);
+            pNode = (PredecessorNode<NotifDescType>*)P_ALL.next(pNode);
         }
 
         //Insert newNode into P_ALL
@@ -670,25 +673,25 @@ class Trie : public DynamicSet{
                 return; //newNode was successfully inserted
             }
             int64_t state = (int64_t)(expected & STATUS_MASK);
-            PredecessorNode *next = (PredecessorNode*)(expected & NEXT_MASK);
+            PredecessorNode<NotifDescType> *next = (PredecessorNode<NotifDescType>*)(expected & NEXT_MASK);
             if(state == DelFlag){
-                first = (PredecessorNode*)(P_ALL.helpRemove(&P_ALL.head, next) & NEXT_MASK);
+                first = (PredecessorNode<NotifDescType>*)(P_ALL.helpRemove(&P_ALL.head, next) & NEXT_MASK);
             }
 
-            vector<PredecessorNode*> qPrime;
-            first = (PredecessorNode*)(P_ALL.head.succ.load() & NEXT_MASK);
-            pNode = (PredecessorNode*)first;
+            vector<PredecessorNode<NotifDescType>*> qPrime;
+            first = (PredecessorNode<NotifDescType>*)(P_ALL.head.succ.load() & NEXT_MASK);
+            pNode = (PredecessorNode<NotifDescType>*)first;
             //Traverse P_ALL from start to end, add any nodes not in Q to qPrime
             while(pNode && qSet.count(pNode) == 0){
                 qPrime.push_back(pNode);
                 //Note the cast to a ListNode is important!
-                pNode = (PredecessorNode*)P_ALL.next(pNode);
+                pNode = (PredecessorNode<NotifDescType>*)P_ALL.next(pNode);
             }
 
             //Go through qPrime in reverse order, and put each element at the front of q.
             //This way q is sorted from the most recently inserted PNode to the least recently inserted PNode.
-            for(vector<PredecessorNode*>::reverse_iterator iter = qPrime.rbegin(); iter != qPrime.rend(); ++iter){
-                PredecessorNode *p = *iter;
+            for(auto iter = qPrime.rbegin(); iter != qPrime.rend(); ++iter){
+                PredecessorNode<NotifDescType> *p = *iter;
                 
                 q.push_front(p);
                 qSet.insert(p);
@@ -697,13 +700,13 @@ class Trie : public DynamicSet{
     }
 
     //Traverse the reverse update announcement linked list.
-    void traverseRUALL(PredecessorNode *pNode, set<InsNode *> &I, set<DelNode*> &D){
+    void traverseRUALL(PredecessorNode<NotifDescType> *pNode, set<InsNode<NotifDescType> *> &I, set<DelNode<NotifDescType>*> &D){
         UpdateNode *uNode = (UpdateNode*)RU_ALL.first(pNode); //Atomically set pNode.notifyThreshold....
         while(uNode){
             if(uNode->key < pNode->key){
                 if(uNode->status != INACTIVE && firstActivated(uNode)){
-                    if(uNode->type == INS) I.insert((InsNode*)uNode);
-                    else D.insert((DelNode*)uNode);
+                    if(uNode->type == INS) I.insert((InsNode<NotifDescType>*)uNode);
+                    else D.insert((DelNode<NotifDescType>*)uNode);
                 }
             }
             uNode = (UpdateNode*)RU_ALL.next(pNode,uNode); //Atomically set pNode.notifyThreshold....
@@ -711,12 +714,12 @@ class Trie : public DynamicSet{
         //assert(pNode->notifyThreshold == &ZERO_THRES);
     }
 
-    int64_t predHelper(PredecessorNode *pNode){
-        deque<PredecessorNode*> Q;
-        vector<InsNode*> I_1, I_2;
-        vector<DelNode*> D_1, D_2;
-        set<InsNode*> I_0;
-        set<DelNode*> D_0;
+    int64_t predHelper(PredecessorNode<NotifDescType> *pNode){
+        deque<PredecessorNode<NotifDescType>*> Q;
+        vector<InsNode<NotifDescType>*> I_1, I_2;
+        vector<DelNode<NotifDescType>*> D_1, D_2;
+        set<InsNode<NotifDescType>*> I_0;
+        set<DelNode<NotifDescType>*> D_0;
         int64_t y = pNode->key;
         int64_t depthT;
         
@@ -727,18 +730,18 @@ class Trie : public DynamicSet{
         traverseUALL(y, I_1, D_1);
 
         //Traverse pNode's notify list...
-        NotifyNode *nNode = pNode->notifyListHead;
+        NotifyNode<NotifDescType> *nNode = pNode->notifyListHead;
         while(nNode){
             if(nNode->key < y){
                 if(nNode->key > nNode->notifyThreshold){
-                    if(nNode->updateNode->type == INS)I_2.push_back((InsNode*)nNode->updateNode);
-                    else D_2.push_back((DelNode*)nNode->updateNode);
+                    if(nNode->updateNode->type == INS)I_2.push_back((InsNode<NotifDescType>*)nNode->updateNode);
+                    else D_2.push_back((DelNode<NotifDescType>*)nNode->updateNode);
 
                     if(nNode->updateNodeMax)I_2.push_back(nNode->updateNodeMax);
                 }
                 else{
-                    if(nNode->updateNode->type == INS)I_0.insert((InsNode*)nNode->updateNode);
-                    else D_0.insert((DelNode*)nNode->updateNode);
+                    if(nNode->updateNode->type == INS)I_0.insert((InsNode<NotifDescType>*)nNode->updateNode);
+                    else D_0.insert((DelNode<NotifDescType>*)nNode->updateNode);
                 }
             }
             nNode = nNode->next;
@@ -746,21 +749,21 @@ class Trie : public DynamicSet{
         
         int64_t k = -1;
         //k = key of updateNode with largest key among I_1, I_2, D_1 - D_0 and D_2 - D_0.
-        for(InsNode *i : I_1){
+        for(InsNode<NotifDescType> *i : I_1){
             if(i->key > k)k = i->key;
 
         }
-        for(InsNode *i : I_2){
+        for(InsNode<NotifDescType> *i : I_2){
             if(i->key > k)k = i->key;
         }
 
         //Create D1 - D0 and D2 - D0
-        for(DelNode *d : D_1){
+        for(DelNode<NotifDescType> *d : D_1){
             if(D_0.count(d) == 0){
                 if(d->key > k)k = d->key;
             }
         }
-        for(DelNode *d : D_2){
+        for(DelNode<NotifDescType> *d : D_2){
             if(D_0.count(d) == 0){
                 if(d->key > k)k = d->key;
             }
@@ -773,16 +776,16 @@ class Trie : public DynamicSet{
             if(k < minU_t){
                 //D_0 must contain a DEL node with key that is in the 
                 //range of keys of leaves in the subtree rooted by t
-                set<PredecessorNode*> predNodes;
+                set<PredecessorNode<NotifDescType>*> predNodes;
                 predNodes.insert(pNode);
-                for(DelNode *d : D_0){
+                for(DelNode<NotifDescType> *d : D_0){
                     predNodes.insert(d->delPredNode);
                 }
 
                 //pNodePrime is the predecessor node in predNodes that is the latest in Q.
-                PredecessorNode *pNodePrime = nullptr;
+                PredecessorNode<NotifDescType> *pNodePrime = nullptr;
                 for (auto rit = Q.rbegin(); rit != Q.rend(); ++rit) { //Iterate through Q backwards.
-                    PredecessorNode *p = *rit;
+                    PredecessorNode<NotifDescType> *p = *rit;
                     if(predNodes.count(p) > 0){ //Stop as soon as such a predecessor node is found.
                         pNodePrime = p;
                         break;
@@ -791,7 +794,7 @@ class Trie : public DynamicSet{
 
                 vector<UpdateNode*> LPrime;
                 //Insert all updateNodes of the notify nodes of pNodePrime to LPrime.
-                NotifyNode *nNode = pNodePrime->notifyListHead;
+                NotifyNode<NotifDescType> *nNode = pNodePrime->notifyListHead;
                 while(nNode){
                     LPrime.push_back(nNode->updateNode);
                     nNode = nNode->next;
@@ -803,12 +806,12 @@ class Trie : public DynamicSet{
                 while(nNode){
                     UpdateNode *uNode = nNode->updateNode;
                     if(uNode->type == INS){
-                        if(I_0.count((InsNode*)uNode) == 0){
+                        if(I_0.count((InsNode<NotifDescType>*)uNode) == 0){
                             L.insert(uNode);
                         }
                     }
                     else if(uNode->type == DEL){
-                        if(D_0.count((DelNode*)uNode) == 0){
+                        if(D_0.count((DelNode<NotifDescType>*)uNode) == 0){
                             L.insert(uNode);
                         }
                     }
@@ -822,7 +825,7 @@ class Trie : public DynamicSet{
                     if(L.count(uNode) == 0)LDoublePrime.push_back(uNode);
                 }
                 set<int64_t> R;
-                for(DelNode *dNode : D_0){
+                for(DelNode<NotifDescType> *dNode : D_0){
                     R.insert(dNode->delPred); //Insert the embedded predecessor value of the delNodes in D_0
                 }
                 for(UpdateNode *uNode : LDoublePrime){
@@ -831,7 +834,7 @@ class Trie : public DynamicSet{
                     }
                     else{
                         R.insert(uNode->key);
-                        int64_t delPred2 = ((DelNode*)uNode)->delPred2;
+                        int64_t delPred2 = ((DelNode<NotifDescType>*)uNode)->delPred2;
                         R.insert(delPred2);
                     }
                 }
@@ -873,7 +876,7 @@ class Trie : public DynamicSet{
         trieDebra.startOp();
         //trieRecordManager.startOp(threadID);
         
-        PredecessorNode *p = new PredecessorNode(y, &RU_ALL.head);
+        PredecessorNode<NotifDescType> *p = new PredecessorNode<NotifDescType>(y, &RU_ALL.head);
         //trieRecordManager.allocate<PredecessorNode>(threadID, y);
         int64_t pred = predHelper(p);
         P_ALL.remove(p);

@@ -33,10 +33,10 @@ struct InsertDescNode{
 //compare is the function used to compare the nodes of the linked list
 class UALL_Type {
     public:
-        UpdateNode tail, head; //Head, tail of the linked list. 
+        UpdateNode  head, tail; //Head, tail of the linked list. 
     public:
         InsertDescNode descs[MAX_THREADS]; //Insert descriptor nodes for each process
-        UALL_Type(): tail(INT64_MAX,INS), head(INT64_MIN, INS){
+        UALL_Type(): head(INT64_MIN, INS), tail(INT64_MAX,INS){
             head.succ.store((uintptr_t)&tail);
         }
         ~UALL_Type(){ 
@@ -130,12 +130,12 @@ class UALL_Type {
             while(state == InsFlag || next != (uintptr_t)node){
                 if(state == Normal){
                     //If Next's key <= node's key
-                    if(next != (uintptr_t)&tail && ((UpdateNode*)next)->key <= node->key){ 
+                    if(((UpdateNode*)next)->key <= node->key){ 
                         //node should be placed further along in the list if next <= node
                         curr = (UpdateNode*)next;
                         succ = curr->succ;
                     }
-                    else{
+                    else{ //Next is either head or an UpdateNode of a greater key than node.
                         if((node->succ & STATUS_MASK) == Marked){
                             return;
                         }
@@ -146,7 +146,7 @@ class UALL_Type {
                         curr->succ.compare_exchange_strong(succ, (uintptr_t)newVal);
                         if(succ == next){ //If the CAS succeeded....
                             helpInsert(curr, seqNum, threadID);
-                            desc->seqNum = seqNum + 1; //Increment the sequence number....
+                            desc->seqNum = seqNum + 1; //Increment the sequence number of insert descriptor node.
                             return;
                         }
                     }
@@ -181,7 +181,7 @@ class UALL_Type {
             uint64_t state = succ & STATUS_MASK;
             while(1){
                 if(state == Normal){
-                    if(next == (uintptr_t)&tail || ((UpdateNode*)next)->key > node->key)return;
+                    if(((UpdateNode*)next)->key > node->key)return;
                     if((UpdateNode*)next != node){ //Advance...
                         curr = (UpdateNode*)next;
                         succ = curr->succ;
@@ -200,8 +200,8 @@ class UALL_Type {
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpInsert(curr, seq, proc);
                 }
-                //next is a pointer to a UpdateNode
-                else if(next == (uintptr_t)&tail || ((UpdateNode*)next)->key > node->key){
+                //next points to an UpdateNode with a larger key; node is not in the list.
+                else if(((UpdateNode*)next)->key > node->key){
                     return;
                 }
                 else if(state == DelFlag){
