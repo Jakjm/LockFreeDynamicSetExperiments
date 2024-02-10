@@ -7,7 +7,7 @@ linkedLists = LinkedLists/ListNode.h LinkedLists/P_ALL.h LinkedLists/RU_ALL_noti
 trie = swCopy.h swCopy2.h BoundedMinReg/minreg.h trieNodeTypes.h $(linkedLists) trie.h 
 
 dynamicSetTest : $(dataStructures) $(trie) $(common) dynamicSetTest.cpp  Makefile 
-	g++ -g -Wall -O3 -fdump-lang-class -pthread -o dynamicSetTest dynamicSetTest.cpp
+	g++ -g -Wall -fdump-lang-class -pthread -o dynamicSetTest dynamicSetTest.cpp
 
 clean: 
 	rm dynamicSetTest

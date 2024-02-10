@@ -21,8 +21,7 @@ using std::string;
 struct InsertDescPool{
     InsertDesc *d;
     volatile char padding [64 - sizeof(InsertDesc*)];
-    InsertDescPool(){
-        d = new InsertDesc();
+    InsertDescPool() : d(new InsertDesc()){
     }
     ~InsertDescPool(){
         delete d;
@@ -119,7 +118,7 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
             uint64_t state = succ & STATUS_MASK;
             
             //This is the descriptor for this thread.
-            InsertDesc *desc = new InsertDesc(); //TODO pool and reuse desc if 
+            InsertDesc *desc = descNodePool[threadID].d; //TODO pool and reuse desc if 
             desc->newNode = node;
             while(state == InsFlag || next != (uintptr_t)node){
                 if(state == Normal){
@@ -138,6 +137,7 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                         curr->rSucc.compare_exchange_strong(succ, (uintptr_t)desc + InsFlag); 
                         if(succ == next){ //If the CAS succeeded....
                             helpInsert(curr, desc);
+                            descNodePool[threadID].d = new InsertDesc();
                             return;
                         }
                     }
