@@ -267,7 +267,7 @@ class Trie : public DynamicSet{
         //Traverse through the Update Announcement Linked List
     void traverseUALL(int64_t x, vector<InsNode<NotifDescType>*> &I, vector<DelNode<NotifDescType>*> &D){
         UpdateNode *uNode = (UpdateNode*)U_ALL.first();   
-        while(uNode && uNode->key <= x){
+        while(uNode && uNode->key < x){
             if(uNode->status != INACTIVE && firstActivated(uNode)){
                 if(uNode->type == INS)I.push_back((InsNode<NotifDescType>*)uNode);
                 else D.push_back((DelNode<NotifDescType>*)uNode);

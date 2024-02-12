@@ -35,7 +35,7 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
     public:
         UpdateNode head, tail; //Head, tail of the linked list. 
     public:
-        RU_ALL_TYPE() : head(INT64_MAX,INS), tail(INT64_MIN,INS) {
+        RU_ALL_TYPE() : head(INT64_MAX,INS), tail(-1,INS) {
             head.rSucc.store((uintptr_t)&tail);
         }
         ~RU_ALL_TYPE(){ 
