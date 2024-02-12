@@ -58,11 +58,27 @@ void basicTest(){
 
 }
 
+void basicTest2(){
+    P_ALL_TYPE<NotifDescNotifyThreshold> pall;
+
+    PredecessorNode<NotifDescNotifyThreshold> *pNodeList[10];
+    pall.printList();
+    for(int i = 0;i < 10;++i){
+        pNodeList[i] = new PredecessorNode<NotifDescNotifyThreshold>(i,nullptr);
+        pall.insert(pNodeList[i]);
+    }
+    pall.printList();
+    for(int i = 9;i >= 0;--i){
+        pall.remove(pNodeList[i]);
+    }
+    pall.printList();
+}
+
 
 int main(){
     //randomTest();
     //basicTest<AtomicCopyNotifyThreshold>();
-    randomTest<NotifDescNotifyThreshold>();
-    
+    //randomTest<NotifDescNotifyThreshold>();
+    basicTest2();
     return 0;
 }

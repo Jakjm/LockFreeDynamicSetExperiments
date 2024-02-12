@@ -32,8 +32,11 @@ struct SkipNode{
 struct SkipListPool{
     SkipNode *node;
     volatile char padding[64-sizeof(SkipListPool*)];
-    SkipListPool(): node(nullptr){
+    SkipListPool() : node(new SkipNode()){
 
+    }
+    ~SkipListPool(){
+        delete node;
     }
 };
 
@@ -61,10 +64,6 @@ class SkipListSet : public DynamicSet{
         tail.root = &tail;
     }
     ~ SkipListSet(){
-        for(int i = 0;i < MAX_THREADS;++i){
-            SkipNode * volatile n = pool[i].node;
-            if(n)delete n;
-        }
         for(int lv = maxLevels-1; lv >= 0;--lv){
             SkipNode *cur = (SkipNode*)(head[lv].next & NEXT_MASK); 
             SkipNode *next;
@@ -74,7 +73,6 @@ class SkipListSet : public DynamicSet{
                 cur = next;
             }
         }
-        //TODO free each level........
     }
 
 
@@ -84,6 +82,7 @@ class SkipListSet : public DynamicSet{
         uintptr_t expected = (uintptr_t)delNode + DelFlag;
         uintptr_t result = expected;
         prev->next.compare_exchange_strong(result, (uintptr_t)next);
+        assert((SkipNode*)(next->next & NEXT_MASK) != prev);
         
         if(result == expected){
             skipDebra.retire(delNode);
@@ -106,6 +105,7 @@ class SkipListSet : public DynamicSet{
                 uintptr_t markedSuccessor = (uintptr_t)next + Marked;
                 succ = next;
                 delNode->next.compare_exchange_strong(succ, markedSuccessor); //Try to update from <next, Normal> to <next, Marked>
+                assert((SkipNode*)(delNode->next & NEXT_MASK) != prev);
                 if(succ == next)break; //The CAS succeeded!
             }
             state = succ & STATUS_MASK;
@@ -119,15 +119,16 @@ class SkipListSet : public DynamicSet{
 
 
     bool tryFlag(SkipNode *&prev, SkipNode *delNode, bool &inList){
-        uint64_t succ;
+        uintptr_t succ;
         while(1){
             succ = prev->next;
-            if(succ == ((uint64_t)delNode) + DelFlag){
+            if(succ == ((uintptr_t)delNode) + DelFlag){
                 inList = true;
                 return false;
             }
             succ = (uintptr_t)delNode;
             prev->next.compare_exchange_strong(succ, ((uintptr_t)delNode) + DelFlag);
+            assert((SkipNode*)(delNode->next & NEXT_MASK) != prev);
             if(succ == (uintptr_t)delNode){
                 inList = true;
                 return true;
@@ -148,12 +149,15 @@ class SkipListSet : public DynamicSet{
             }
         }
     }
+
+
     SkipNode* findStart(int &level){
         int curLevel = level;
         uintptr_t succ = head[curLevel + 1].next;
         SkipNode *next = (SkipNode*)(succ & NEXT_MASK);
         while(next != &tail && curLevel < maxLevels - 1){
             ++curLevel;
+
             succ = head[curLevel + 1].next;
             next = (SkipNode*)(succ & NEXT_MASK);
         }
@@ -223,6 +227,7 @@ class SkipListSet : public DynamicSet{
                 newNode->next = (uintptr_t)next;
                 succ = (uintptr_t)next;
                 prev->next.compare_exchange_strong(succ, (uintptr_t)newNode);
+                assert((SkipNode*)(newNode->next & NEXT_MASK) != prev);
                 if(succ == (uintptr_t)next){
                     return newNode; //CAS succeeded in inserting new node :)
                 }
@@ -251,28 +256,25 @@ class SkipListSet : public DynamicSet{
             skipDebra.endOp();
             return;
         }
-        SkipNode *newRoot;
-        SkipNode *newNode;
-        if(pool->node)newNode = pool->node;
-        newNode = new SkipNode(k);
-        pool->node = nullptr;
-
+        SkipNode *newRoot = pool->node;
+        SkipNode *newNode = newRoot;
+        newNode->key = k;
         newNode->down = nullptr;
         newNode->root = newNode;
-        int height = 0;
-        newRoot = newNode;
+        int height = 1;
         while(rng(2) == 0 && height < maxLevels - 1){
             ++height;
         }
         int level = 0;
         while(1){
+            //If insertion of node has failed, and this is the first level, keep node for subsequent insertion...
             SkipNode *result = insertNode(newNode, curr, next);
             if(result == nullptr && level == 0){
-                pool->node = newNode;    
-                //delete newNode; //TODO pool node instead....
+                //delete newNode; <-- instead of this, nodes are pooled.
                 skipDebra.endOp();
                 return;
             }
+            pool->node = new SkipNode(k);
             if((newRoot->next & STATUS_MASK) == Marked){
                 if(result == newNode && newNode != newRoot){
                     removeNode(curr, newNode);
@@ -286,7 +288,7 @@ class SkipListSet : public DynamicSet{
                 return;
             }
             SkipNode *lastNode = newNode;
-            newNode = new SkipNode(k);
+            newNode = pool->node;
             newNode->down = lastNode;
             newNode->root = newRoot;
             if(stack.empty())curr = searchToLevel(k, level, next);
@@ -311,7 +313,7 @@ class SkipListSet : public DynamicSet{
         skipDebra.startOp();
         SkipNode *curr, *delNode;
         curr = searchToLevel(k-1,0, delNode);
-        if(delNode->key != k){
+        if(delNode->key != k){ //delNode does not have key k so we will not remove it.
             skipDebra.endOp();
             return;
         }

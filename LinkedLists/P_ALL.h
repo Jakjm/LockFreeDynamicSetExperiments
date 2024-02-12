@@ -58,6 +58,27 @@ class P_ALL_TYPE{
             return succ;
         }
 
+        void insert(PredecessorNode<NotifyThresholdType> *node){
+            uintptr_t succ = head.succ.load();
+            uintptr_t first = succ & NEXT_MASK;
+            uintptr_t state = succ & STATUS_MASK;
+            do{
+                if(state == Normal){
+                    succ = first;
+                    node->succ = (uintptr_t)first;
+                    head.succ.compare_exchange_strong(succ, (uintptr_t)node);
+                    if(succ == first)return;
+                }
+                //Note that the head node is never marked.
+                //Therefore, the state must be delFlag.
+                else{ 
+                    succ = helpRemove(&head, (PredecessorNode<NotifyThresholdType>*)first);
+                }
+                first = succ & NEXT_MASK;
+                state = succ & STATUS_MASK;
+            }while(1);
+        }
+
         
         void remove(PredecessorNode<NotifyThresholdType> *node){
             PredecessorNode<NotifyThresholdType> *curr = &head;
@@ -69,8 +90,7 @@ class P_ALL_TYPE{
                     if((PredecessorNode<NotifyThresholdType>*)next != node){ //Advance...
                         curr = (PredecessorNode<NotifyThresholdType>*)next;
                         succ = curr->succ;
-                        next = succ & NEXT_MASK;
-                        state = succ & STATUS_MASK;
+
                     }
                     else{
                         succ = (uintptr_t)node;
@@ -79,15 +99,11 @@ class P_ALL_TYPE{
                             helpRemove(curr, node);
                             return;
                         }
-                        next = succ & NEXT_MASK;
-                        state = succ & STATUS_MASK;
                     }
                 }
                 else if(state == DelFlag){
                     succ = helpRemove(curr, (PredecessorNode<NotifyThresholdType>*)next);
                     if((PredecessorNode<NotifyThresholdType>*)next == node)return;
-                    next = succ & NEXT_MASK;
-                    state = succ & STATUS_MASK;
                 }
                 else{
                     PredecessorNode<NotifyThresholdType> *prev = curr->backlink;
@@ -96,11 +112,11 @@ class P_ALL_TYPE{
                     state = succ & STATUS_MASK;
                     if(next == (uintptr_t)curr){ //Help remove curr from the list.
                         succ = helpMarked(prev, curr);
-                        next = succ & NEXT_MASK;
-                        state = succ & STATUS_MASK;
                     }
                     curr = prev;
                 }
+                next = succ & NEXT_MASK;
+                state = succ & STATUS_MASK;
             }
         }
 
@@ -120,14 +136,11 @@ class P_ALL_TYPE{
             }
             else return (PredecessorNode<NotifyThresholdType>*)next;
         }
-        PredecessorNode<NotifyThresholdType> *next(PredecessorNode<NotifyThresholdType> *node, uint64_t &state){            
+        PredecessorNode<NotifyThresholdType> *nextN(PredecessorNode<NotifyThresholdType> *node, uint64_t &state){            
             uintptr_t succ = node->succ;
             PredecessorNode<NotifyThresholdType> *next = (PredecessorNode<NotifyThresholdType>*)(succ & NEXT_MASK);
             state = succ & STATUS_MASK;
-            if(next == &tail){
-                return nullptr;
-            }
-            else return (PredecessorNode<NotifyThresholdType>*)next;
+            return (PredecessorNode<NotifyThresholdType>*)next;
         }
         char stat_to_char(uint64_t status){
             if(status == Normal){
@@ -152,6 +165,33 @@ class P_ALL_TYPE{
             while(node){
                 stream << "<" << nodeToString(node) << ", " << stat_to_char(status)  << ">";
                 node = next(node, status);
+            }
+            stream << "}\n";
+            std::cout << stream.str();
+        }
+
+        void printList(){
+            
+            std::ostringstream stream;
+
+            uint64_t status;
+            PredecessorNode<NotifyThresholdType> *node = &head;
+            stream << "{";
+            while(node){
+                
+                stream << "<";
+                if (node == &head){
+                    stream << "Head";
+                }
+                else if(node == &tail){
+                    stream << "Tail";
+                }
+                else{
+                    stream << node;
+                }
+                stream << ", key:" << node->key;
+                stream << ", Status:" << stat_to_char(status)  << ">";
+                node = nextN(node, status);
             }
             stream << "}\n";
             std::cout << stream.str();
