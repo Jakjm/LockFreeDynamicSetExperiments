@@ -6,8 +6,12 @@ dataStructures = OtherDynamicSets/FRList.h OtherDynamicSets/FRSkipList.h
 linkedLists = LinkedLists/ListNode.h LinkedLists/P_ALL.h LinkedLists/RU_ALL_notifDesc.h LinkedLists/RU_ALL_swCopy.h LinkedLists/UALL.h
 trie = swCopy.h swCopy2.h BoundedMinReg/minreg.h trieNodeTypes.h $(linkedLists) trie.h 
 
+compileFlags = -Wall -pedantic -pthread -Werror
+optimizationFlags = -O3
+testingFlags = -fdump-lang-class -fno-omit-frame-pointer -g
+
 dynamicSetTest : $(dataStructures) $(trie) $(common) dynamicSetTest.cpp  Makefile 
-	g++ -g -Wall -O3 -fdump-lang-class -pthread -o dynamicSetTest dynamicSetTest.cpp
+	g++ $(compileFlags) $(optimizationFlags) $(testingFlags) -o dynamicSetTest dynamicSetTest.cpp
 
 clean: 
 	rm dynamicSetTest

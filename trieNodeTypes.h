@@ -112,15 +112,13 @@ struct NotifDescNotifyThreshold{
 template <typename NotifyThresholdType = AtomicCopyNotifyThreshold>
 class NotifyNode {
     public:
-    const int64_t key;
-    UpdateNode * const updateNode;
-    InsNode<NotifyThresholdType> * const updateNodeMax;
-    const int64_t notifyThreshold;
-    //Pointer to the next node in the notify list....
-    NotifyNode<NotifyThresholdType> *next;
+    int64_t key;
+    UpdateNode *updateNode;
+    InsNode<NotifyThresholdType> *updateNodeMax;
+    int64_t notifyThreshold;
+    NotifyNode<NotifyThresholdType> *next; //Pointer to the next node in the notify list....
     volatile char padding[64 - 5*sizeof(int64_t)];
-    NotifyNode(UpdateNode *upNode, InsNode<NotifyThresholdType> *upNodeMax, int64_t threshold) : 
-        key(upNode->key), updateNode(upNode), updateNodeMax(upNodeMax), notifyThreshold(threshold), next(nullptr){
+    NotifyNode(){
     }
 };
 

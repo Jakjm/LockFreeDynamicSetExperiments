@@ -13,7 +13,6 @@
 #include "BoundedMinReg/minreg.h"
 #include "DynamicSet.h"
 
-#include <deque>
 #include <thread>
 #include <string>
 #include <ostream>
@@ -29,7 +28,6 @@ using std::vector;
 using std::unordered_set;
 using std::set;
 using std::string;
-using std::deque;
 
 
 
@@ -37,16 +35,18 @@ using std::deque;
 //Structure used to store pointers to insert/delete nodes that go unused after allocations.
 //On subsequent insert/delete operations by the same thread, the previouslly allocated insert/delete node can be used again.
 template <typename NotifDescType>
-struct UpdateNodePool{
+struct NodePool{
     InsNode<NotifDescType> *insNode;
     DelNode<NotifDescType> *delNode;
-    volatile char padding[64 - 2*sizeof(InsNode<NotifDescType>*)];
-    UpdateNodePool() : insNode(nullptr), delNode(nullptr){
+    NotifyNode<NotifDescType> *notifNode;
+    volatile char padding[64 - 3*sizeof(InsNode<NotifDescType>*)];
+    NodePool() : insNode(nullptr), delNode(nullptr), notifNode(nullptr){
 
     }
-    ~UpdateNodePool(){
+    ~NodePool(){
         delete insNode;
         delete delNode;
+        delete notifNode;
     }
 };
 
@@ -62,14 +62,16 @@ class Trie : public DynamicSet{
     P_ALL_TYPE<NotifDescType> P_ALL;
     UALL_Type U_ALL;
     RU_ALL_TYPE<NotifDescType> RU_ALL;
-    UpdateNodePool<NotifDescType> updateNodePool[MAX_THREADS];
+    NodePool<NotifDescType> nodePool[MAX_THREADS];
     public:
-    Trie(int height) : trieHeight(height), universeSize(1 << trieHeight), trieNodes(new TrieNode<NotifDescType>*[trieHeight]), latest(new LatestList[universeSize]), P_ALL(), U_ALL(), RU_ALL()
+    Trie(int height) : trieHeight(height), universeSize(1 << trieHeight), trieNodes(new TrieNode<NotifDescType>*[trieHeight]), 
+    latest(new LatestList[universeSize]), P_ALL(), U_ALL(), RU_ALL()
     {
 
         for(int i = 0;i < MAX_THREADS;++i){
-            updateNodePool[i].insNode = new InsNode<NotifDescType>();
-            updateNodePool[i].delNode = new DelNode<NotifDescType>(trieHeight);
+            nodePool[i].insNode = new InsNode<NotifDescType>();
+            nodePool[i].delNode = new DelNode<NotifDescType>(trieHeight);
+            nodePool[i].notifNode = new NotifyNode<NotifDescType>();
         }
 
 
@@ -219,8 +221,9 @@ class Trie : public DynamicSet{
             U_ALL.insert(uNode);
             RU_ALL.insert(uNode);
 
-            STATUS expectedStatus = INACTIVE;
-            uNode->status.compare_exchange_strong(expectedStatus, ACTIVE);
+            //STATUS expectedStatus = INACTIVE;
+            //uNode->status.compare_exchange_strong(expectedStatus, ACTIVE);
+            uNode->status = ACTIVE;
 
             UpdateNode *latestNext = uNode->latestNext;
             if(latestNext){
@@ -282,15 +285,21 @@ class Trie : public DynamicSet{
         vector <DelNode<NotifDescType>*> D;
         traverseUALL(INT64_MAX, I, D);
 
+
+
         PredecessorNode<NotifDescType> *pNode = (PredecessorNode<NotifDescType>*)P_ALL.first();
         while(pNode){
-            int64_t tau;
             UpdateNode *notifyThres = pNode->notifyThreshold.read();
-            tau = notifyThres->key;
+            int64_t tau = notifyThres->key;
 
             if(!firstActivated(uNode)){
                 return;
             }
+
+            NotifyNode<NotifDescType> *nNode = nodePool[threadID].notifNode;
+
+            nNode->key = uNode->key;
+            nNode->updateNode = uNode;
             int64_t maxKey = -1;
             InsNode<NotifDescType> *updateNodeMax = nullptr;
             for(InsNode<NotifDescType>* insNode : I){
@@ -299,12 +308,13 @@ class Trie : public DynamicSet{
                     updateNodeMax = insNode;
                 }
             }
-
-            NotifyNode<NotifDescType> *newNotif = new NotifyNode<NotifDescType>(uNode, updateNodeMax, tau);
-            if(!sendNotification(newNotif,pNode)){
-                delete newNotif; //Deallocate newNotif as it was not used.
+            nNode->updateNodeMax = updateNodeMax;
+            nNode->notifyThreshold = tau;
+            if(!sendNotification(nNode, pNode)){
                 break;
             }
+            nodePool[threadID].notifNode = new NotifyNode<NotifDescType>();
+
             pNode = (PredecessorNode<NotifDescType>*)P_ALL.next(pNode);
         }
     }
@@ -406,19 +416,18 @@ class Trie : public DynamicSet{
         //dNode has type DEL and its child, if it has one, is of type INS
 
         #ifdef reuse 
-        InsNode<NotifDescType> *iNode = updateNodePool[threadID].insNode;
+        InsNode<NotifDescType> *iNode = nodePool[threadID].insNode;
         #else
         InsNode *iNode = trieRecordManager.allocate<InsNode>(threadID); //Allocate a new node for each insert
         #endif
         iNode->key = x;
-
         iNode->latestNext = dNode;
-
         UpdateNode *latestNext = dNode->latestNext;
         if(latestNext){
-            latestNext->status = STALE;
+            //latestNext->status = STALE;
             //dNode->latestNext = nullptr
             UpdateNode *result = dNode->latestNext.exchange(nullptr); 
+            //If latestNext was removed by this exchange operation....
             if(result == latestNext){
                 //assert(latestNext->type == INS);
                 trieDebra.retire((InsNode<NotifDescType>*)latestNext);
@@ -438,19 +447,17 @@ class Trie : public DynamicSet{
             return;
         }
         #ifdef reuse 
-        updateNodePool[threadID].insNode = new InsNode<NotifDescType>(); //Ensure that iNode has been removed from the pool...
+        nodePool[threadID].insNode = new InsNode<NotifDescType>(); //Ensure that iNode has been removed from the pool...
         #endif 
         U_ALL.insert(iNode);
         RU_ALL.insert(iNode);
-
-        STATUS expectedStatus = INACTIVE;
-        iNode->status.compare_exchange_strong( expectedStatus, ACTIVE);
-        dNode->status = STALE;
+        iNode->status = ACTIVE;
+        //iNode->status.compare_exchange_strong( expectedStatus, ACTIVE);
+        //dNode->status = STALE;
         
-        //iNode->latestNext = nullptr
-        expected = dNode;
+        //Instead of iNode->latestNext = nullptr, use swap to determine if this swap removes 
         UpdateNode *result = iNode->latestNext.exchange(nullptr); 
-        if(result == dNode){
+        if(result == dNode){ //If this exchange removed dNode from the latest list....
             //Retire the delete node if it is no longer in the latest list or stored as a dNodePtr
             //assert(dNode->type == DEL);
             int retire = ((DelNode<NotifDescType>*)dNode)->dNodeCount.fetch_add(-1);
@@ -491,7 +498,7 @@ class Trie : public DynamicSet{
         //Initialize update node for this delete operation.
         #ifdef reuse 
         DelNode<NotifDescType> *dNode;
-        dNode = updateNodePool[threadID].delNode;
+        dNode = nodePool[threadID].delNode;
         #else 
         DelNode *dNode = trieRecordManager.allocate<DelNode>(threadID, trieHeight); //Allocate a delNode for each delete...
         #endif
@@ -505,7 +512,7 @@ class Trie : public DynamicSet{
         
         UpdateNode *latestNext = iNode->latestNext;
         if(latestNext){
-            latestNext->status = STALE;
+            //latestNext->status = STALE;
 
             UpdateNode *result = iNode->latestNext.exchange(nullptr); 
             //Swap iNode's latestNext with nullptr.
@@ -540,14 +547,12 @@ class Trie : public DynamicSet{
             return;
         }
         #ifdef reuse
-        updateNodePool[threadID].delNode = new DelNode<NotifDescType>(trieHeight); //Remove dNode from the pool; it should not be reused for the next deletion
+        nodePool[threadID].delNode = new DelNode<NotifDescType>(trieHeight); //Remove dNode from the pool; it should not be reused for the next deletion
         #endif
         U_ALL.insert(dNode);
         RU_ALL.insert(dNode);
 
-        STATUS expectedStatus = INACTIVE;
-        dNode->status.compare_exchange_strong(expectedStatus, ACTIVE);
-        iNode->status = STALE;
+        dNode->status = ACTIVE;
 
         DelNode<NotifDescType> *target = ((InsNode<NotifDescType>*)iNode)->target;
         if(target && firstActivated(target))target->stop = true;
@@ -594,46 +599,38 @@ class Trie : public DynamicSet{
     int64_t relaxedPredecessor(int64_t y){
         //Let t be the latestList for key y.
         int depth = trieHeight; //depth is the depth of t.
-        int64_t parentIndex = y / 2; //the index of t's parent in trieNodes[depth - 1];
-        char i1 = interpretedBit(parentIndex, depth - 1); //The interpreted bit of t's parent.
-        char i2 = interpretedBit(siblingIndex(y), depth); //The interpreted bit of t's sibling
         
-        //While i1 = 0, i2 == 0, or t is the leftChild of tParent
-        while(i1 == 0 || ((y & 1) == 0) || i2 == 0){
-            //t = tParent;
-            y = y >> 1;
-            parentIndex = y / 2;
-            --depth;
+        //While t is the leftChild of t.parent or t.parent.left's interpreted bit equals 0
+        while((y & 1) == 0 || interpretedBit(y - 1, depth) == 0){
+            //t = t.parent
+            y = y >> 1; 
+            --depth; 
             if(depth == 0)return -1; //If t is the root node, no predecessors of y were found
             
-            i1 = interpretedBit(parentIndex,depth - 1);
-            i2 = interpretedBit(siblingIndex(y), depth);
         }
 
-        //Go to left child of TrieNode's parent. 
+        //t = t.parent.left 
         //Subtract 1 from y if it is odd. 
         y = y - (y & 1);
-    
         while(depth < trieHeight){
+            ++depth; 
             //Right child is at 2*y + 1, left child is at 2 * y.
             int64_t rightIndex = y * 2 + 1;
-            
-            if(interpretedBit(rightIndex, depth+1) == 1){
-                ++depth;
+            if(interpretedBit(rightIndex, depth) == 1){ //If interpreted bit of t.right is 1, t = t.right
                 y = rightIndex;
-                continue;
             }
-            int64_t leftIndex = y * 2;
-            if(interpretedBit(leftIndex, depth+1) == 1){
-                ++depth;
-                y = leftIndex;
-                continue;
+            else{
+                int64_t leftIndex = y * 2;
+                if(interpretedBit(leftIndex, depth) == 1){ //If interpreted bit of t.left is 1, t = t.left
+                    y = leftIndex;
+                }
+                else{
+                    //Interpreted bits of left child and right child are 0. No predecessor found.
+                    return -2;
+                }
             }
-            
-            //Interpreted bits of left and right nodes are 0. No predecessor found.
-            return -2; //depth < trieHeight. return <y, depth>
         }
-        return y; //depth = trieHeight. return <y, trieHeight>
+        return y; //Return t.key
     }
     
 
@@ -739,7 +736,7 @@ class Trie : public DynamicSet{
                 if((nNode->notifyThreshold == -1) && 
                     ((nNode->updateNode->type == INS && I_ruall.count((InsNode<NotifDescType>*)nNode->updateNode)) == 0) && 
                     ((nNode->updateNode->type == DEL && D_ruall.count((DelNode<NotifDescType>*)nNode->updateNode)) == 0)){
-                    I_notify.push_back(nNode->updateNodeMax);
+                    if(nNode->updateNodeMax)I_notify.push_back(nNode->updateNodeMax);
                 }
             }
             nNode = nNode->next;

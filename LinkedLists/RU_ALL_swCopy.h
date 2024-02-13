@@ -118,7 +118,7 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
             uint64_t state = succ & STATUS_MASK;
             
             //This is the descriptor for this thread.
-            InsertDesc *desc = descNodePool[threadID].d; //TODO pool and reuse desc if 
+            InsertDesc *desc = descNodePool[threadID].d; 
             desc->newNode = node;
             while(state == InsFlag || next != (uintptr_t)node){
                 if(state == Normal){
