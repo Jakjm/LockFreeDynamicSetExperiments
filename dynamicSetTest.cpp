@@ -140,7 +140,7 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
     SkipListSet<25> skipList;
     
     trieDebra.setActiveThreads(numProcs);
-    bufferDebra.setActiveThreads(numProcs);
+    //bufferDebra.setActiveThreads(numProcs);
     keyNodeDebra.setActiveThreads(numProcs);
     skipDebra.setActiveThreads(numProcs);
     DynamicSet *set;

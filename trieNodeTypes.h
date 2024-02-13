@@ -9,10 +9,6 @@
 #pragma once
 using std::string;
 
-
-
-
-
 enum TYPE {INS, DEL};
 enum STATUS {INACTIVE, ACTIVE, STALE};
 template <typename>

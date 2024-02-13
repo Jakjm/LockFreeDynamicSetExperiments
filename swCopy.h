@@ -7,14 +7,10 @@
 #include <list>
 #include <forward_list>
 
-//Definition of the data stored by the weak LL/SC objects used for our SW_AtomicCopy implementation.
 struct Data{
     uintptr_t val;
-    std::atomic<uintptr_t> *ptr; //Pointer to an atomic uintptr_t.
-    Data(): val(0), ptr(0){
-
-    }
-    Data(uintptr_t v, std::atomic<uintptr_t> *p): val(v), ptr(p){
+    std::atomic<uintptr_t> *ptr; //Pointer to atomic pointer
+    Data(uintptr_t v = 0, std::atomic<uintptr_t> *p = 0) : val(v), ptr(p){
 
     }
 };
@@ -63,17 +59,16 @@ struct WeakLLSC{
     ~WeakLLSC(){
         delete buf;
     }
-    Data wLL(bool *succ = nullptr){
+    bool wLL(Data &d){
         Weak_LLSC_Thread_Data &data = llscData[threadID];
         Buffer *tmp = buf;
         data.announcement.store(tmp);
         if(buf == tmp){
-            if(succ)*succ = true;
-            return Data(tmp->val,tmp->ptr);
+            d = Data(tmp->val, tmp->ptr);
+            return true;
         }
         else{
-            if(succ)*succ = false;
-            return Data();
+            return false;
         }
     }
     bool SC(Data newVal){
@@ -150,29 +145,31 @@ struct SW_AtomicCopy{
         write(initVal);
     }
     void swcopy(std::atomic<uintptr_t> *src){
-        bool succ;
-        Data d = data.wLL(); //WeakLL guaranteed to succeed.
-        old = data.wLL().val;
+        Data d;
+        bool succ = data.wLL(d); //WeakLL guaranteed to succeed.
+        old = d.val;
         data.SC(Data(0,src));
         uintptr_t val = *src;
-        d = data.wLL(&succ);
+        succ = data.wLL(d);
         if(succ && d.ptr != 0){
             data.SC(Data(val,0));
         }
-        else{
+        else if(succ){
             data.CL();
         }
     }
     void write(uintptr_t newVal){
-        data.wLL(); //WeakLL guaranteed to succeed.
+        Data d;
+        data.wLL(d); //WeakLL guaranteed to succeed.
+        old = d.val;
         Data newData(newVal, 0);
         data.SC(newData);
     }
     intptr_t read(){
-        bool succ;
-        Data d = data.wLL(&succ);
+        Data d;
+        bool succ = data.wLL(d);
         if(!succ){
-            d = data.wLL(&succ);
+            succ = data.wLL(d);
             if(!succ)return old;
         }
         if(d.ptr == 0){
@@ -183,7 +180,7 @@ struct SW_AtomicCopy{
         if(data.SC(Data(v,0))){
             return v;
         }
-        d = data.wLL(&succ);
+        succ = data.wLL(d);
         data.CL();
         if(succ && d.ptr == 0){
             return d.val;
