@@ -28,45 +28,39 @@ struct Buffer{
 };
 
 //Declaration for structure used by each process to perform Weak LL/SC operations.
-struct Weak_LLSC_Thread_Data{
-    Buffer* announcement;
+struct LLSC_Thread_Data{
+    Buffer* link;
     Buffer *reuse;
     volatile char padding[64 - 2*sizeof(Buffer*)]; 
-    Weak_LLSC_Thread_Data(): announcement(nullptr), reuse(new Buffer()){
+    LLSC_Thread_Data(): link(nullptr), reuse(new Buffer()){
     }
-    ~Weak_LLSC_Thread_Data(){
+    ~LLSC_Thread_Data(){
         delete reuse;
     }
 };
 
 //Memory used by each process to perform WeakLLSC
-Weak_LLSC_Thread_Data llscData[MAX_THREADS];
+LLSC_Thread_Data llscData[MAX_THREADS];
 Debra<Buffer, 5> bufferDebra;
 
-//Definition of the WeakLLSC object.
-struct WeakLLSC{
+//Definition of the LLSC object.
+struct LLSC{
     std::atomic<Buffer*> buf;
-    WeakLLSC(Data initialValue){
+    LLSC(Data initialValue){
         buf = new Buffer(initialValue);
     }
-    ~WeakLLSC(){
+    ~LLSC(){
         delete buf;
     }
-    bool wLL(Data &val){
-        Weak_LLSC_Thread_Data &data = llscData[threadID];
+    void LL(Data &val){
+        LLSC_Thread_Data &data = llscData[threadID];
         Buffer *tmp = buf;
-        data.announcement = tmp;
-        if(buf == tmp){
-            val = tmp->data;
-            return true;
-        }
-        else{
-            return false;
-        }
+        data.link = tmp;
+        val = tmp->data;
     }
     bool SC(Data newVal){
-        Weak_LLSC_Thread_Data &data = llscData[threadID];
-        Buffer *old = data.announcement;
+        LLSC_Thread_Data &data = llscData[threadID];
+        Buffer *old = data.link;
         Buffer *newBuf = data.reuse;
         newBuf->init(newVal);
 
@@ -76,24 +70,24 @@ struct WeakLLSC{
             data.reuse = new Buffer();
             bufferDebra.retire(old);
         }
-        data.announcement = nullptr;
+        data.link = nullptr;
         return result == old; //Return whether SC succeeded.
     }
     bool VL(){
-        Weak_LLSC_Thread_Data &data = llscData[threadID];
-        Buffer *old = data.announcement;
+        LLSC_Thread_Data &data = llscData[threadID];
+        Buffer *old = data.link;
         return buf == old;
     }
     void CL(){
-        Weak_LLSC_Thread_Data &data = llscData[threadID];
-        data.announcement = nullptr;
+        LLSC_Thread_Data &data = llscData[threadID];
+        data.link = nullptr;
     }
 };
 
 //Definition of the single writer atomic copy object.
 struct SW_AtomicCopy{
-    WeakLLSC data;
-    volatile char padding[64 - sizeof(WeakLLSC)];
+    LLSC data;
+    volatile char padding[64 - sizeof(LLSC)];
     std::atomic<uint64_t> old;
     volatile char padding2[64 - sizeof(std::atomic<uint64_t>)];
     SW_AtomicCopy(uintptr_t initVal): data(Data(0,0)), old(0){
@@ -102,15 +96,15 @@ struct SW_AtomicCopy{
     void swcopy(std::atomic<uintptr_t> *src){
         bufferDebra.startOp();
         Data d;
-        data.wLL(d); //WeakLL guaranteed to succeed.
+        data.LL(d);
         old = d.val;
         data.SC(Data(0,src));
         uintptr_t val = *src;
-        bool succ = data.wLL(d);
-        if(succ && d.ptr != 0){
+        data.LL(d);
+        if(d.ptr != 0){
             data.SC(Data(val,0));
         }
-        else if(succ){
+        else{
             data.CL();
         }
         bufferDebra.endOp();
@@ -118,7 +112,7 @@ struct SW_AtomicCopy{
     void write(uintptr_t newVal){
         bufferDebra.startOp();
         Data d;
-        data.wLL(d); //WeakLL guaranteed to succeed.
+        data.LL(d); //WeakLL guaranteed to succeed.
         old = d.val;
 
         Data newData(newVal, 0);
@@ -128,14 +122,7 @@ struct SW_AtomicCopy{
     intptr_t read(){
         bufferDebra.startOp();
         Data d;
-        bool succ = data.wLL(d);
-        if(!succ){
-            succ = data.wLL(d);
-            if(!succ){
-                bufferDebra.endOp();
-                return old;
-            }
-        }
+        data.LL(d);
         if(d.ptr == 0){
             data.CL();
             bufferDebra.endOp();
@@ -146,10 +133,10 @@ struct SW_AtomicCopy{
             bufferDebra.endOp();
             return v;
         }
-        succ = data.wLL(d);
+        data.LL(d);
         data.CL();
         bufferDebra.endOp();
-        if(succ && d.ptr == 0){
+        if(d.ptr == 0){
             return d.val;
         }
         return old;

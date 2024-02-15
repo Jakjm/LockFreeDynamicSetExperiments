@@ -5,7 +5,6 @@
 #include "BoundedMinReg/minreg.h"
 #include "common.h"
 #include "debra.h"
-#include "swCopy2.h"
 #pragma once
 using std::string;
 
@@ -23,6 +22,8 @@ class BaseType{
         
     }
 };
+
+
 
 class UpdateNode{
     public:
@@ -45,39 +46,90 @@ class UpdateNode{
 
 };
 
-//Used to implement the UALL and the RUALL based on swCopy.
-struct InsertDesc: public BaseType{
-    UpdateNode *newNode; //Either a pointer to an update node to be inserted or a pointer to a predecessor node.
-    UpdateNode *next;
+//Definition of the Insert Descriptor Node object.
+struct InsertDescNode{
+    std::atomic<UpdateNode*> newNode;
+    std::atomic<UpdateNode*> next;
+    std::atomic<uint64_t> seqNum; //Sequence number.
     volatile char padding[64 - 3 * sizeof(std::atomic<uintptr_t>)];
-    InsertDesc(): newNode(nullptr), next(nullptr) {
+    InsertDescNode():  newNode(nullptr), next(nullptr), seqNum(0){
 
     }
 };
 
+//This bit of the threshold will be set if an atomic copy is in progress.
+const uintptr_t COPY_BIT = 0x1;  
+const uintptr_t ANTI_COPY_BIT_MASK = 0xFFFFFFFFFFFFFFFE;
 
-//NotifyThreshold field of a PredecessorNode based on a single writer atomic copy object.
-//Used for the swCopy-based implementation of the RUALL.
-struct AtomicCopyNotifyThreshold : private SW_AtomicCopy{
-    AtomicCopyNotifyThreshold(uintptr_t u) : SW_AtomicCopy(u){
+template <class NotifyThreshold>
+class RU_ALL_TYPE;
+
+
+//NotifyThreshold atomic copy implementation from CAS.
+struct AtomicCopyNotifyThreshold{
+    std::atomic<uintptr_t> threshold;
+    InsertDescNode *descNodes;
+    volatile char padding [64 - 2*sizeof(uintptr_t)];
+    AtomicCopyNotifyThreshold(UpdateNode *initialValue) : threshold((uintptr_t)initialValue){
 
     }
-    void swcopy(std::atomic<uintptr_t> *src){
-        SW_AtomicCopy::swcopy(src);
-    }
-    void write(uintptr_t newVal){
-        SW_AtomicCopy::write(newVal);
-    }
-    UpdateNode *read(){
-        uintptr_t succ = SW_AtomicCopy::read();
-        uintptr_t next = succ & NEXT_MASK;
-        uint64_t state = succ & STATUS_MASK; 
+    UpdateNode *copyNext(UpdateNode *prev, InsertDescNode *descs){
+        descNodes = descs;
+        uintptr_t result = (((uintptr_t)prev) + COPY_BIT);
+        threshold = result;
 
-        if(state == InsFlag){
-            UpdateNode *n = ((InsertDesc*)next)->next;
-            return n;
+        uintptr_t r = prev->rSucc; 
+        uintptr_t next = (r & NEXT_MASK);
+        uintptr_t state = (r & STATUS_MASK); //Read the rNext and rState fields of prev.
+        while(state == InsFlag){  //If rState = InsDesc, rNext points to an InsertDesc with the next UpdateNode in the list.
+            uint64_t seq = (next & SEQ_MASK) >> 12;
+            uint64_t proc = (next & PROC_MASK) >> 4;
+            InsertDescNode *desc = &descs[proc];
+            next = (uintptr_t)(UpdateNode*)desc->next;
+            if(desc->seqNum == seq)break; //desc was still a valid insert descriptor node following node...
+            
+            r = prev->rSucc; //Read node->rSucc again.
+            next = r & NEXT_MASK;
+            state = r & STATUS_MASK;
         }
-        return (UpdateNode*)next;
+
+        threshold.compare_exchange_strong(result, next);
+        if(result == (((uintptr_t)prev) + COPY_BIT)){
+            return (UpdateNode*)next;
+        }
+        else{
+            return (UpdateNode*)result;
+        }
+    }
+    // void write(uintptr_t v){
+    //     threshold = v;
+    // }
+    UpdateNode *read(){
+        uintptr_t v = threshold;
+        if(v & COPY_BIT){ //If an atomic copy is in progress
+            UpdateNode *prev = (UpdateNode*)(v - COPY_BIT);
+            uintptr_t r = prev->rSucc; //Read the successor 
+            uintptr_t next = (r & NEXT_MASK);
+            uintptr_t state = (r & STATUS_MASK); //Read the rNext and rState fields of prev.
+            
+            while(state == InsFlag){
+                uint64_t seq = (next & SEQ_MASK) >> 12;
+                uint64_t proc = (next & PROC_MASK) >> 4;
+                InsertDescNode *desc = &descNodes[proc];
+                next = (uintptr_t)(UpdateNode*)desc->next;
+                if(desc->seqNum == seq)break; //desc was still a valid insert descriptor node following node...
+                
+                r = prev->rSucc; //Read node->succ again.
+                next = r & NEXT_MASK;
+                state = r & STATUS_MASK;
+            }
+            
+            uintptr_t result = v;
+            threshold.compare_exchange_strong(result, next); 
+            if(result == v)return (UpdateNode*)next;
+            else return (UpdateNode*)(result & ANTI_COPY_BIT_MASK);
+        }
+        else return (UpdateNode*)v;
     }
 };
 
@@ -86,7 +138,7 @@ struct AtomicCopyNotifyThreshold : private SW_AtomicCopy{
 //Used for the NotifyDescNode implementation of the RUALL.
 struct NotifDescNotifyThreshold{
 	std::atomic<uintptr_t> updateNodePtr;
-	NotifDescNotifyThreshold(uintptr_t initVal) : updateNodePtr(initVal){
+	NotifDescNotifyThreshold(UpdateNode *ruallHead) : updateNodePtr((uintptr_t)ruallHead){
 	
 	}
 	uintptr_t CAS(uintptr_t prev, uintptr_t newVal){
@@ -105,7 +157,7 @@ struct NotifDescNotifyThreshold{
 };
 
 
-template <typename NotifyThresholdType = AtomicCopyNotifyThreshold>
+template <typename NotifyThresholdType>
 class NotifyNode {
     public:
     int64_t key;
@@ -118,10 +170,7 @@ class NotifyNode {
     }
 };
 
-template <class NotifyThreshold>
-class RU_ALL_TYPE;
-
-template <typename NotifyThresholdType = AtomicCopyNotifyThreshold>
+template <typename NotifyThresholdType>
 class PredecessorNode:  public BaseType{
     public:
     std::atomic<uintptr_t> succ;
@@ -132,7 +181,7 @@ class PredecessorNode:  public BaseType{
     NotifyThresholdType notifyThreshold;
     const int64_t key;
     volatile char padding3[64 - 2*sizeof(int64_t)];
-    PredecessorNode(int64_t k, UpdateNode *ruallHead): succ(0), backlink(nullptr), notifyListHead(nullptr), notifyThreshold((uintptr_t)ruallHead), key(k){
+    PredecessorNode(int64_t k, UpdateNode *ruallHead): succ(0), backlink(nullptr), notifyListHead(nullptr), notifyThreshold(ruallHead), key(k){
     
     }
     ~PredecessorNode(){
@@ -145,14 +194,11 @@ class PredecessorNode:  public BaseType{
     }
 };
 
-
 Debra<BaseType, 5> trieDebra;
 
 //record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
 
-
-
-template <typename NotifyThresholdType = AtomicCopyNotifyThreshold>
+template <typename NotifyThresholdType>
 class InsNode : public UpdateNode, public BaseType{
     public:
         std::atomic<DelNode<NotifyThresholdType> *> target;
@@ -169,7 +215,7 @@ class InsNode : public UpdateNode, public BaseType{
     
 };
 
-template <typename NotifyThresholdType = AtomicCopyNotifyThreshold>
+template <typename NotifyThresholdType>
 class DelNode : public UpdateNode, public BaseType{
     public:
         PredecessorNode<NotifyThresholdType> *delPredNode;

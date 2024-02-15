@@ -28,7 +28,7 @@ struct DescNode{
     }
 };
 
-//TODO pool memory from desc nodes that will not be used rather than reclaim
+
 template <>
 class RU_ALL_TYPE<NotifDescNotifyThreshold>{
     public:
@@ -155,10 +155,11 @@ class RU_ALL_TYPE<NotifDescNotifyThreshold>{
             uint64_t seqNum = desc->seqNum;
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->node = (uintptr_t)node;
-            while(state == InsFlag || state == NotifFlag || next != (uintptr_t)node){
+            while(1){
                 if(state == Normal){
                     //node should be placed further along in the list if next's key >= node's key
                     if(((UpdateNode*)next)->key >= node->key){ 
+                        if(next == (uintptr_t)node)return; //node was already in the list.
                         curr = (UpdateNode*)next;
                         succ = curr->rSucc;
                     }
@@ -190,6 +191,7 @@ class RU_ALL_TYPE<NotifDescNotifyThreshold>{
                     succ = helpNotify(curr, seqNum, procID);
                     
                 }
+                else if(next == (uintptr_t)node)return; //node was already in the list.
                 else if(state == DelFlag){
                     succ = helpRemove(curr, (UpdateNode*)next);
                 }

@@ -18,23 +18,13 @@ using std::string;
 #define testStats
 
 
-struct InsertDescPool{
-    InsertDesc *d;
-    volatile char padding [64 - sizeof(InsertDesc*)];
-    InsertDescPool() : d(new InsertDesc()){
-    }
-    ~InsertDescPool(){
-        delete d;
-    }
-};
-
-InsertDescPool descNodePool[MAX_THREADS];
 
 template <>
 class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
     public:
         UpdateNode head, tail; //Head, tail of the linked list. 
     public:
+        InsertDescNode descs[MAX_THREADS]; //Insert descriptor nodes for each process
         RU_ALL_TYPE() : head(INT64_MAX,INS), tail(-1,INS) {
             head.rSucc.store((uintptr_t)&tail);
         }
@@ -42,35 +32,33 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
 
         }
 
-        uintptr_t helpInsert(UpdateNode *prev, InsertDesc *descNode){
-            UpdateNode *newNode = descNode->newNode;
-            UpdateNode *next = descNode->next;
+        uintptr_t helpInsert(UpdateNode *prev, uint64_t seqNum,  uint64_t procID){
+            InsertDescNode *desc = &descs[procID];
+            UpdateNode *newNode = desc->newNode;
+            UpdateNode *next = desc->next;
+            if(seqNum != desc->seqNum){
+                return prev->rSucc.load();
+            }
 
             //Attempt to initialize newNode....
             uintptr_t result = 0;
             newNode->rSucc.compare_exchange_strong(result, (uintptr_t)next);
 
-            uintptr_t expected = (uintptr_t)descNode + InsFlag;
+            uint64_t expected = (seqNum << 12) + (procID << 4) + InsFlag;
             result = expected; 
-            uintptr_t newSucc;
+            uint64_t newSucc;
             
-            //If insert node was marked....
-            if((result & STATUS_MASK) == Marked){ 
-                newSucc = (uintptr_t)next; //newNode has already been removed.
-                //Attempt to CAS to remove descriptor.
+            if((result & STATUS_MASK) == Marked){ //If newNode was marked, it was already removed from the RUALL.
+                newSucc = (uintptr_t)next; //Attempt to CAS to remove descriptor.
             }
             else{
-                newSucc = (uintptr_t)newNode; //Attempt to complete insertion of node.
+                newSucc = (uintptr_t)newNode; //Attempt to CAS to complete insertion of node.
             }
             prev->rSucc.compare_exchange_strong(result, (uintptr_t)newSucc);
-            if(result == expected){
-                trieDebra.retire(descNode);
-                return (uintptr_t)newSucc;
-            }
-            else{
-                return result;
-            }
+            if(result == expected)return (uintptr_t)newSucc;
+            else return result;
         }
+
         
         //Precondition: prev.rSucc was <delNode, DelFlag> at an earlier point, and delNode is Marked.
         uintptr_t helpMarked(UpdateNode *prev, UpdateNode *delNode){
@@ -84,6 +72,7 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
         }
         //Precondition, prev.rSucc was <delNode, DelFlag> at an earlier point.
         uintptr_t helpRemove(UpdateNode *prev, UpdateNode *delNode){
+            assert(prev != delNode);
             delNode->rBacklink = prev;
             uintptr_t succ = delNode->rSucc.load(); //The value of delNode's succ pointer
             uintptr_t state = succ & STATUS_MASK;
@@ -94,8 +83,10 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                     succ = helpRemove(delNode, (UpdateNode*)next);
                 }
                 else if(state == InsFlag){ //prev.next was an Insert Descriptor Node. Help with insertion.
+                    uint64_t seqNum = (next & SEQ_MASK) >> 12;
+                    uint64_t procID = (next & PROC_MASK) >> 4;
                     //Help with insertion...
-                    succ = helpInsert(delNode,  (InsertDesc*)next);
+                    succ = helpInsert(delNode,  seqNum, procID);
                 }
                 else{ //Attempt to mark the node if the status was normal...
                     uintptr_t markedsucc = next + Marked;
@@ -118,12 +109,15 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
             uint64_t state = succ & STATUS_MASK;
             
             //This is the descriptor for this thread.
-            InsertDesc *desc = descNodePool[threadID].d; 
+            InsertDescNode *desc = &descs[threadID];
+            uint64_t seqNum = desc->seqNum;
+            assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->newNode = node;
-            while(state == InsFlag || next != (uintptr_t)node){
+            while(1){
                 if(state == Normal){
                     //node should be placed further along in the list if next's key >= node's key
                     if(((UpdateNode*)next)->key >= node->key){ 
+                        if(next == (uintptr_t)node)return;
                         curr = (UpdateNode*)next;
                         succ = curr->rSucc;
                     }
@@ -131,21 +125,25 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                         if((node->rSucc & STATUS_MASK) == Marked){
                             return;
                         }
-                        desc->next = (UpdateNode*)next; //Set the next of the insert descriptor node.
+                        desc->next = (UpdateNode*)next; //Set the next of the descriptor node.
                         succ = next;
-                        //Attempt to place insDesc between curr and newVal
-                        curr->rSucc.compare_exchange_strong(succ, (uintptr_t)desc + InsFlag); 
+
+                        uint64_t newVal = (seqNum << 12) + (threadID << 4) + InsFlag;
+                        curr->rSucc.compare_exchange_strong(succ, (uintptr_t)newVal);
                         if(succ == next){ //If the CAS succeeded....
-                            helpInsert(curr, desc);
-                            descNodePool[threadID].d = new InsertDesc();
+                            helpInsert(curr, seqNum, threadID);
+                            desc->seqNum = seqNum + 1; //Increment the sequence number of insert descriptor node.
                             return;
                         }
                     }
                 }
                 else if(state == InsFlag){ //prev.next was an Insert Descriptor Node. Help with insertion.
+                    uint64_t seqNum = (next & SEQ_MASK) >> 12;
+                    uint64_t procID = (next & PROC_MASK) >> 4;
                     //Help with insertion...
-                    succ = helpInsert(curr,  (InsertDesc*)next);
+                    succ = helpInsert(curr,  seqNum, procID);
                 }
+                else if(next == (uintptr_t)node)return; //node was already in the list.
                 else if(state == DelFlag){
                     succ = helpRemove(curr, (UpdateNode*)next);
                 }
@@ -170,7 +168,6 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
             uint64_t state = succ & STATUS_MASK;
             while(1){
                 if(state == Normal){
-                    //If next points to an UpdateNode of smaller key, node was not in list.
                     if(((UpdateNode*)next)->key < node->key){
                         return;
                     }
@@ -188,11 +185,13 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                     }
                 }
                 else if(state == InsFlag){ //prev.next was an Insert Descriptor Node. Help with insertion.
+                    uint64_t seqNum = (next & SEQ_MASK) >> 12;
+                    uint64_t procID = (next & PROC_MASK) >> 4;
                     //Help with insertion...
-                    succ = helpInsert(curr,  (InsertDesc*)next);
+                    succ = helpInsert(curr,  seqNum, procID);
                 }
                 //If next points to an UpdateNode of smaller key, node was not in list.
-                else if((((UpdateNode*)next)->key < node->key)){
+                else if((((UpdateNode*)next)->key < node->key)){ 
                     return;
                 }
                 else if(state == DelFlag){
@@ -200,7 +199,6 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                     if((UpdateNode*)next == node){
                         return;
                     }
-
                 }
                 else{
                     UpdateNode *prev = curr->rBacklink;
@@ -216,7 +214,6 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                 state = succ & STATUS_MASK;
             }
         }
-
         //Special RU-ALL traversal algorithms here: 
         //Returns the head of the linked list, or null if the list is empty...
         UpdateNode *first(PredecessorNode<AtomicCopyNotifyThreshold> *pNode){
@@ -225,8 +222,7 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
 
         //Returns the node following node, or null if bottom was following node.
         UpdateNode *next(PredecessorNode<AtomicCopyNotifyThreshold> *pNode, UpdateNode *node){
-            pNode->notifyThreshold.swcopy(&node->rSucc);
-            UpdateNode *next = pNode->notifyThreshold.read();
+            UpdateNode *next = pNode->notifyThreshold.copyNext(node, descs);
             if(next == &tail)return nullptr;
             else return next;
         }
@@ -244,46 +240,5 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                 return 'I';
             }
             return ' ';
-        }
-
-        UpdateNode *nextN(UpdateNode *node, uintptr_t &state){
-            uintptr_t succ = node->rSucc;
-            uintptr_t next = succ & NEXT_MASK;
-            state = succ & STATUS_MASK;
-
-            
-            if(state == InsFlag){ //Return the UpdateNode following the insert desc node after node.
-                return ((InsertDesc*)next)->next;
-            }
-            else return (UpdateNode*)next; //Otherwise, return the following UpdateNode
-        }
-    
-
-        //Thread safe way of printing list
-        void printList(){
-            
-            std::ostringstream stream;
-
-            uint64_t status;
-            UpdateNode *node = &head;
-            stream << "{";
-            while(node){
-                
-                stream << "<";
-                if (node == &head){
-                    stream << "Head";
-                }
-                else if(node == &tail){
-                    stream << "Tail";
-                }
-                else{
-                    stream << node;
-                }
-                stream << ", key:" << node->key;
-                stream << ", Status:" << stat_to_char(status)  << ">";
-                node = nextN(node, status);
-            }
-            stream << "}\n";
-            std::cout << stream.str();
         }
 };

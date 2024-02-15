@@ -491,7 +491,7 @@ class Trie : public DynamicSet{
         }
         //iNode has type INS. If it has a child, its child has type DEL.
 
-        PredecessorNode<NotifDescType> *pNode = new PredecessorNode<NotifDescType>(x,&RU_ALL.head);
+        PredecessorNode<NotifDescType> *pNode = new PredecessorNode<NotifDescType>(x, &RU_ALL.head);
         //trieRecordManager.allocate<PredecessorNode>(threadID, x);
         int64_t delPred = predHelper(pNode);
 

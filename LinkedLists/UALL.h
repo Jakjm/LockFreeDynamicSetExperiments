@@ -15,22 +15,7 @@ using std::string;
 
 #define testStats
 
-//An extension of Fomitchev and Ruppert's linked list.
-//Additional status used when a UpdateNode's succ is an insert descriptor node.
-//Definition of the Insert Descriptor Node object.
-struct InsertDescNode{
-    std::atomic<UpdateNode*> newNode;
-    std::atomic<UpdateNode*> next;
-    std::atomic<uint64_t> seqNum; //Sequence number.
-    volatile char padding[64 - 3 * sizeof(std::atomic<uintptr_t>)];
-    InsertDescNode():  newNode(nullptr), next(nullptr), seqNum(0){
-
-    }
-};
-
-
 //Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert
-//compare is the function used to compare the nodes of the linked list
 class UALL_Type {
     public:
         UpdateNode  head, tail; //Head, tail of the linked list. 
@@ -127,10 +112,11 @@ class UALL_Type {
             uint64_t seqNum = desc->seqNum;
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->newNode = node;
-            while(state == InsFlag || next != (uintptr_t)node){
+            while(1){
                 if(state == Normal){
                     //If Next's key <= node's key
                     if(((UpdateNode*)next)->key <= node->key){ 
+                        if(next == (uintptr_t)node)return;
                         //node should be placed further along in the list if next <= node
                         curr = (UpdateNode*)next;
                         succ = curr->succ;
@@ -156,10 +142,11 @@ class UALL_Type {
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpInsert(curr, seq, proc);
                 }
+                else if(next == (uintptr_t)node)return;
                 else if(state == DelFlag){
                     succ = helpRemove(curr, (UpdateNode*)next);
                 }
-                else{
+                else{ //State is marked
                     UpdateNode *prev = curr->backlink;
                     succ = prev->succ;
                     next = succ & NEXT_MASK;
