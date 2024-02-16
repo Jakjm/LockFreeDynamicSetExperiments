@@ -51,6 +51,7 @@ struct NodePool{
 };
 
 #define reuse 1 //If reuse is defined, update nodes that are not inserted into the trie will be reused.
+#define seqSet unordered_set
 
 template <typename NotifDescType = NotifDescNotifyThreshold>
 class Trie : public DynamicSet{
@@ -164,7 +165,7 @@ class Trie : public DynamicSet{
                 }
             }
         }
-        delete[] latest; //Delete vector used for the latest lists.
+        delete[] latest; //Delete array allocated for the latest lists.
         verifyLists();
         //Retire update nodes that are still in pools...
         //trieRecordManager.endOp(threadID);
@@ -300,6 +301,7 @@ class Trie : public DynamicSet{
 
             nNode->key = uNode->key;
             nNode->updateNode = uNode;
+            nNode->notifyThreshold = tau;
             int64_t maxKey = -1;
             InsNode<NotifDescType> *updateNodeMax = nullptr;
             for(InsNode<NotifDescType>* insNode : I){
@@ -309,7 +311,6 @@ class Trie : public DynamicSet{
                 }
             }
             nNode->updateNodeMax = updateNodeMax;
-            nNode->notifyThreshold = tau;
             if(!sendNotification(nNode, pNode)){
                 break;
             }
@@ -686,7 +687,7 @@ class Trie : public DynamicSet{
     // }
 
     //Traverse the reverse update announcement linked list.
-    void traverseRUALL(PredecessorNode<NotifDescType> *pNode, set<InsNode<NotifDescType> *> &I, set<DelNode<NotifDescType>*> &D){
+    void traverseRUALL(PredecessorNode<NotifDescType> *pNode, seqSet<InsNode<NotifDescType> *> &I, seqSet<DelNode<NotifDescType>*> &D){
         UpdateNode *uNode = (UpdateNode*)RU_ALL.first(pNode); //Atomically set pNode.notifyThreshold....
         while(uNode){
             if(uNode->key < pNode->key){
@@ -704,8 +705,8 @@ class Trie : public DynamicSet{
         vector<PredecessorNode<NotifDescType>*> Q;
         vector<InsNode<NotifDescType>*> I_uall, I_notify;
         vector<DelNode<NotifDescType>*> D_uall, D_notify;
-        set<InsNode<NotifDescType>*> I_ruall;
-        set<DelNode<NotifDescType>*> D_ruall;
+        seqSet<InsNode<NotifDescType>*> I_ruall;
+        seqSet<DelNode<NotifDescType>*> D_ruall;
         int64_t y = pNode->key;
 
         //traverseAndInsertPALL(pNode, Q);
@@ -758,7 +759,7 @@ class Trie : public DynamicSet{
 
         //Traversal of the binary trie stopped while traversing back down.....
         if(pred0 == -2 && D_ruall.size() > 0){
-            set<PredecessorNode<NotifDescType>*> predNodes;
+            seqSet<PredecessorNode<NotifDescType>*> predNodes;
             predNodes.insert(pNode);
             for(DelNode<NotifDescType> *d : D_ruall){
                 predNodes.insert(d->delPredNode);
@@ -782,7 +783,7 @@ class Trie : public DynamicSet{
                 nNode = nNode->next;
             }
 
-            set<UpdateNode*> L;
+            seqSet<UpdateNode*> L;
             vector<UpdateNode*> LPrime2; //LPrime2 is a stack. The top of the stack is at the end of the vector.
             //For every notifyNode in pNode's notifyList with key < y
             nNode = pNode->notifyListHead;
@@ -811,7 +812,7 @@ class Trie : public DynamicSet{
                 UpdateNode *uNode = *rit;
                 if(L.count(uNode) == 0)LDoublePrime.push_back(uNode);
             }
-            set<int64_t> R; //Set containing the delNodePreds of DeleteNodes encountered in the RUALL.
+            seqSet<int64_t> R; //Set containing the delNodePreds of DeleteNodes encountered in the RUALL.
             for(DelNode<NotifDescType> *dNode : D_ruall){
                 R.insert(dNode->delPred); //Insert the embedded predecessor value of the delNodes in D_0
             }
@@ -826,7 +827,7 @@ class Trie : public DynamicSet{
             }
             //Set of keys in R, such that for every key x in goodKeys, 
             //there is an UpdateNode with key x in L'' and the last one in L'' has type INS.
-            std::set<int64_t> goodKeys;
+            seqSet<int64_t> goodKeys;
 
             //Remove every key x from R such that the last UpdateNode with key x in L'' is an UpdateNode of type DEL.
             //Go through LDouble prime in reverse...
