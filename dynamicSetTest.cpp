@@ -197,9 +197,14 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
         perfAckFD = atoi(getenv("PERF_CTL_ACK_FD"));
         cout << "FDs: " << perfControlFD << "," << perfAckFD << std::endl; 
 
-        write(perfControlFD,"enable\n",8);
+        //Send an enable message to perf.
+        int numBytes = write(perfControlFD,"enable\n",8);
+        assert(numBytes == 8);
         char ack[5] = {0,0,0,0,0};
-        read(perfAckFD,ack,5);
+
+        //Read the response with perf, and ensure it acknolwedged.
+        numBytes = read(perfAckFD,ack,5);
+        assert(numBytes == 5);
         assert(strcmp(ack,"ack\n") == 0);
     }
     
@@ -210,10 +215,14 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
         long sleep_duration = time * 1000;
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
         
-        //Disable perf before joining processes to ensure statistics are not messed up. 
-        write(perfControlFD, "disable\n", 9);
+        //Send disable message to perf, before joining processes to ensure statistics are not messed up. 
+        int numBytes = write(perfControlFD, "disable\n", 9);
+        assert(numBytes == 9);
         char ack[5] = {0,0,0,0,0};
-        read(perfAckFD,ack,5);
+
+        //Read the response with perf, and ensure it acknolwedged. 
+        numBytes = read(perfAckFD,ack,5);
+        assert(numBytes == 5);
         assert(strcmp(ack,"ack\n") == 0);
     }
     else{
