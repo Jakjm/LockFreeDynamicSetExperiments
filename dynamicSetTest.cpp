@@ -145,8 +145,8 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
     skipDebra.setActiveThreads(numProcs);
     DynamicSet *set;
     
-	if(strcmp(setType,"trie") == 0 || strcmp(setType, "trieNotifDesc") == 0){
-        set = &trieSetNotifDesc;
+	if(strcmp(setType,"trie") == 0 || strcmp(setType, "trieSwCopy") == 0){
+        set = &trieSetSwCopy;
     }
     else if(strcmp(setType, "skip") == 0){
         set = &skipList;
@@ -155,7 +155,7 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
         set = &listSet;
     }
     else{ // if(strcmp(setType, "trieSwCopy") == 0 ){
-        set = &trieSetSwCopy;
+        set = &trieSetNotifDesc;
     }
 
     std::thread *th[MAX_THREADS];
@@ -203,9 +203,24 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
         assert(strcmp(ack,"ack\n") == 0);
     }
     
-    //Put the thread asleep for time seconds + 50 milliseconds to ensure it's not consuming cpu time during experiment.
-    long sleep_duration = time * 1000 + 50;
-    std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
+    
+    
+    if(perfControlFD != -1){
+        //Put the thread asleep for time seconds to ensure it's not consuming cpu time during experiment.
+        long sleep_duration = time * 1000;
+        std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
+        
+        //Disable perf before joining processes to ensure statistics are not messed up. 
+        write(perfControlFD, "disable\n", 9);
+        char ack[5] = {0,0,0,0,0};
+        read(perfAckFD,ack,5);
+        assert(strcmp(ack,"ack\n") == 0);
+    }
+    else{
+        //Put the thread to sleep for time seconds plus 50 millis to ensure thread is not used in the place of others.
+        long sleep_duration = time * 1000 + 50;
+        std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
+    }
 
     long totalThroughput = 0;
     char timeStr[50];
@@ -224,12 +239,7 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
         //cout << data.startTime[i].value() << " " << data.endTime[i].value() << std::endl;
         delete th[i];
     }
-    if(perfControlFD != -1){
-        write(perfControlFD, "disable\n", 9);
-        char ack[5] = {0,0,0,0,0};
-        read(perfAckFD,ack,5);
-        assert(strcmp(ack,"ack\n") == 0);
-    }
+
     cout << "Total throughput (in ops): " << totalThroughput << std::endl;
 }
 
@@ -275,8 +285,8 @@ int experimentProg(int argc, char **argv){
             cout << "\t-v, --verbose\t\t\t\tPrint additional information about the test." << std::endl;
             cout << "\t--skip\t\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert skip list." << std::endl;
             cout << "\t--list\t\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert linked list." << std::endl;
-            cout << "\t--trie --trieNotifDesc\t\tPerform the experiment on Jeremy's Binary Trie with notifDesc implementation of RUALL." << std::endl;
-            cout << "\t--trieSwCopy\t\t\t\tPerform the experiment on Jeremy's Binary Trie with swCopy implementation of RUALL." << std::endl;
+            cout << "\t--trieNotifDesc\t\tPerform the experiment on Jeremy's Binary Trie with notifDesc implementation of RUALL." << std::endl;
+            cout << "\t--trie --trieSwCopy\t\t\t\tPerform the experiment on Jeremy's Binary Trie with swCopy implementation of RUALL." << std::endl;
             return 0;
     }
     else{ 
