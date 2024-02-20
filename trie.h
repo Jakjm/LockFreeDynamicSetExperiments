@@ -58,14 +58,14 @@ class Trie : public DynamicSet{
     private:
     const int trieHeight; //The height of the trie.
     const int64_t universeSize; //Equal to 2^trieHeight
-    TrieNode<NotifDescType> **trieNodes;
+    TrieNode<NotifDescType> *trieNodes;
     LatestList *latest;
     P_ALL_TYPE<NotifDescType> P_ALL;
     UALL_Type U_ALL;
     RU_ALL_TYPE<NotifDescType> RU_ALL;
     NodePool<NotifDescType> nodePool[MAX_THREADS];
     public:
-    Trie(int height) : trieHeight(height), universeSize(1 << trieHeight), trieNodes(new TrieNode<NotifDescType>*[trieHeight]), 
+    Trie(int height) : trieHeight(height), universeSize(1 << trieHeight), trieNodes(new TrieNode<NotifDescType>[universeSize - 1]), 
     latest(new LatestList[universeSize]), P_ALL(), U_ALL(), RU_ALL()
     {
 
@@ -77,14 +77,12 @@ class Trie : public DynamicSet{
 
 
         //Initialize the binary trie nodes for each level of the trie.
-        for(int i = 0; i < trieHeight;++i){
-            int64_t rowSize = (1 << i); //Row size = 2^i
-            TrieNode<NotifDescType> *trieNodeRow = new TrieNode<NotifDescType>[rowSize];
-            trieNodes[i] = trieNodeRow;
-        }
+        // for(int i = 0; i < trieHeight;++i){
+        //     int64_t rowSize = (1 << i); //Row size = 2^i
+        //     TrieNode<NotifDescType> *trieNodeRow = new TrieNode<NotifDescType>[rowSize];
+        //     trieNodes[i] = trieNodeRow;
+        // }
 
-
-        TrieNode<NotifDescType> *baseRow = trieNodes[trieHeight - 1];
 
         //Initialize the latest lists for each key in the universe.
         //Initialize row b of binary trie nodes.
@@ -95,48 +93,45 @@ class Trie : public DynamicSet{
             initialDelNode->upper0Boundary = trieHeight; // The initial delNodes for the trie have upper0Boundary = trieHeight.
             latest[key].head = initialDelNode;
             initialDelNode->status = ACTIVE;
-            if((key & 1) == 0){ //If the key is even, 
-                baseRow[key / 2].dNodePtr = initialDelNode;
-                initialDelNode->dNodeCount = 2;
-            }
-            else{
-                initialDelNode->dNodeCount = 1;
+            initialDelNode->dNodeCount = 1;
+            
+
+            //Initialize the dNodePointer of trieNodes...
+            //Increment the dNodeCount accordingly.
+            int k = key;
+            int depth = trieHeight - 1;
+            while(depth >= 0 && (k & 1) == 0){
+                int depthOffset = (1 << depth) - 1;
+                k /= 2;
+                trieNodes[depthOffset + k].dNodePtr = initialDelNode;
+                initialDelNode->dNodeCount++;
+                depth--;
             }
         }
 
-        //Initialize rows 0 through trieHeight-2, such that every trieNode that is a parent of two trieNodes
-        //Has its dNodePtr set to the dNodePtr of its left child.
-        for(int row = trieHeight-2; row >= 0; row--){
-            int64_t rowSize = (1 << row);
-            TrieNode<NotifDescType> *trieNodeRow = trieNodes[row];
-            TrieNode<NotifDescType> *childRow = trieNodes[row + 1];
-            for(int64_t i = 0; i < rowSize;++i){
-                int64_t leftChild = 2 * i;
-                DelNode<NotifDescType> *dNode = childRow[leftChild].dNodePtr;
-                trieNodeRow[i].dNodePtr = dNode;
-                dNode->dNodeCount.fetch_add(1);
-            }
-        }
-
+        // for(int h = 0; h < trieHeight;++h){
+        //     for(int i = 0;i < (1 << h);++i){
+        //         DelNode<NotifDescType> *dNode = trieNodes[(1 << h) - 1 + i].dNodePtr;
+        //         cout << "<" << dNode << "," << ((int)dNode->dNodeCount) << "> ";
+        //     }
+        //     cout << std::endl;
+        // }
         verifyLists();
     }
     ~Trie(){
         //trieRecordManager.startOp(threadID);
         //Attempt to retire all of the UpdateNodes stored in the latest lists
         //And all of the dNodePtrs.
-        for(int i = 0; i < trieHeight;++i){
-            int numNodes = (1 << i);
-            for(int node = 0;node < numNodes;++node){
-                DelNode<NotifDescType> *dNode = trieNodes[i][node].dNodePtr;
-                int retire = dNode->dNodeCount.fetch_add(-1);
-                if(retire == 1){
-                    delete dNode;
-                    //trieRecordManager.deallocate(threadID, dNode);
-                }
+        for(int i = 0;i < universeSize - 1;++i){
+            DelNode<NotifDescType> *dNode = trieNodes[i].dNodePtr;
+            int retire = dNode->dNodeCount--;
+            if(retire == 1){
+                delete dNode;
+                //trieRecordManager.deallocate(threadID, dNode);
             }
-            delete[] trieNodes[i]; //Delete every trie node row...
         }
-        delete[] trieNodes;
+        
+
         for(int l = 0; l < universeSize;++l){
             UpdateNode *uNode = latest[l].head;
             UpdateNode *next = uNode->latestNext;
@@ -166,6 +161,7 @@ class Trie : public DynamicSet{
             }
         }
         delete[] latest; //Delete array allocated for the latest lists.
+        delete[] trieNodes;
         verifyLists();
         //Retire update nodes that are still in pools...
         //trieRecordManager.endOp(threadID);
@@ -203,7 +199,8 @@ class Trie : public DynamicSet{
             uNode = findLatest(index); //Check the latest list for key = index.
         }
         else{
-            DelNode<NotifDescType> *dNode = trieNodes[depth][index].dNodePtr;
+            int depthOffset = (1 << depth) - 1;
+            DelNode<NotifDescType> *dNode = trieNodes[depthOffset + index].dNodePtr;
             uNode = findLatest(dNode->key);
         }
         if(uNode->type == INS)return 1;
@@ -325,7 +322,8 @@ class Trie : public DynamicSet{
         int64_t key = iNode->key;
         for(int depth = trieHeight-1;depth >= 0;--depth){
             key = key >> 1;
-            TrieNode<NotifDescType> &t = trieNodes[depth][key]; //Start from parent of 
+            int depthOffset = (1 << depth) - 1;
+            TrieNode<NotifDescType> &t = trieNodes[depthOffset + key]; //Start from parent of 
             UpdateNode *dNodePtr = t.dNodePtr;
             UpdateNode *uNode = findLatest(dNodePtr->key);
 
@@ -358,8 +356,9 @@ class Trie : public DynamicSet{
 
             //t = t->parent.
             --depth;
+            int depthOffset = (1 << depth) - 1;
             key = key / 2;
-            TrieNode<NotifDescType> *t = &trieNodes[depth][key];
+            TrieNode<NotifDescType> *t = &trieNodes[depthOffset + key];
 
             DelNode<NotifDescType> *d = t->dNodePtr; //d is the oldValue of t->dNodePtr
             
