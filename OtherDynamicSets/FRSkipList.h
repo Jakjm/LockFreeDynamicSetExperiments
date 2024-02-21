@@ -8,7 +8,6 @@
 #include <iterator>
 #include <atomic>
 #include <cassert>
-#include "../LinkedLists/ListNode.h"
 #include "../DynamicSet.h"
 #include "../common.h"
 #include "../debra.h"
@@ -133,7 +132,7 @@ class SkipListSet : public DynamicSet{
                 inList = true;
                 return true;
             }
-            if(succ == ((uintptr_t)delNode) + DelFlag){
+            if(succ == (((uintptr_t)delNode) + DelFlag)){
                 inList = true;
                 return false;
             }
@@ -186,13 +185,14 @@ class SkipListSet : public DynamicSet{
                 next = (SkipNode*)(succ & NEXT_MASK);
             }
         }
-        return next; //Return <curr, next>
+        return next; //Return <curr, next> such that curr->key <= k < next->key
     }
-    //Storing alternate levels....
+    //Storing nodes with key <= k for each level on the stack
     SkipNode* searchToLevel(int64_t k, int level, SkipNode *&next, stack<SkipNode*> levelStart){
         int curLevel = level;
         SkipNode *curr;
         curr = findStart(curLevel);
+        assert(curr != nullptr);
         while(curLevel > level){
             next = searchRight(k, curr);
             levelStart.push(curr);
@@ -206,6 +206,7 @@ class SkipListSet : public DynamicSet{
         int curLevel = level;
         SkipNode *curr;
         curr = findStart(curLevel);
+        assert(curr != nullptr);
         while(curLevel > level){
             next = searchRight(k, curr);
             curr = curr->down;
@@ -215,6 +216,7 @@ class SkipListSet : public DynamicSet{
         return curr; //Return <curr, next>
     }
     SkipNode *insertNode(SkipNode *newNode, SkipNode *&prev, SkipNode *next){
+        assert(newNode->down);
         if(prev->key == newNode->key){
             return nullptr;
         }
@@ -250,23 +252,27 @@ class SkipListSet : public DynamicSet{
     void insert(int64_t k){
         skipDebra.startOp();
         SkipNode *curr, *next;
-        stack<SkipNode*> stack;
-        curr = searchToLevel(k,0, next, stack);
+        curr = searchToLevel(k, 0, next);
         if(curr->key == k){
             skipDebra.endOp();
             return;
         }
         SkipNode *newRoot = pool->node;
         SkipNode *newNode = newRoot;
-        newNode->key = k;
-        newNode->down = nullptr;
-        newNode->root = newNode;
+        SkipNode *lastNode;
         int height = 1;
         while(rng(2) == 0 && height < maxLevels - 1){
             ++height;
         }
         int level = 0;
         while(1){
+            lastNode = newNode;
+            newNode = pool->node;
+            newNode->key = k;
+            newNode->down = lastNode;
+            newNode->root = newRoot;
+            assert(newNode->down != nullptr);
+
             //If insertion of node has failed, and this is the first level, keep node for subsequent insertion...
             SkipNode *result = insertNode(newNode, curr, next);
             if(result == nullptr && level == 0){
@@ -287,16 +293,9 @@ class SkipListSet : public DynamicSet{
                 skipDebra.endOp();
                 return;
             }
-            SkipNode *lastNode = newNode;
-            newNode = pool->node;
-            newNode->down = lastNode;
-            newNode->root = newRoot;
-            if(stack.empty())curr = searchToLevel(k, level, next);
-            else{ //If we visited this level during our prior search, start from the node we pushed on the stack...
-                curr = stack.top();
-                stack.pop();
-                next = (SkipNode*)(curr->next & NEXT_MASK);
-            }
+
+            curr = searchToLevel(k, level, next);
+
         }
         skipDebra.endOp();
     }

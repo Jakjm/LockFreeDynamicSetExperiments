@@ -58,8 +58,8 @@ class Trie : public DynamicSet{
     private:
     const int trieHeight; //The height of the trie.
     const int64_t universeSize; //Equal to 2^trieHeight
-    TrieNode<NotifDescType> *trieNodes;
-    LatestList *latest;
+    TrieNode<NotifDescType> * const trieNodes;
+    LatestList * const latest;
     P_ALL_TYPE<NotifDescType> P_ALL;
     UALL_Type U_ALL;
     RU_ALL_TYPE<NotifDescType> RU_ALL;
@@ -199,6 +199,7 @@ class Trie : public DynamicSet{
             uNode = findLatest(index); //Check the latest list for key = index.
         }
         else{
+            [[likely]];
             int depthOffset = (1 << depth) - 1;
             DelNode<NotifDescType> *dNode = trieNodes[depthOffset + index].dNodePtr;
             uNode = findLatest(dNode->key);
@@ -278,12 +279,10 @@ class Trie : public DynamicSet{
     }
 
     //Send notifications to predecessor operations.
-    void notifyPredOps(UpdateNode *uNode){
+    void notifyPredOps(UpdateNode * const uNode){
         vector<InsNode<NotifDescType>*> I; 
-        vector <DelNode<NotifDescType>*> D;
+        vector<DelNode<NotifDescType>*> D;
         traverseUALL(INT64_MAX, I, D);
-
-
 
         PredecessorNode<NotifDescType> *pNode = (PredecessorNode<NotifDescType>*)P_ALL.first();
         while(pNode){
@@ -317,7 +316,7 @@ class Trie : public DynamicSet{
         }
     }
 
-    void insertBinaryTrie(InsNode<NotifDescType> *iNode){
+    void insertBinaryTrie(InsNode<NotifDescType> * const iNode){
         //For each binary trie node t on the path from the parent of the leaf with iNode.key to the root, do 
         int64_t key = iNode->key;
         for(int depth = trieHeight-1;depth >= 0;--depth){

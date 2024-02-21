@@ -49,6 +49,7 @@ class UALL_Type {
                 newSucc = (uintptr_t)next;//newNode has already been removed. Attempt to CAS to remove descriptor.
             }
             else{
+                [[likely]];
                 newSucc = (uintptr_t)newNode; //Attempt to complete insertion of node.
             }
             prev->succ.compare_exchange_strong(result, (uintptr_t)newSucc);
@@ -114,6 +115,7 @@ class UALL_Type {
             desc->newNode = node;
             while(1){
                 if(state == Normal){
+                    [[likely]];
                     //If Next's key <= node's key
                     if(((UpdateNode*)next)->key <= node->key){ 
                         if(next == (uintptr_t)node)return;
@@ -122,7 +124,9 @@ class UALL_Type {
                         succ = curr->succ;
                     }
                     else{ //Next is either head or an UpdateNode of a greater key than node.
+                        [[likely]];
                         if((node->succ & STATUS_MASK) == Marked){
+                            [[unlikely]];
                             return;
                         }
                         desc->next = (UpdateNode*)next; //Set the next of the insert descriptor node.
@@ -138,20 +142,27 @@ class UALL_Type {
                     }
                 }
                 else if(state == InsFlag){
+                    [[unlikely]];
                     uint64_t seq = (next & SEQ_MASK) >> 12;
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpInsert(curr, seq, proc);
                 }
-                else if(next == (uintptr_t)node)return;
+                else if(next == (uintptr_t)node){
+                    [[unlikely]];
+                    return;
+                }
                 else if(state == DelFlag){
+                    [[unlikely]];
                     succ = helpRemove(curr, (UpdateNode*)next);
                 }
                 else{ //State is marked
+                    [[unlikely]];
                     UpdateNode *prev = curr->backlink;
                     succ = prev->succ;
                     next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
                     if(state == DelFlag && next == (uintptr_t)curr){ //Help remove curr from the list.
+                        [[unlikely]];
                         succ = helpMarked(prev, curr);
                     }
                     curr = prev;
@@ -168,12 +179,17 @@ class UALL_Type {
             uint64_t state = succ & STATUS_MASK;
             while(1){
                 if(state == Normal){
-                    if(((UpdateNode*)next)->key > node->key)return;
+                    [[likely]];
+                    if(((UpdateNode*)next)->key > node->key){
+                        return;
+                    }
                     if((UpdateNode*)next != node){ //Advance...
+                        [[likely]];
                         curr = (UpdateNode*)next;
                         succ = curr->succ;
                     }
                     else{
+                        [[unlikely]];
                         succ = (uintptr_t)node;
                         curr->succ.compare_exchange_strong(succ, (uintptr_t)node + DelFlag);
                         if(succ == (uintptr_t)node){
@@ -183,6 +199,7 @@ class UALL_Type {
                     }
                 }
                 else if(state == InsFlag){
+                    [[unlikely]];
                     uint64_t seq = (next & SEQ_MASK) >> 12;
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpInsert(curr, seq, proc);
@@ -192,10 +209,12 @@ class UALL_Type {
                     return;
                 }
                 else if(state == DelFlag){
+                    [[unlikely]];
                     succ = helpRemove(curr, (UpdateNode*)next);
                     if((UpdateNode*)next == node)return;
                 }
                 else{
+                    [[unlikely]];
                     UpdateNode *prev = curr->backlink;
                     succ = prev->succ;
                     next = succ & NEXT_MASK;
@@ -223,11 +242,15 @@ class UALL_Type {
 
             
             while(state == InsFlag){
+                [[unlikely]];
                 uint64_t seq = (next & SEQ_MASK) >> 12;
                 uint64_t proc = (next & PROC_MASK) >> 4;
                 InsertDescNode *desc = &descs[proc];
                 next = (uintptr_t)(UpdateNode*)desc->next;
-                if(desc->seqNum == seq)break; //desc was still a valid insert descriptor node following node...
+                if(desc->seqNum == seq){
+                    [[likely]];
+                    break; //desc was still a valid insert descriptor node following node...
+                }
                 
                 succ = node->succ; //Read node->succ again.
                 next = succ & NEXT_MASK;

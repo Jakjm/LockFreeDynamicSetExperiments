@@ -168,6 +168,7 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
             uint64_t state = succ & STATUS_MASK;
             while(1){
                 if(state == Normal){
+                    [[likely]];
                     if(((UpdateNode*)next)->key < node->key){
                         return;
                     }
