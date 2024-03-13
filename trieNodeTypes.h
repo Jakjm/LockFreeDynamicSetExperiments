@@ -256,13 +256,3 @@ class TrieNode{
         }
 };
 
-class LatestList{
-    public:
-        std::atomic<UpdateNode*> head;
-        volatile char padding[64-sizeof(UpdateNode*)];
-        LatestList(): head((UpdateNode*)nullptr){
-
-        }
-};
-
-

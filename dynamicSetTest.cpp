@@ -185,8 +185,8 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
     }
     //cout << "Perf FDs: " << perfControlFDStr << "," << perfAckFDStr << std::endl;
     //Allocate NUMTHREADS threads
-    for(int i = 0;i < numProcs;++i){
-        th[i] = new std::thread(randomExperiment, set, numProcs, universeSize, time, i, &data, insertRate, removeRate, predRate);
+    for(int id = 0;id < numProcs;++id){
+        th[id] = new std::thread(randomExperiment, set, numProcs, universeSize, time, id, &data, insertRate, removeRate, predRate);
     }
 
     int perfControlFD = -1;
@@ -207,8 +207,6 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
         assert(numBytes == 5);
         assert(strcmp(ack,"ack\n") == 0);
     }
-    
-    
     
     if(perfControlFD != -1){
         //Put the thread asleep for time seconds to ensure it's not consuming cpu time during experiment.

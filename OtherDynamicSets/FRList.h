@@ -21,21 +21,23 @@ struct KeyNode {
     int64_t key;
     std::atomic<uintptr_t> successor; //Contains <next, state>. The state is contained within the lowest 3 bits of the pointer.
     std::atomic<KeyNode*> backlink;  //A pointer to the ListNode preceeding this node before it is removed.
-    KeyNode(int64_t k) : key(k), successor(0), backlink(nullptr){
+    KeyNode(int64_t k = 0) : key(k), successor(0), backlink(nullptr){
 
     }
 };
 
-//TODO memory reclamation
-Debra<KeyNode, 4> keyNodeDebra;
+Debra<KeyNode, 5> keyNodeDebra;
 
-//Structure used to store pointers to insert/delete nodes that go unused after allocations.
+//Structure used to store pointers to KeyNodes that go unused after allocations.
 //On subsequent insert/delete operations by the same thread, the previouslly allocated insert/delete node can be used again.
 struct KeyNodePool{
     KeyNode *keyNode;
     volatile char padding[64-sizeof(KeyNode*)];
-    KeyNodePool(): keyNode(nullptr){
+    KeyNodePool(): keyNode(new KeyNode()){
 
+    }
+    ~KeyNodePool(){
+        delete keyNode;
     }
 };
 KeyNodePool keyNodePool[MAX_THREADS];
@@ -45,23 +47,17 @@ KeyNodePool keyNodePool[MAX_THREADS];
 //Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert
 class LinkedListSet : public DynamicSet {
     private:
-        KeyNode tail, head; //Head, tail of the linked list. 
+        KeyNode head, tail; //Head, tail of the linked list. 
     public:
-        LinkedListSet() : tail(INT64_MAX), head(-1){
+        LinkedListSet() : head(-1), tail(INT64_MAX) {
             head.successor.store((uintptr_t)&tail);
         }
         ~LinkedListSet(){ 
             //listRecordMgr.startOp(threadID);
-            for(int i = 0;i < MAX_THREADS;++i){
-                KeyNode * volatile keyN = keyNodePool[i].keyNode;
-                if(keyN)delete keyN;
-                //listRecordMgr.deallocate(threadID, keyN);
-            }
 
             //Start iterating through the list from head.
             //Reclaim any keynodes that remain in the list.
             KeyNode *curr = &head;
-
             intptr_t succ = curr->successor;
             KeyNode *next = (KeyNode*)(succ & NEXT_MASK);
             //While the next node is not the tail node....
@@ -80,11 +76,12 @@ class LinkedListSet : public DynamicSet {
         }
         //Precondition: prev.successor was <delNode, DelFlag> at an earlier point, and delNode is Marked.
         uintptr_t helpMarked(KeyNode *prev, KeyNode *delNode){
-            KeyNode *next = (KeyNode*)(delNode->successor & NEXT_MASK);
-            uintptr_t expected = (uintptr_t)delNode + DelFlag;
+            KeyNode *next = (KeyNode*)((delNode->successor) & NEXT_MASK);
+            //KeyNode *next = (KeyNode*)(delNode->successor & NEXT_MASK);
+            uintptr_t expected = ((uintptr_t)delNode) + DelFlag;
             uintptr_t result = expected;
             prev->successor.compare_exchange_strong(result, (uintptr_t)next);
-            
+
             if(result == expected)return (uintptr_t)next;
             else return result;
         }
@@ -116,33 +113,29 @@ class LinkedListSet : public DynamicSet {
             keyNodeDebra.startOp();
             KeyNode *curr = &head;
             uintptr_t succ = curr->successor;
-            KeyNode *next = (KeyNode*)(succ & NEXT_MASK);
-
+            uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
-            KeyNode *newNode;
+            KeyNode *newNode = keyNodePool[threadID].keyNode;
+            newNode->key = key;
             #ifdef reuse
-            if(keyNodePool[threadID].keyNode){
-                newNode = keyNodePool[threadID].keyNode;
-                newNode->key = key;
-            }
-            else newNode = new KeyNode(key);
+            //else newNode = new KeyNode(key);
             //listRecordMgr.allocate<KeyNode>(threadID, key); 
             #else
             newNode = listRecordMgr.allocate<KeyNode>(threadID, key); 
             #endif
-            while(key != next->key){
+            while(((KeyNode*)next)->key != key){
                 if(state == Normal){
-                    if(key > next->key){ //node should be placed further along in the list if next <= key
+                    if(key > ((KeyNode*)next)->key){ //node should be placed further along in the list if next <= key
                         curr = (KeyNode*)next;
                         succ = curr->successor;
                     }     
-                    else{
+                    else{ //key < next->key
                         newNode->successor = (uintptr_t)next;
                         succ = (uintptr_t)next;
                         curr->successor.compare_exchange_strong(succ, (uintptr_t)newNode);
                         if(succ == (uintptr_t)next){ //If the CAS succeeded, node has been successfully inserted and the operation can stop.
                             #ifdef reuse
-                            keyNodePool[threadID].keyNode = nullptr; //Do not reuse keynode...
+                            keyNodePool[threadID].keyNode = new KeyNode(); //Do not reuse keynode...
                             #endif
                             keyNodeDebra.endOp();
                             return;
@@ -155,19 +148,18 @@ class LinkedListSet : public DynamicSet {
                 else{
                     KeyNode *prev = (KeyNode*)curr->backlink;
                     succ = prev->successor;
-                    next = (KeyNode*)(succ & NEXT_MASK);
+                    next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
-                    if(next == curr){ //Help remove curr from the list.
+                    if(state == DelFlag && next == (uintptr_t)curr){ //Help remove curr from the list.
                         succ = helpMarked(prev, curr);
                     }
                     curr = prev;
                 }
                 //Read next and state from curr.successor.
-                next = (KeyNode*)(succ & NEXT_MASK);
+                next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;
             }
             #ifdef reuse 
-            keyNodePool[threadID].keyNode = newNode; //This node can be reused for subsequent insert operations.
             #else 
             listRecordMgr.deallocate(threadID, newNode); //Reclaim node every time...
             #endif 
@@ -177,11 +169,12 @@ class LinkedListSet : public DynamicSet {
             keyNodeDebra.startOp();
             KeyNode *curr = &head;
             uintptr_t succ = curr->successor;
-            KeyNode *next = (KeyNode*)(succ & NEXT_MASK);
+            uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
-            while(next->key <= key){
+            
+            while(((KeyNode*)next)->key <= key){
                 if(state == Normal){
-                    if(next->key < key){ //Advance if next's key is smaller than key
+                    if(((KeyNode*)next)->key < key){ //Advance if next's key is smaller than key
                         curr = (KeyNode*)next;
                         succ = curr->successor;
                     }
@@ -189,8 +182,8 @@ class LinkedListSet : public DynamicSet {
                         succ = (uintptr_t)next;
                         curr->successor.compare_exchange_strong(succ, ((uintptr_t)next) + DelFlag);
                         if(succ == (uintptr_t)next){
-                            helpRemove(curr, next);
-                            keyNodeDebra.retire(next);
+                            helpRemove(curr, (KeyNode*)next);
+                            keyNodeDebra.retire((KeyNode*)next);
                             //listRecordMgr.retire(threadID, next); //Retire a node upon successfully giving its predecessor del flag.
                             keyNodeDebra.endOp();
                             return;
@@ -198,24 +191,25 @@ class LinkedListSet : public DynamicSet {
                     }
                 }
                 else if(state == DelFlag){
-                    succ = helpRemove(curr, next);
+                    succ = helpRemove(curr, (KeyNode*)next);
                 }
                 else{
-                    KeyNode *prev = (KeyNode*)curr->backlink;
+                    KeyNode *prev = curr->backlink;
                     succ = prev->successor;
-                    next = (KeyNode*)(succ & NEXT_MASK);
+                    next = succ & NEXT_MASK;
                     state = succ & STATUS_MASK;
-                    if(next == curr){ //Help remove curr from the list.
+                    if(state == DelFlag && next == (uintptr_t)curr){ //Help remove curr from the list.
                         succ = helpMarked(prev, curr);
                     }
                     curr = prev;
                 }
-                next = (KeyNode*)(succ & NEXT_MASK);
+                next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;
             }
             keyNodeDebra.endOp();
         }
         bool search(int64_t key){
+            keyNodeDebra.startOp();
             KeyNode *curr = &head;
             uintptr_t succ = curr->successor;
             KeyNode *next = (KeyNode*)(succ & NEXT_MASK);
@@ -227,9 +221,11 @@ class LinkedListSet : public DynamicSet {
                 next = (KeyNode*)(succ & NEXT_MASK);
             }
             //next->key >= key
+            keyNodeDebra.endOp();
             return next->key == key;
         }
         int64_t predecessor(int64_t key){
+            keyNodeDebra.startOp();
             KeyNode *curr = &head;
             uintptr_t succ = curr->successor;
             KeyNode *next = (KeyNode*)(succ & NEXT_MASK);
@@ -241,6 +237,7 @@ class LinkedListSet : public DynamicSet {
                 next = (KeyNode*)(succ & NEXT_MASK);
             }
             //next->key >= key
+            keyNodeDebra.endOp();
             return curr->key;
         }
         string name(){
@@ -281,16 +278,15 @@ class LinkedListSet : public DynamicSet {
             }
             return ' ';
         }
-
         //Thread safe way of printing list
-        void printList(std::string (*nodeToString)(KeyNode*)){
+        void printList(){
             std::ostringstream stream;
 
             uint64_t status;
             KeyNode *node = next(&head, status);
             stream << "{";
             while(node){
-                stream << "<" << nodeToString(node) << ", " << stat_to_char(status)  << ">";
+                stream << "<" << node << ", Key:" << node->key << ", " << stat_to_char(status)  << ">";
                 node = next(node, status);
             }
             stream << "}\n";

@@ -59,16 +59,15 @@ class Trie : public DynamicSet{
     const int trieHeight; //The height of the trie.
     const int64_t universeSize; //Equal to 2^trieHeight
     TrieNode<NotifDescType> * const trieNodes;
-    LatestList * const latest;
+    std::atomic<UpdateNode*> * const latest;
     P_ALL_TYPE<NotifDescType> P_ALL;
     UALL_Type U_ALL;
     RU_ALL_TYPE<NotifDescType> RU_ALL;
     NodePool<NotifDescType> nodePool[MAX_THREADS];
     public:
     Trie(int height) : trieHeight(height), universeSize(1 << trieHeight), trieNodes(new TrieNode<NotifDescType>[universeSize - 1]), 
-    latest(new LatestList[universeSize]), P_ALL(), U_ALL(), RU_ALL()
+    latest(new std::atomic<UpdateNode*>[universeSize]), P_ALL(), U_ALL(), RU_ALL()
     {
-
         for(int i = 0;i < MAX_THREADS;++i){
             nodePool[i].insNode = new InsNode<NotifDescType>();
             nodePool[i].delNode = new DelNode<NotifDescType>(trieHeight);
@@ -91,7 +90,7 @@ class Trie : public DynamicSet{
             DelNode<NotifDescType> *initialDelNode = new DelNode<NotifDescType>(key, trieHeight);
             //trieRecordManager.allocate<DelNode>(threadID, key, trieHeight);
             initialDelNode->upper0Boundary = trieHeight; // The initial delNodes for the trie have upper0Boundary = trieHeight.
-            latest[key].head = initialDelNode;
+            latest[key] = initialDelNode;
             initialDelNode->status = ACTIVE;
             initialDelNode->dNodeCount = 1;
             
@@ -133,7 +132,7 @@ class Trie : public DynamicSet{
         
 
         for(int l = 0; l < universeSize;++l){
-            UpdateNode *uNode = latest[l].head;
+            UpdateNode *uNode = latest[l];
             UpdateNode *next = uNode->latestNext;
             if(uNode->type == INS){
                 delete (InsNode<NotifDescType>*)uNode;
@@ -173,7 +172,7 @@ class Trie : public DynamicSet{
                 
     }
     UpdateNode *findLatest(int64_t x){
-        UpdateNode *l = latest[x].head;
+        UpdateNode *l = latest[x];
         if(l->status == INACTIVE){
             UpdateNode *m = l->latestNext;
             if(m)return m;
@@ -181,7 +180,7 @@ class Trie : public DynamicSet{
         return l;
     }
     bool firstActivated(UpdateNode *u){
-        UpdateNode *l = latest[u->key].head;
+        UpdateNode *l = latest[u->key];
         return (u == l) || (l->status == INACTIVE && u == l->latestNext);
     }
     bool search(int64_t x){
@@ -434,7 +433,7 @@ class Trie : public DynamicSet{
             }
         }
         expected = dNode;
-        latest[x].head.compare_exchange_strong(expected, iNode);
+        latest[x].compare_exchange_strong(expected, iNode);
         if (expected != dNode){
             helpActivate(expected);
             #ifdef reuse //This insert node can be reused by subsequent insert operations...
@@ -524,7 +523,7 @@ class Trie : public DynamicSet{
         }
         notifyPredOps(iNode);
         expected = iNode;
-        latest[x].head.compare_exchange_strong(expected, dNode);
+        latest[x].compare_exchange_strong(expected, dNode);
 
         if(expected != iNode){ //Failed to CAS dNode to head of latest list....
             //There was a different node, expected, instead of iNode at the head of the latest list prior to our CAS.
