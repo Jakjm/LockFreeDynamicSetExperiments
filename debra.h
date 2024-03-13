@@ -14,7 +14,7 @@ struct ThreadData{
     volatile long numReclaimed;
     volatile long opStarted;
     volatile long opEnded;
-    volatile char padding[512 - (2*sizeof(int) + 4*sizeof(std::atomic<uint64_t>) + numBags * sizeof(stack<Type*>))];
+    volatile char padding[1024 - (2*sizeof(int) + 4*sizeof(std::atomic<uint64_t>) + numBags * sizeof(stack<Type*>))];
     std::atomic<uint64_t> announcement;
     volatile char padding2[64 - sizeof(uint64_t)];
     ThreadData(): checkNext(0), currentBag(0), numRotations(0), numReclaimed(0), opStarted(0), opEnded(0), announcement(0) {

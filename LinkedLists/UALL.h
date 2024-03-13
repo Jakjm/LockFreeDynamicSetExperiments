@@ -141,22 +141,18 @@ class UALL_Type {
                         }
                     }
                 }
-                else if(state == InsFlag){
-                    [[unlikely]];
+                else [[unlikely]] if(state == InsFlag){
                     uint64_t seq = (next & SEQ_MASK) >> 12;
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpInsert(curr, seq, proc);
                 }
                 else if(next == (uintptr_t)node){
-                    [[unlikely]];
                     return;
                 }
                 else if(state == DelFlag){
-                    [[unlikely]];
                     succ = helpRemove(curr, (UpdateNode*)next);
                 }
                 else{ //State is marked
-                    [[unlikely]];
                     UpdateNode *prev = curr->backlink;
                     succ = prev->succ;
                     next = succ & NEXT_MASK;
@@ -198,8 +194,7 @@ class UALL_Type {
                         }
                     }
                 }
-                else if(state == InsFlag){
-                    [[unlikely]];
+                else [[unlikely]] if(state == InsFlag){
                     uint64_t seq = (next & SEQ_MASK) >> 12;
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpInsert(curr, seq, proc);
@@ -209,12 +204,10 @@ class UALL_Type {
                     return;
                 }
                 else if(state == DelFlag){
-                    [[unlikely]];
                     succ = helpRemove(curr, (UpdateNode*)next);
                     if((UpdateNode*)next == node)return;
                 }
                 else{
-                    [[unlikely]];
                     UpdateNode *prev = curr->backlink;
                     succ = prev->succ;
                     next = succ & NEXT_MASK;
