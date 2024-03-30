@@ -223,28 +223,40 @@ class Trie : public DynamicSet{
             //uNode->status.compare_exchange_strong(expectedStatus, ACTIVE);
             uNode->status = ACTIVE;
 
-            UpdateNode *latestNext = uNode->latestNext;
-            if(latestNext){
-                latestNext->status = STALE;
+            //UpdateNode *latestNext = uNode->latestNext;
+            //if(latestNext){
+                //latestNext->status = STALE;
                 
                 //Set uNode->latestNext to nullptr
-                UpdateNode *result = uNode->latestNext.exchange(nullptr); 
-                if(result == latestNext){ //This operation unlinked latestNext from the latest list.
-                    if(latestNext->type == INS){
-                        trieDebra.retire((InsNode<NotifDescType>*)latestNext);
-                        //trieRecordManager.retire(threadID, (InsNode*)latestNext); //Retire latestNext if it's an insert node.
-                    }
-                    else{
-                        //Otherwise, decrement latestNext's dNodeCount, and retire latestNext if dNodeCount was reduced to 0.
-                        int retire = ((DelNode<NotifDescType>*)latestNext)->dNodeCount.fetch_add(-1); 
-                        if(retire == 1){
-                            trieDebra.retire((DelNode<NotifDescType>*)latestNext);
-                            //trieRecordManager.retire(threadID, (DelNode*)latestNext);
-                        }
+            UpdateNode *latestNext = uNode->latestNext.exchange(nullptr); 
+            if(latestNext != nullptr){ //This operation unlinked latestNext from the latest list.
+                if(latestNext->type == INS){
+                    trieDebra.retire((InsNode<NotifDescType>*)latestNext);
+                    //trieRecordManager.retire(threadID, (InsNode*)latestNext); //Retire latestNext if it's an insert node.
+                }
+                else{
+                    //Otherwise, decrement latestNext's dNodeCount, and retire latestNext if dNodeCount was reduced to 0.
+                    int retire = ((DelNode<NotifDescType>*)latestNext)->dNodeCount.fetch_add(-1); 
+                    if(retire == 1){
+                        trieDebra.retire((DelNode<NotifDescType>*)latestNext);
+                        //trieRecordManager.retire(threadID, (DelNode*)latestNext);
                     }
                 }
             }
+            //}
         }
+    }
+
+    //Traverse through the Update Announcement Linked List
+    void traverseUALL(int64_t x, vector<InsNode<NotifDescType>*> &I, vector<DelNode<NotifDescType>*> &D){
+        UpdateNode *uNode = (UpdateNode*)U_ALL.first();   
+        while(uNode && uNode->key < x){
+            if(uNode->status != INACTIVE && firstActivated(uNode)){
+                if(uNode->type == INS)I.push_back((InsNode<NotifDescType>*)uNode);
+                else D.push_back((DelNode<NotifDescType>*)uNode);
+            }
+            uNode = (UpdateNode*)U_ALL.next(uNode);
+        }                                                                                             
     }
 
     //Notify predecessor operation by placing a new notify node in the notify list.
@@ -265,17 +277,7 @@ class Trie : public DynamicSet{
         }
     }
 
-        //Traverse through the Update Announcement Linked List
-    void traverseUALL(int64_t x, vector<InsNode<NotifDescType>*> &I, vector<DelNode<NotifDescType>*> &D){
-        UpdateNode *uNode = (UpdateNode*)U_ALL.first();   
-        while(uNode && uNode->key < x){
-            if(uNode->status != INACTIVE && firstActivated(uNode)){
-                if(uNode->type == INS)I.push_back((InsNode<NotifDescType>*)uNode);
-                else D.push_back((DelNode<NotifDescType>*)uNode);
-            }
-            uNode = (UpdateNode*)U_ALL.next(uNode);
-        }                                                                                             
-    }
+
 
     //Send notifications to predecessor operations.
     void notifyPredOps(UpdateNode * const uNode){
@@ -420,17 +422,14 @@ class Trie : public DynamicSet{
         #endif
         iNode->key = x;
         iNode->latestNext = dNode;
-        UpdateNode *latestNext = dNode->latestNext;
-        if(latestNext){
-            //latestNext->status = STALE;
-            //dNode->latestNext = nullptr
-            UpdateNode *result = dNode->latestNext.exchange(nullptr); 
-            //If latestNext was removed by this exchange operation....
-            if(result == latestNext){
-                //assert(latestNext->type == INS);
-                trieDebra.retire((InsNode<NotifDescType>*)latestNext);
-                //trieRecordManager.retire(threadID, (InsNode*)latestNext); //Retire the InsertNode following dNode in latest list.
-            }
+        //latestNext->status = STALE;
+        //dNode->latestNext = nullptr
+        UpdateNode *latestNext = dNode->latestNext.exchange(nullptr); 
+        //If latestNext was removed by this exchange operation....
+        if(latestNext != nullptr){
+            //assert(latestNext->type == INS);
+            trieDebra.retire((InsNode<NotifDescType>*)latestNext);
+            //trieRecordManager.retire(threadID, (InsNode*)latestNext); //Retire the InsertNode following dNode in latest list.
         }
         expected = dNode;
         latest[x].compare_exchange_strong(expected, iNode);
@@ -480,7 +479,6 @@ class Trie : public DynamicSet{
         //assert(x >= 0 && x <= universeSize);
         trieDebra.startOp();
         //trieRecordManager.startOp(threadID);
-
         UpdateNode *iNode = findLatest(x), *expected;
         if(iNode->type == DEL){
             trieDebra.endOp();
@@ -495,32 +493,25 @@ class Trie : public DynamicSet{
 
         //Initialize update node for this delete operation.
         #ifdef reuse 
-        DelNode<NotifDescType> *dNode;
-        dNode = nodePool[threadID].delNode;
+        DelNode<NotifDescType> *dNode = nodePool[threadID].delNode;
         #else 
         DelNode *dNode = trieRecordManager.allocate<DelNode>(threadID, trieHeight); //Allocate a delNode for each delete...
         #endif
         dNode->key = x;
-
         dNode->delPredNode = pNode;
         dNode->delPred = delPred;
         dNode->latestNext = iNode;
         //assert(dNode->dNodeCount == 2);
     
         
-        UpdateNode *latestNext = iNode->latestNext;
-        if(latestNext){
-            //latestNext->status = STALE;
-
-            UpdateNode *result = iNode->latestNext.exchange(nullptr); 
+        UpdateNode *latestNext = iNode->latestNext.exchange(nullptr); 
             //Swap iNode's latestNext with nullptr.
-            if(result == latestNext){ //If this operation removed latestNext, decrement its dNodeCount.
-                //assert(latestNext->type == DEL);
-                int retire = ((DelNode<NotifDescType>*)latestNext)->dNodeCount.fetch_add(-1);
-                if(retire == 1)trieDebra.retire((DelNode<NotifDescType>*)latestNext);
-                //trieRecordManager.retire(threadID, (DelNode*)latestNext); //Retire if dNodeCount was lowered to 0.
-            }   
-        }
+        if(latestNext != nullptr){ //If this operation removed latestNext, decrement its dNodeCount.
+            //assert(latestNext->type == DEL);
+            int retire = ((DelNode<NotifDescType>*)latestNext)->dNodeCount.fetch_add(-1);
+            if(retire == 1)trieDebra.retire((DelNode<NotifDescType>*)latestNext);
+            //trieRecordManager.retire(threadID, (DelNode*)latestNext); //Retire if dNodeCount was lowered to 0.
+        }   
         notifyPredOps(iNode);
         expected = iNode;
         latest[x].compare_exchange_strong(expected, dNode);

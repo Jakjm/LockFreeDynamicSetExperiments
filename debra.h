@@ -82,7 +82,7 @@ class Debra{
 		if(otherQuiescent || otherAnnouncement == e){
 		    data[threadID].checkNext = (data[threadID].checkNext + 1) % MAX_THREADS;
 		    if(data[threadID].checkNext == threadID){
-			data[threadID].checkNext = (threadID + 1) % numActiveThreads;
+			//data[threadID].checkNext = (threadID + 1) % numActiveThreads;
 			epoch.compare_exchange_strong(e, e+1);
 			break;
 		    }
