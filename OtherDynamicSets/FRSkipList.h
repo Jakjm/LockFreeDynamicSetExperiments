@@ -39,7 +39,7 @@ struct SkipListPool{
 
 
 SkipListPool pool[MAX_THREADS];
-Debra<SkipNode, 10> skipDebra;
+Debra<SkipNode, 7> skipDebra;
 
 template <int maxLevels>
 class SkipListSet : public DynamicSet{
@@ -83,7 +83,7 @@ class SkipListSet : public DynamicSet{
         //assert((SkipNode*)(next->succ & NEXT_MASK) != prev);
         
         if(result == expected){
-            skipDebra.retire(delNode);
+            skipDebra.reclaimLater(delNode);
             return (uintptr_t)next;
         }
         else return result;

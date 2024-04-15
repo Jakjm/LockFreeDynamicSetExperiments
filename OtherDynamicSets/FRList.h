@@ -26,7 +26,7 @@ struct KeyNode {
     }
 };
 
-Debra<KeyNode, 5> keyNodeDebra;
+Debra<KeyNode, 7> keyNodeDebra;
 
 //Structure used to store pointers to KeyNodes that go unused after allocations.
 //On subsequent insert/delete operations by the same thread, the previouslly allocated insert/delete node can be used again.
@@ -183,7 +183,7 @@ class LinkedListSet : public DynamicSet {
                         curr->successor.compare_exchange_strong(succ, ((uintptr_t)next) + DelFlag);
                         if(succ == (uintptr_t)next){
                             helpRemove(curr, (KeyNode*)next);
-                            keyNodeDebra.retire((KeyNode*)next);
+                            keyNodeDebra.reclaimLater((KeyNode*)next);
                             //listRecordMgr.retire(threadID, next); //Retire a node upon successfully giving its predecessor del flag.
                             keyNodeDebra.endOp();
                             return;

@@ -194,7 +194,7 @@ class PredecessorNode:  public BaseType{
     }
 };
 
-Debra<BaseType, 5> trieDebra;
+Debra<BaseType, 7> trieDebra;
 
 //record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
 
