@@ -209,6 +209,7 @@ class LinkedListSet : public DynamicSet {
             keyNodeDebra.endOp();
         }
         bool search(int64_t key){
+            bool result;
             keyNodeDebra.startOp();
             KeyNode *curr = &head;
             uintptr_t succ = curr->successor;
@@ -221,11 +222,14 @@ class LinkedListSet : public DynamicSet {
                 next = (KeyNode*)(succ & NEXT_MASK);
             }
             //next->key >= key
+            result = (next->key == key);
             keyNodeDebra.endOp();
-            return next->key == key;
+            return result;
         }
         int64_t predecessor(int64_t key){
+            int64_t pred = -1;
             keyNodeDebra.startOp();
+
             KeyNode *curr = &head;
             uintptr_t succ = curr->successor;
             KeyNode *next = (KeyNode*)(succ & NEXT_MASK);
@@ -237,8 +241,9 @@ class LinkedListSet : public DynamicSet {
                 next = (KeyNode*)(succ & NEXT_MASK);
             }
             //next->key >= key
+            pred = curr->key;
             keyNodeDebra.endOp();
-            return curr->key;
+            return pred;
         }
         string name(){
             return "Fomitchev/Ruppert ListSet";

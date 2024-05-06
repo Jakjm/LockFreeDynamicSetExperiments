@@ -39,7 +39,7 @@ struct NodePool{
     InsNode<NotifDescType> *insNode;
     DelNode<NotifDescType> *delNode;
     NotifyNode<NotifDescType> *notifNode;
-    volatile char padding[64 - 3*sizeof(InsNode<NotifDescType>*)];
+    volatile char padding[64 - 3*sizeof(uintptr_t)];
     NodePool() : insNode(nullptr), delNode(nullptr), notifNode(nullptr){
 
     }
@@ -183,14 +183,19 @@ class Trie : public DynamicSet{
         UpdateNode *l = latest[u->key];
         return (u == l) || (l->status == INACTIVE && u == l->latestNext);
     }
+    bool firstActivated(UpdateNode *u, int64_t key){
+        UpdateNode *l = latest[key];
+        return (u == l) || (l->status == INACTIVE && u == l->latestNext);
+    }
     bool search(int64_t x){
         //trieRecordManager.startOp(threadID);
+        bool containsX;
         trieDebra.startOp();
         UpdateNode *l = findLatest(x);
-
+        containsX = (l->type == INS);
         //trieRecordManager.endOp(threadID);
         trieDebra.endOp();
-        return l->type == INS; //Return whether the root of the latest was an insert node.
+        return containsX; //Return whether the root of the latest was an insert node.
     }
     char interpretedBit(int index, int depth){
         UpdateNode *uNode;
@@ -243,11 +248,14 @@ class Trie : public DynamicSet{
                     }
                 }
             }
-            //}
+            //The following code is not needed due to how we implemented the UALL/RUALL. 
+            //The UALL/RUALL do not allow reinsertions, which means this helper doesn't need to remove uNode if uNode is not the first activated node...
+            //if uNode is not the first activated node, then can removed uNode from UALL/RUALL
         }
     }
 
     //Traverse through the Update Announcement Linked List
+    //Returns two sets, I and D, of UpdateNodes of either type encountered while traversing the UALL.
     void traverseUALL(int64_t x, vector<InsNode<NotifDescType>*> &I, vector<DelNode<NotifDescType>*> &D){
         UpdateNode *uNode = (UpdateNode*)U_ALL.first();   
         while(uNode && uNode->key < x){
@@ -331,6 +339,7 @@ class Trie : public DynamicSet{
                 DelNode<NotifDescType> *delNode = (DelNode<NotifDescType>*)uNode;
                 int height = trieHeight - depth;
                 if (height < delNode->lower1Boundary.minRead() && height <= delNode->upper0Boundary){
+                    iNode->target_key = delNode->key;
                     iNode->target = delNode;
                     if(firstActivated(iNode) == false)return;
                     delNode->lower1Boundary.minWrite(height);
@@ -408,7 +417,7 @@ class Trie : public DynamicSet{
         //assert(x >= 0 && x <= universeSize);
         trieDebra.startOp();
         //trieRecordManager.startOp(threadID);
-        UpdateNode *dNode = findLatest(x), *expected;
+        UpdateNode *dNode = findLatest(x);
         if (dNode->type == INS){
             trieDebra.endOp();
             //trieRecordManager.endOp(threadID); //x already in S, nothing to do!
@@ -432,7 +441,7 @@ class Trie : public DynamicSet{
             trieDebra.reclaimLater((InsNode<NotifDescType>*)latestNext);
             //trieRecordManager.reclaimLater(threadID, (InsNode*)latestNext); //Retire the InsertNode following dNode in latest list.
         }
-        expected = dNode;
+        UpdateNode *expected = dNode;
         latest[x].compare_exchange_strong(expected, iNode);
         if (expected != dNode){
             helpActivate(expected);
@@ -480,8 +489,8 @@ class Trie : public DynamicSet{
         //assert(x >= 0 && x <= universeSize);
         trieDebra.startOp();
         //trieRecordManager.startOp(threadID);
-        UpdateNode *iNode = findLatest(x), *expected;
-        if(iNode->type == DEL){
+        UpdateNode *iNode = findLatest(x);
+        if(iNode->type == DEL){ //Already a delNode with key x at head of latestList...
             trieDebra.endOp();
             //trieRecordManager.endOp(threadID);
             return; //x is not in S, nothing to do!
@@ -514,7 +523,7 @@ class Trie : public DynamicSet{
             //trieRecordManager.reclaimLater(threadID, (DelNode*)latestNext); //Retire if dNodeCount was lowered to 0.
         }   
         notifyPredOps(iNode);
-        expected = iNode;
+        UpdateNode *expected = iNode;
         latest[x].compare_exchange_strong(expected, dNode);
 
         if(expected != iNode){ //Failed to CAS dNode to head of latest list....
@@ -545,7 +554,7 @@ class Trie : public DynamicSet{
         dNode->status = ACTIVE;
 
         DelNode<NotifDescType> *target = ((InsNode<NotifDescType>*)iNode)->target;
-        if(target && firstActivated(target))target->stop = true;
+        if(target && firstActivated(target, ((InsNode<NotifDescType>*)iNode)->target_key))target->stop = true;
 
         //Swap dNode's latestNext with nullptr.
         UpdateNode *result = dNode->latestNext.exchange(nullptr);
@@ -691,7 +700,7 @@ class Trie : public DynamicSet{
     }
 
     int64_t predHelper(PredecessorNode<NotifDescType> *pNode){
-        vector<PredecessorNode<NotifDescType>*> Q;
+
         vector<InsNode<NotifDescType>*> I_uall, I_notify;
         vector<DelNode<NotifDescType>*> D_uall, D_notify;
         seqSet<InsNode<NotifDescType>*> I_ruall;
@@ -701,13 +710,14 @@ class Trie : public DynamicSet{
         //traverseAndInsertPALL(pNode, Q);
         //Insert pNode into the PALL
         P_ALL.insert(pNode);
-
+        
+        vector<PredecessorNode<NotifDescType>*> Q;
         //Traverse the P_ALL from pNode to the end, 
-        PredecessorNode<NotifDescType> *p = pNode;
-        do{
+        PredecessorNode<NotifDescType> *p = P_ALL.next(pNode);
+        while(p){
             Q.push_back(p);
             p = P_ALL.next(p);
-        }while(p);
+        }
 
         traverseRUALL(pNode,I_ruall, D_ruall);
         int64_t pred0 = relaxedPredecessor(y);
@@ -749,7 +759,7 @@ class Trie : public DynamicSet{
         //Traversal of the binary trie stopped while traversing back down.....
         if(pred0 == -2 && D_ruall.size() > 0){
             seqSet<PredecessorNode<NotifDescType>*> predNodes;
-            predNodes.insert(pNode);
+            //predNodes.insert(pNode);
             for(DelNode<NotifDescType> *d : D_ruall){
                 predNodes.insert(d->delPredNode);
             }
@@ -763,49 +773,50 @@ class Trie : public DynamicSet{
                     break;
                 }
             }
-
-            vector<UpdateNode*> LPrime;
-            //Insert all updateNodes of the notify nodes of pNodePrime to LPrime.
-            NotifyNode<NotifDescType> *nNode = pNodePrime->notifyListHead;
-            while(nNode){
-                LPrime.push_back(nNode->updateNode);
-                nNode = nNode->next;
+            vector <UpdateNode*> L;
+            vector<UpdateNode*> L1;
+            if(pNodePrime){
+                //Insert all updateNodes of the notify nodes of pNodePrime to LPrime.
+                NotifyNode<NotifDescType> *nNode = pNodePrime->notifyListHead;
+                while(nNode){
+                    if(nNode->key < y)L1.push_back(nNode->updateNode);
+                    nNode = nNode->next;
+                }
             }
 
-            seqSet<UpdateNode*> L;
-            vector<UpdateNode*> LPrime2; //LPrime2 is a stack. The top of the stack is at the end of the vector.
+            seqSet<UpdateNode*> LPrime;
+            vector<UpdateNode*> L2; //L2 is a stack. The top of the stack is at the end of the vector.
             //For every notifyNode in pNode's notifyList with key < y
             nNode = pNode->notifyListHead;
             while(nNode){
                 if(nNode->key < y){
                     UpdateNode *uNode = nNode->updateNode;
                     if(nNode->key <= nNode->notifyThreshold){
-                        LPrime2.push_back(uNode);
+                        L2.push_back(uNode);
                     }
                     else{
-                        L.insert(uNode);
+                        LPrime.insert(uNode);
                     }
                 }
                 nNode = nNode->next;
             }
-            //Insert UpdateNodes in LPrime into LPrime2.
-            //LPrime2 now corresponds to L' following the line L' = L' + L'2 in the pseudocode
-            for (auto it = LPrime.rbegin(); it != LPrime.rend(); ++it) {
+
+            //L is the sequence of nodes in L1 and L2 that are not in LPrime.
+            //vector<UpdateNode*> L;
+            for (auto it = L1.rbegin(); it != L1.rend(); ++it) {
                 UpdateNode *uNode = *it;
-                LPrime2.push_back(uNode);
+                if(LPrime.count(uNode) == 0)L.push_back(uNode);
             }
-            //Traverse LPrime2 in reverse order.....
-            //Insert the nodes that are in LPrime2 but not L into LDoublePrime.
-            vector<UpdateNode*> LDoublePrime; 
-            for (auto rit = LPrime2.rbegin(); rit != LPrime2.rend(); ++rit) {
+            for (auto rit = L2.rbegin(); rit != L2.rend(); ++rit) {
                 UpdateNode *uNode = *rit;
-                if(L.count(uNode) == 0)LDoublePrime.push_back(uNode);
+                if(LPrime.count(uNode) == 0)L.push_back(uNode);
             }
+
             seqSet<int64_t> R; //Set containing the delNodePreds of DeleteNodes encountered in the RUALL.
             for(DelNode<NotifDescType> *dNode : D_ruall){
                 R.insert(dNode->delPred); //Insert the embedded predecessor value of the delNodes in D_0
             }
-            for(UpdateNode *uNode : LDoublePrime){
+            for(UpdateNode *uNode : L){
                 if(uNode->type == INS){
                     R.insert(uNode->key);
                 }
@@ -818,9 +829,14 @@ class Trie : public DynamicSet{
             //there is an UpdateNode with key x in L'' and the last one in L'' has type INS.
             seqSet<int64_t> goodKeys;
 
+            //For any key x, if x is in R and there is an UpdateNode with key x in D_ruall, remove x from R.
+            for(UpdateNode *d : D_ruall){
+                if(R.count(d->key) > 0)R.erase(d->key);
+            }
+
             //Remove every key x from R such that the last UpdateNode with key x in L'' is an UpdateNode of type DEL.
             //Go through LDouble prime in reverse...
-            for(auto it = LDoublePrime.begin(); it != LDoublePrime.end(); ++it){
+            for(auto it = L.begin(); it != L.end(); ++it){
                 UpdateNode *uNode = *it;
                 int64_t key = uNode->key;
                 //If uNode->key is not in goodKeys and uNode->key is in R, then remove uNode->key from R.
@@ -836,19 +852,15 @@ class Trie : public DynamicSet{
                 }
             }
 
-            //For any key x, if x is in R and there is an UpdateNode with key x in D_ruall, remove x from R.
-            for(UpdateNode *d : D_ruall){
-                if(R.count(d->key) > 0)R.erase(d->key);
-            }
-
             //Pred0 = maximum value among keys in R
             pred0 = -1;
-            for(UpdateNode* i : I_ruall){
-                if(i->key > pred0)pred0 = i->key;
-            }
             for(int64_t v : R){
                 if(v > pred0)pred0 = v;
             }
+            // for(UpdateNode* i : I_ruall){
+            //     if(i->key > pred0)pred0 = i->key;
+            // }
+
         }
 
         //Return the max among pred0 and p1.

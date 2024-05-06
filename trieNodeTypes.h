@@ -194,7 +194,11 @@ class PredecessorNode:  public BaseType{
     }
 };
 
-Debra<BaseType, 7> trieDebra;
+/*
+*Using 7 bags, since if an instance I puts a node N into a limbo bag, N will not be accessed once every instance at
+* distance 3 from I has terminated. 
+*/
+Debra<BaseType, 7> trieDebra; 
 
 //record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
 
@@ -202,11 +206,12 @@ template <typename NotifyThresholdType>
 class InsNode : public UpdateNode, public BaseType{
     public:
         std::atomic<DelNode<NotifyThresholdType> *> target;
+        std::atomic<int64_t> target_key;
         char padding[192 - sizeof(DelNode<NotifyThresholdType>*) - sizeof(UpdateNode) - sizeof(BaseType)];
-        InsNode(int64_t key): UpdateNode(key, INS),  target(nullptr){
+        InsNode(int64_t key): UpdateNode(key, INS),  target(nullptr), target_key(-1){
             
         }
-        InsNode(): UpdateNode(INS),  target(nullptr){
+        InsNode(): UpdateNode(INS),  target(nullptr), target_key(-1){
             
         }
         ~InsNode(){
