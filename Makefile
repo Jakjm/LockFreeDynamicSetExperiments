@@ -9,9 +9,10 @@ trie = swCopy.h swCopy2.h BoundedMinReg/minreg.h trieNodeTypes.h $(linkedLists) 
 compileFlags = -Wall -pedantic -pthread -Werror
 optimizationFlags = -O3
 testingFlags = -fdump-lang-class -fno-omit-frame-pointer -g
+countersFlags = -D COUNT_CONTENTION
 
 dynamicSetTest : $(dataStructures) $(trie) $(common) dynamicSetTest.cpp  Makefile 
-	g++ $(compileFlags) $(optimizationFlags) $(testingFlags) -o dynamicSetTest dynamicSetTest.cpp
+	g++ $(compileFlags) $(optimizationFlags) $(testingFlags) $(countersFlags) -o dynamicSetTest dynamicSetTest.cpp
 
 clean: 
 	rm dynamicSetTest

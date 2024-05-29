@@ -13,7 +13,6 @@
 #pragma once
 using std::string;
 
-#define testStats
 
 //Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert
 class UALL_Type {
@@ -113,6 +112,9 @@ class UALL_Type {
             uint64_t seqNum = desc->seqNum;
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->newNode = node;
+            #ifdef COUNT_CONTENTION
+                UALLCounter &counter = uallCounter[threadID];
+            #endif 
             while(1){
                 if(state == Normal){
                     [[likely]];
@@ -122,6 +124,9 @@ class UALL_Type {
                         //node should be placed further along in the list if next <= node
                         curr = (UpdateNode*)next;
                         succ = curr->succ;
+                        #ifdef COUNT_CONTENTION
+                            ++counter.nodesTraversed;
+                        #endif
                     }
                     else{ //Next is either head or an UpdateNode of a greater key than node.
                         [[likely]];
@@ -139,18 +144,27 @@ class UALL_Type {
                             desc->seqNum = seqNum + 1; //Increment the sequence number of insert descriptor node.
                             return;
                         }
+                        #ifdef COUNT_CONTENTION
+                            ++counter.numFailedCASes;
+                        #endif 
                     }
                 }
                 else [[unlikely]] if(state == InsFlag){
                     uint64_t seq = (next & SEQ_MASK) >> 12;
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpInsert(curr, seq, proc);
+                    #ifdef COUNT_CONTENTION
+                        ++counter.numInsertsHelped;
+                    #endif 
                 }
                 else if(next == (uintptr_t)node){
                     return;
                 }
                 else if(state == DelFlag){
                     succ = helpRemove(curr, (UpdateNode*)next);
+                    #ifdef COUNT_CONTENTION
+                        ++counter.numRemovesHelped;
+                    #endif 
                 }
                 else{ //State is marked
                     UpdateNode *prev = curr->backlink;
@@ -160,8 +174,14 @@ class UALL_Type {
                     if(state == DelFlag && next == (uintptr_t)curr){ //Help remove curr from the list.
                         [[unlikely]];
                         succ = helpMarked(prev, curr);
+                        #ifdef COUNT_CONTENTION
+                            ++counter.numMarksHelped;
+                        #endif 
                     }
                     curr = prev;
+                    #ifdef COUNT_CONTENTION
+                        ++counter.numBacktracks;
+                    #endif 
                 }
                 //Read next and state from curr.succ.
                 next = succ & NEXT_MASK;
@@ -173,6 +193,9 @@ class UALL_Type {
             uintptr_t succ = curr->succ;
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
+            #ifdef COUNT_CONTENTION
+                UALLCounter &counter = uallCounter[threadID];
+            #endif 
             while(1){
                 if(state == Normal){
                     [[likely]];
@@ -183,6 +206,9 @@ class UALL_Type {
                         [[likely]];
                         curr = (UpdateNode*)next;
                         succ = curr->succ;
+                        #ifdef COUNT_CONTENTION
+                            ++counter.nodesTraversed;
+                        #endif
                     }
                     else{
                         [[unlikely]];
@@ -192,12 +218,18 @@ class UALL_Type {
                             helpRemove(curr, node);
                             return;
                         }
+                        #ifdef COUNT_CONTENTION
+                            ++counter.numFailedCASes;
+                        #endif 
                     }
                 }
                 else [[unlikely]] if(state == InsFlag){
                     uint64_t seq = (next & SEQ_MASK) >> 12;
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpInsert(curr, seq, proc);
+                    #ifdef COUNT_CONTENTION
+                        ++counter.numInsertsHelped;
+                    #endif
                 }
                 //next points to an UpdateNode with a larger key; node is not in the list.
                 else if(((UpdateNode*)next)->key > node->key){
@@ -206,6 +238,9 @@ class UALL_Type {
                 else if(state == DelFlag){
                     succ = helpRemove(curr, (UpdateNode*)next);
                     if((UpdateNode*)next == node)return;
+                    #ifdef COUNT_CONTENTION
+                        ++counter.numRemovesHelped;
+                    #endif
                 }
                 else{
                     UpdateNode *prev = curr->backlink;
@@ -214,8 +249,14 @@ class UALL_Type {
                     state = succ & STATUS_MASK;
                     if(state == DelFlag && next == (uintptr_t)curr){ //Help remove curr from the list.
                         succ = helpMarked(prev, curr);
+                        #ifdef COUNT_CONTENTION
+                            ++counter.numMarksHelped;
+                        #endif 
                     }
                     curr = prev;
+                    #ifdef COUNT_CONTENTION
+                        ++counter.numBacktracks;
+                    #endif 
                 }
                 next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;
@@ -233,8 +274,14 @@ class UALL_Type {
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
 
-            
+            #ifdef COUNT_CONTENTION
+                UALLCounter &counter = uallCounter[threadID];
+                ++counter.nodesTraversed;
+            #endif
             while(state == InsFlag){
+                #ifdef COUNT_CONTENTION
+                    ++counter.descsTraversedWhileReadingNext;
+                #endif
                 [[unlikely]];
                 uint64_t seq = (next & SEQ_MASK) >> 12;
                 uint64_t proc = (next & PROC_MASK) >> 4;
@@ -264,8 +311,14 @@ class UALL_Type {
             uintptr_t next = succ & NEXT_MASK;
             state = succ & STATUS_MASK;
 
-            
+            #ifdef COUNT_CONTENTION
+                UALLCounter &counter = uallCounter[threadID];
+                ++counter.nodesTraversed;
+            #endif
             while(state == InsFlag){
+                #ifdef COUNT_CONTENTION
+                    ++counter.descsTraversedWhileReadingNext;
+                #endif
                 uint64_t seq = (next & SEQ_MASK) >> 12;
                 uint64_t proc = (next & PROC_MASK) >> 4;
                 InsertDescNode *desc = &descs[proc];
@@ -275,6 +328,7 @@ class UALL_Type {
                 succ = node->succ; //Read node->succ again.
                 next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;
+
             }
             //next points to a UpdateNode....
 

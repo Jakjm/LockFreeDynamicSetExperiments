@@ -19,10 +19,16 @@ using std::cout;
 
 
 struct ProcessData{
+    volatile uint64_t insCount;
+    volatile uint64_t remCount;
+    volatile uint64_t predCount;
     volatile uint64_t opCount;
     volatile uint64_t startTime;
     volatile uint64_t endTime;
-    volatile char padding [64 - 3*sizeof(uint64_t)];
+    volatile char padding [64 - 6*sizeof(uint64_t)];
+    ProcessData(): insCount(0),remCount(0), predCount(0), opCount(0), startTime(0), endTime(0){
+
+    }
 };
 
 
@@ -58,6 +64,7 @@ void randomExperiment(DynamicSet *set, int numProcs, int64_t universeSize, doubl
     uint64_t startTime = micros();
     uint64_t currentTime = startTime;
     uint64_t endTime = startTime + (time * 1000000);
+    uint64_t insCount = 0, remCount = 0, predCount = 0;
     int ratioTotal = insertRate + removeRate + predRate;
     while(currentTime < endTime && !(data->done)){
         //Perform a series of operations....
@@ -66,12 +73,15 @@ void randomExperiment(DynamicSet *set, int numProcs, int64_t universeSize, doubl
             int coinFlip = rng(ratioTotal);
             if(coinFlip < insertRate){ //Perform an insert operation at insertRate / ratioTotal percent chance.
                 set->insert(key); 
+                ++insCount;
             }
             else if(coinFlip < (insertRate + removeRate)){ //Perform a remove operation at removeRate / ratioTotal percent chance.
                 set->remove(key);
+                ++remCount;
             }
             else{ //Perform a predecessor operation at predRate / ratioTotal percent chance.
                 set->predecessor(key);
+                ++predCount;
             }
         }
         opCount += NUM_OPS_BEFORE_TIME_CHECK;
@@ -82,6 +92,9 @@ void randomExperiment(DynamicSet *set, int numProcs, int64_t universeSize, doubl
     ProcessData &pData = data->pData[threadID];
 
     pData.opCount = opCount;
+    pData.insCount = insCount;
+    pData.remCount = remCount;
+    pData.predCount = predCount;
     pData.startTime = startTime;
     pData.endTime = actualEndTime;
 }
@@ -181,7 +194,7 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
         calcTime(millis(), hours, minutes, seconds);
         printf("Test starting at %02d:%02d:%02d\n",hours,minutes,seconds);
         calcTime(millis() + time * 1000, hours, minutes, seconds);
-        printf("Test will finish at %02d:%02d:%02d\n",hours,minutes,seconds);
+        printf("Test will finish at %02d:%02d:%02d\n\n",hours,minutes,seconds);
     }
     //cout << "Perf FDs: " << perfControlFDStr << "," << perfAckFDStr << std::endl;
     //Allocate NUMTHREADS threads
@@ -233,18 +246,27 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
     char timeStr[50];
     for(int i = 0;i < numProcs;++i){
         th[i]->join();
+        delete th[i];
+    }
+    for(int i = 0;i < numProcs;++i){
         ProcessData &pData = data.pData[i];
         totalThroughput += pData.opCount;
         if(verbose){
             cout << "Thread " << i << " performed " << pData.opCount << " ops, for an average of ";
             cout << std::setprecision(8) << ((double)pData.opCount / time) << " ops/sec." << std::endl;
+            cout << "Number of Inserts: " << pData.insCount << " Removes: " << pData.remCount << " Predecessors: " << pData.predCount << std::endl;
             microsToStr(pData.startTime, &timeStr[0]);
             cout << "Started at " << timeStr << ", ";
             microsToStr(pData.endTime, &timeStr[0]);
-            cout << "finished at " << timeStr << "." << std::endl;
+            cout << "finished at " << timeStr << "." << std::endl << std::endl;
+
+            #ifdef COUNT_CONTENTION
+                uint64_t numUpdateOps = pData.insCount + pData.remCount;
+                uallCounter[i].printInfo(numUpdateOps);
+                ruallCounter[i].printInfo(numUpdateOps);
+            #endif
         }
         //cout << data.startTime[i].value() << " " << data.endTime[i].value() << std::endl;
-        delete th[i];
     }
 
     cout << "Total throughput (in ops): " << totalThroughput << std::endl;
@@ -288,7 +310,7 @@ int experimentProg(int argc, char **argv){
             cout << "\t-t, --time <T>\t\t\t\tRun the experiment for <T> seconds."<< std::endl;
             cout << "\t-n, --numProcs <N>\t\t\tRun the experiment with <N> processes (threads)."<< std::endl;
             cout << "\t-k, --keyRange <K>\t\t\tRun the experiment with a universe of 2^K keys." << std::endl;
-            cout << "\t-O, --opDist <I> <R> <P>\tRun the experiment with ratio of <I> Insert, <R> Remove and <P> Predecessor ops." << std::endl;
+            cout << "\t-O, --opDist <I> <R> <P>\tRun the experiment with ratio of <I> Inserts to <R> Removes to <P> Predecessors." << std::endl;
             cout << "\t-v, --verbose\t\t\t\tPrint additional information about the test." << std::endl;
             cout << "\t--skip\t\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert skip list." << std::endl;
             cout << "\t--list\t\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert linked list." << std::endl;

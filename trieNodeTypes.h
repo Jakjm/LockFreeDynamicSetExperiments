@@ -5,6 +5,7 @@
 #include "BoundedMinReg/minreg.h"
 #include "common.h"
 #include "debra.h"
+#include <iomanip>
 #pragma once
 using std::string;
 
@@ -22,6 +23,89 @@ class BaseType{
         
     }
 };
+
+#ifdef COUNT_CONTENTION
+    struct UALLCounter{
+        //Number of nodes traversed through UALL
+        uint64_t nodesTraversed = 0;
+        //Number of times this thread backtracked when seeing a marked node.
+        uint64_t numBacktracks = 0;
+        //Number of inserts by other threads that this thread helped.
+        uint64_t numInsertsHelped = 0; 
+        //Number of UpdateNodes marked by other processes that this thread helped remove.
+        uint64_t numMarksHelped = 0;
+        //Number of removes by other threads that this thread helped.
+        uint64_t numRemovesHelped = 0;
+        //Number of failed insert/remove CASes
+        uint64_t numFailedCASes = 0;
+        //Number of desc nodes traversed while reading next.
+        uint64_t descsTraversedWhileReadingNext = 0;
+        volatile char padding[64 - 7 * sizeof(uint64_t)];
+        void printInfo(uint64_t numUpdateOps){
+            cout << "UALL Contention Information:" << std::endl;
+            cout << "Nodes traversed while inserting/removing: " << nodesTraversed;
+            cout << "(" << std::setprecision(5) << ((double)nodesTraversed / numUpdateOps) << " per update op)" << std::endl;
+            cout << "Number of failed insert/removal CASes: " << numFailedCASes;
+            cout << "(" << std::setprecision(5) << ((double)numFailedCASes / numUpdateOps) << " per update op)" << std::endl;
+
+            cout << "Inserts helped: " << numInsertsHelped; 
+            cout << "(" << std::setprecision(5) << ((double)numInsertsHelped / numUpdateOps) << " per update op)" << std::endl;
+            cout << "Removes helped: " << numRemovesHelped;
+            cout << "(" << std::setprecision(5) << ((double)numRemovesHelped / numUpdateOps) << " per update op)"<< std::endl;
+            cout << "Marks helped: " << numMarksHelped;
+            cout << "(" << std::setprecision(5) << ((double)numMarksHelped / numUpdateOps) << " per update op)"<< std::endl;
+            cout << "Number of backtracks: " << numBacktracks;
+            cout << "(" << std::setprecision(5) << ((double)numBacktracks / numUpdateOps) << " per update op)" <<  std::endl;
+
+
+            cout << "Number of insert descs accessed while reading next: " << descsTraversedWhileReadingNext << std::endl << std::endl;
+        }
+    };
+
+    UALLCounter uallCounter[MAX_THREADS];
+
+
+    struct RUALLCounter{
+        //Number of nodes traversed through RUALL
+        uint64_t nodesTraversed = 0;
+        //Number of times this thread backtracked when seeing a marked node.
+        uint64_t numBacktracks = 0;
+        //Number of inserts by other threads that this thread helped.
+        uint64_t numInsertsHelped = 0; 
+        //Number of UpdateNodes marked by other processes that this thread helped remove.
+        uint64_t numMarksHelped = 0;
+        //Number of removes by other threads that this thread helped.
+        uint64_t numRemovesHelped = 0;
+        //Number of failed insert/remove CASes
+        uint64_t numFailedCASes = 0;
+        //Number of insert desc nodes traversed while copying.
+        uint64_t descsTraversedWhileCopying = 0;
+        uint64_t numAtomicCopies = 0;
+        uint64_t numCopiesHelped = 0;
+        volatile char padding[128 - 9 * sizeof(uint64_t)];
+        void printInfo(uint64_t numUpdateOps){
+            cout << "UALL Contention Information:" << std::endl;
+            cout << "Nodes traversed while inserting/removing: " << nodesTraversed;
+            cout << "(" << std::setprecision(5) << ((double)nodesTraversed / numUpdateOps) << " per update op)" << std::endl;
+            cout << "Number of failed insert/removal CASes: " << numFailedCASes;
+            cout << "(" << std::setprecision(5) << ((double)numFailedCASes / numUpdateOps) << " per update op)" << std::endl;
+
+            cout << "Inserts helped: " << numInsertsHelped; 
+            cout << "(" << std::setprecision(5) << ((double)numInsertsHelped / numUpdateOps) << " per update op)"<< std::endl;
+            cout << "Removes helped: " << numRemovesHelped;
+            cout << "(" << std::setprecision(5) << ((double)numRemovesHelped / numUpdateOps) << " per update op)"<< std::endl;
+            cout << "Marks helped: " << numMarksHelped;
+            cout << "(" << std::setprecision(5) << ((double)numMarksHelped / numUpdateOps) << " per update op)"<< std::endl;
+            cout << "Number of backtracks: " << numBacktracks;
+            cout << "(" << std::setprecision(5) << ((double)numBacktracks / numUpdateOps) << " per update op)" <<  std::endl;
+
+
+            cout << "Num atomic copies: " << numAtomicCopies << " num copies helped: " << numCopiesHelped << std::endl;
+            cout << "Num insert descs accessed while copying: " << descsTraversedWhileCopying << std::endl << std::endl;
+        }
+    };
+    RUALLCounter ruallCounter[MAX_THREADS];
+#endif
 
 
 
@@ -81,7 +165,15 @@ struct AtomicCopyNotifyThreshold{
         uintptr_t r = prev->rSucc; 
         uintptr_t next = (r & NEXT_MASK);
         uintptr_t state = (r & STATUS_MASK); //Read the rNext and rState fields of prev.
+        
+        #ifdef COUNT_CONTENTION
+            RUALLCounter &counter = ruallCounter[threadID];
+            ++counter.numAtomicCopies;
+        #endif
         while(state == InsFlag){  //If rState = InsDesc, rNext points to an InsertDesc with the next UpdateNode in the list.
+            #ifdef COUNT_CONTENTION
+                ++counter.descsTraversedWhileCopying;
+            #endif
             uint64_t seq = (next & SEQ_MASK) >> 12;
             uint64_t proc = (next & PROC_MASK) >> 4;
             InsertDescNode *desc = &descs[proc];
@@ -106,13 +198,23 @@ struct AtomicCopyNotifyThreshold{
     // }
     UpdateNode *read(){
         uintptr_t v = threshold;
+
+        #ifdef COUNT_CONTENTION
+            RUALLCounter &counter = ruallCounter[threadID];
+        #endif
         if(v & COPY_BIT){ //If an atomic copy is in progress
+            #ifdef COUNT_CONTENTION
+                ++counter.numCopiesHelped;
+            #endif
             UpdateNode *prev = (UpdateNode*)(v - COPY_BIT);
             uintptr_t r = prev->rSucc; //Read the successor 
             uintptr_t next = (r & NEXT_MASK);
             uintptr_t state = (r & STATUS_MASK); //Read the rNext and rState fields of prev.
             
             while(state == InsFlag){
+                #ifdef COUNT_CONTENTION
+                    ++counter.descsTraversedWhileCopying;
+                #endif
                 uint64_t seq = (next & SEQ_MASK) >> 12;
                 uint64_t proc = (next & PROC_MASK) >> 4;
                 InsertDescNode *desc = &descNodes[proc];
@@ -198,7 +300,7 @@ class PredecessorNode:  public BaseType{
 *Using 7 bags, since if an instance I puts a node N into a limbo bag, N will not be accessed once every instance at
 * distance 3 from I has terminated. 
 */
-Debra<BaseType, 7> trieDebra; 
+Debra<BaseType, 5> trieDebra; 
 
 //record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
 

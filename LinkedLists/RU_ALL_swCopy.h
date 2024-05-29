@@ -15,7 +15,6 @@
 #pragma once
 using std::string;
 
-#define testStats
 
 
 
@@ -113,6 +112,9 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
             uint64_t seqNum = desc->seqNum;
             assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->newNode = node;
+            #ifdef COUNT_CONTENTION
+                RUALLCounter &counter = ruallCounter[threadID];
+            #endif 
             while(1){
                 if(state == Normal){
                     //node should be placed further along in the list if next's key >= node's key
@@ -120,6 +122,9 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                         if(next == (uintptr_t)node)return;
                         curr = (UpdateNode*)next;
                         succ = curr->rSucc;
+                        #ifdef COUNT_CONTENTION
+                            ++counter.nodesTraversed;
+                        #endif
                     }
                     else{ //Next is either the tail or an update node with a smaller key than node.
                         if((node->rSucc & STATUS_MASK) == Marked){
@@ -135,6 +140,9 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                             desc->seqNum = seqNum + 1; //Increment the sequence number of insert descriptor node.
                             return;
                         }
+                        #ifdef COUNT_CONTENTION
+                            ++counter.numFailedCASes;
+                        #endif 
                     }
                 }
                 else if(state == InsFlag){ //prev.next was an Insert Descriptor Node. Help with insertion.
@@ -142,10 +150,16 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                     uint64_t procID = (next & PROC_MASK) >> 4;
                     //Help with insertion...
                     succ = helpInsert(curr,  seqNum, procID);
+                    #ifdef COUNT_CONTENTION
+                        ++counter.numInsertsHelped;
+                    #endif
                 }
                 else if(next == (uintptr_t)node)return; //node was already in the list.
                 else if(state == DelFlag){
                     succ = helpRemove(curr, (UpdateNode*)next);
+                    #ifdef COUNT_CONTENTION
+                        ++counter.numRemovesHelped;
+                    #endif 
                 }
                 else{
                     UpdateNode *prev = curr->rBacklink;
@@ -154,8 +168,14 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                     state = succ & STATUS_MASK;
                     if(state == DelFlag && (UpdateNode*)next == curr){ //Help remove curr from the list.
                         succ = helpMarked(prev, curr);
+                        #ifdef COUNT_CONTENTION
+                            ++counter.numMarksHelped;
+                        #endif 
                     }
                     curr = prev;
+                    #ifdef COUNT_CONTENTION
+                        ++counter.numBacktracks;
+                    #endif 
                 }
                 next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;
@@ -166,6 +186,9 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
             uintptr_t succ = curr->rSucc;
             uintptr_t next = succ & NEXT_MASK;
             uint64_t state = succ & STATUS_MASK;
+            #ifdef COUNT_CONTENTION
+                RUALLCounter &counter = ruallCounter[threadID];
+            #endif 
             while(1){
                 if(state == Normal){
                     [[likely]];
@@ -175,6 +198,9 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                     if((UpdateNode*)next != node){ //Advance...
                         curr = (UpdateNode*)next;
                         succ = curr->rSucc;
+                        #ifdef COUNT_CONTENTION
+                            ++counter.nodesTraversed;
+                        #endif
                     }
                     else{
                         succ = (uintptr_t)node;
@@ -183,6 +209,9 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                             helpRemove(curr, node);
                             return;
                         }
+                        #ifdef COUNT_CONTENTION
+                            ++counter.numFailedCASes;
+                        #endif 
                     }
                 }
                 else if(state == InsFlag){ //prev.next was an Insert Descriptor Node. Help with insertion.
@@ -190,6 +219,9 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                     uint64_t procID = (next & PROC_MASK) >> 4;
                     //Help with insertion...
                     succ = helpInsert(curr,  seqNum, procID);
+                    #ifdef COUNT_CONTENTION
+                        ++counter.numInsertsHelped;
+                    #endif
                 }
                 //If next points to an UpdateNode of smaller key, node was not in list.
                 else if((((UpdateNode*)next)->key < node->key)){ 
@@ -200,6 +232,9 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                     if((UpdateNode*)next == node){
                         return;
                     }
+                    #ifdef COUNT_CONTENTION
+                        ++counter.numRemovesHelped;
+                    #endif
                 }
                 else{
                     UpdateNode *prev = curr->rBacklink;
@@ -208,8 +243,14 @@ class RU_ALL_TYPE<AtomicCopyNotifyThreshold>{
                     state = succ & STATUS_MASK;
                     if(state == DelFlag && (UpdateNode*)next == curr){ //Help remove curr from the list.
                         succ = helpMarked(prev, curr);
+                        #ifdef COUNT_CONTENTION
+                            ++counter.numMarksHelped;
+                        #endif 
                     }
                     curr = prev;
+                    #ifdef COUNT_CONTENTION
+                        ++counter.numBacktracks;
+                    #endif 
                 }
                 next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;
