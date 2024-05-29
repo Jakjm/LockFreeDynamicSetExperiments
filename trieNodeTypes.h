@@ -84,7 +84,7 @@ class BaseType{
         uint64_t numCopiesHelped = 0;
         volatile char padding[128 - 9 * sizeof(uint64_t)];
         void printInfo(uint64_t numUpdateOps){
-            cout << "UALL Contention Information:" << std::endl;
+            cout << "RUALL Contention Information:" << std::endl;
             cout << "Nodes traversed while inserting/removing: " << nodesTraversed;
             cout << "(" << std::setprecision(5) << ((double)nodesTraversed / numUpdateOps) << " per update op)" << std::endl;
             cout << "Number of failed insert/removal CASes: " << numFailedCASes;
