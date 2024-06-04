@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <fstream>
 //#include <string>
 #include <string.h>
 #include <thread>
@@ -16,7 +17,7 @@
 
 using std::cout;
 #define NUM_OPS_BEFORE_TIME_CHECK 50 //The number of operations that should be performed in between each check if the experiment is over.
-
+#define OUTPUT_CSV_NAME "resultData.csv"
 //Data type used by a process to store information about its progress during the experiment.
 struct ProcessData{
     volatile uint64_t insCount;
@@ -58,14 +59,19 @@ struct ExperimentType{
     time(runtime), numProcs(threadCount), universeSize(universe), insertRate(inserts), removeRate(removes), predRate(preds), dynamicSetType(setType){
 
     }
+
+    
+
 };
 
 
 //Data type used to write information about an experiment and its results.
 struct ResultData{
-    ExperimentType experimentType; //Type of experiment
+    ExperimentType type; //Type of experiment
     
-    double actualTime; //Actual duration of experiment on average
+    uint64_t minStartTime, maxStartTime;
+    uint64_t minEndTime, maxEndTime;
+    double averageTime; //Actual duration of experiment on average
     uint64_t startTimeVariance; //Variance in start time in µs
     uint64_t endTimeVariance; //Variance in end time in µs
     uint64_t throughput; //Total ops performed by all processes
@@ -76,9 +82,105 @@ struct ResultData{
     uint64_t minOps; //Num ops performed by least productive thread
     double maxOpsPerSecond; //Ops/second of most productive thread
     double minOpsPerSecond; //Ops/second of least productive thread
+    double maxPercentageDiff; //Percentage diff between maximum and average productivity
+    double minPercentageDiff; //Percentage diff between average and min productivity
 
 
+    void writeLabels(std::ofstream &stream){
+        stream << "Expected Runtime(s),Num Processes,Universe Size,";
+        stream << "Insert Rate,Remove Rate,Pred Rate,Dynamic Set Type,";
+        stream << "Average Runtime(s),Start Time Variance(µs),End Time Variance(µs),";
+        stream << "Total Throughput,Throughput Per Second,Average Throughput,Average Throughput Per Second,";
+        stream << "Max Proc Throughput,Max Throughput Per Second,Max Exceeds Average by x%,";
+        stream << "Min Proc Throughput,Min Throughput Per Second,Min Below Average by x%";
+        stream << std::endl;
+    }
+    void writeValues(std::ofstream &stream){
+        stream << std::setprecision(8);
+        stream <<  type.time << "," << type.numProcs << "," << type.universeSize << ",";
+        stream << type.insertRate << "," << type.removeRate << "," << type.predRate << "," << type.dynamicSetType << ",";
+        stream << averageTime << "," << startTimeVariance << "," << endTimeVariance << ",";
+        stream << throughput << "," << throughputPerSecond << "," << averageThroughput << "," << averageThroughputPerSecond << ",";
+        stream << maxOps << "," << maxOpsPerSecond << "," << maxPercentageDiff << ",";
+        stream << minOps << "," << minOpsPerSecond << "," << minPercentageDiff;
+        stream << std::endl;
+    }
 
+
+    ResultData(ExperimentType exp_type, ExperimentData &data) : type(exp_type){
+        ProcessData &pData = data.pData[0];
+        minStartTime = maxStartTime = pData.startTime;
+        minEndTime = maxEndTime = pData.endTime;
+        throughput += pData.opCount;
+        minOps = pData.opCount;
+        maxOps = pData.opCount;
+
+        for(int i = 1;i < type.numProcs;++i){
+            pData = data.pData[i];
+            if(pData.startTime < minStartTime)minStartTime = pData.startTime;
+            else if(pData.startTime > maxStartTime)maxStartTime = pData.startTime;
+
+            if(pData.endTime < minEndTime)minEndTime = pData.endTime;
+            else if(pData.endTime > maxEndTime)maxEndTime = pData.endTime;
+
+            throughput += pData.opCount;
+            if(pData.opCount < minOps)minOps = pData.opCount;
+            else if(pData.opCount > maxOps)maxOps = pData.opCount;
+        }
+
+        startTimeVariance = maxStartTime - minStartTime;
+        endTimeVariance = maxEndTime - minEndTime;
+        uint64_t averageStart = (minStartTime + maxStartTime) / 2;
+        uint64_t averageEnd = (minEndTime + maxEndTime) / 2;
+        averageTime = (double)(averageEnd - averageStart) / 1000000;
+        throughputPerSecond = (double)throughput / averageTime;
+        averageThroughput = (double)throughput / type.numProcs;
+        averageThroughputPerSecond = averageThroughput / averageTime;
+        maxOpsPerSecond = maxOps / averageTime;
+        minOpsPerSecond = minOps / averageTime;
+        maxPercentageDiff = ((double)(maxOps / averageThroughput) - 1.0) * 100;
+        minPercentageDiff = (1.0 - (double)(minOps / averageThroughput)) * 100;
+    }
+
+    void printResults(){
+            cout << "Average actual time: " << std::setprecision(7) << averageTime << "s";
+            cout << " Start time variance: " << startTimeVariance << 
+            " µs End time variance: "  << endTimeVariance << " µs." << std::endl;
+            cout << "Total throughput of all threads: " << throughput;
+            cout << " ops ("  << throughputPerSecond << " ops/s)" << std::endl;
+            cout << "Average thread throughput: " << averageThroughput;
+            cout << " (" << averageThroughputPerSecond << " ops/s)." << std::endl;
+            cout << "Maximum thread throughput: " << maxOps << " (" << maxOpsPerSecond << " ops/s), ";
+            cout << std::setprecision(5) << maxPercentageDiff << "% above average" << std::endl;
+
+            cout << std::setprecision(7);
+            cout << "Minimum thread throughput: " << minOps << " (" << minOpsPerSecond << " ops/s), ";
+            cout << std::setprecision(5) << minPercentageDiff << "% below average" << std::endl;
+    }
+
+
+    //Write the experiment result data to a CSV file.
+    //TODO allow csv file to be specified or something?
+    void writeToCSV(){
+        string filename = OUTPUT_CSV_NAME;
+        std::ifstream stream(filename.c_str());
+        bool exists = stream.good();
+        stream.close();
+
+        std::ofstream os;
+        //If file did not already exist, write labels to CSV.
+        if(!exists){
+            os.open(filename.c_str());
+            writeLabels(os);
+        }
+        else{
+            os.open(filename.c_str(), std::ofstream::app);
+        }
+        writeValues(os);
+        os.close();
+        //Else....
+        cout << "Completed writing data to " << OUTPUT_CSV_NAME << "." << std::endl;
+    }
 };
 
 
@@ -154,73 +256,6 @@ void microsToStr(uint64_t micros, char *str){
     uint64_t mins = (micros % (60 * 60 * (uint64_t)1000000)) / (60 * 1000000);
     double seconds = (double)(micros % (60 * (uint64_t)1000000)) / 1000000;
     sprintf(str,"%02ld:%02ld:%02.6f",hours,mins,seconds);
-}
-// void outputData(int time, vector<int64_t> data[MAX_THREADS]){
-//     FILE *f = fopen("threadData.txt","w");
-//     for(int i = 0;i < MAX_THREADS;++i){
-//         fprintf(f, "%d ",i);
-//     }
-//     fprintf(f, "\n");
-//     for(uint64_t dp = 0;dp < (uint64_t)time * 20;++dp){
-//         for(int i = 0;i < MAX_THREADS;++i){
-//             if(data[i].size() > dp){
-//                 fprintf(f, "%ld ", data[i][dp]);
-//             }
-//             else{
-//                 fprintf(f, "  ");
-//             }
-//         }
-//         fprintf(f, "\n");
-//     }
-//     fclose(f);
-// }
-
-void assembleAndPrintStats(int numProcs, ExperimentData &data, bool verbose){
-    uint64_t minStartTime, maxStartTime;
-    uint64_t minEndTime, maxEndTime;
-    uint64_t totalThroughput = 0, minOps, maxOps;
-
-    ProcessData &pData = data.pData[0];
-    minStartTime = maxStartTime = pData.startTime;
-    minEndTime = maxEndTime = pData.endTime;
-    totalThroughput += pData.opCount;
-    minOps = pData.opCount;
-    maxOps = pData.opCount;
-
-    for(int i = 1;i < numProcs;++i){
-        pData = data.pData[i];
-        if(pData.startTime < minStartTime)minStartTime = pData.startTime;
-        else if(pData.startTime > maxStartTime)maxStartTime = pData.startTime;
-
-        if(pData.endTime < minEndTime)minEndTime = pData.endTime;
-        else if(pData.endTime > maxEndTime)maxEndTime = pData.endTime;
-
-        totalThroughput += pData.opCount;
-        if(pData.opCount < minOps)minOps = pData.opCount;
-        else if(pData.opCount > maxOps)maxOps = pData.opCount;
-    }
-
-    uint64_t averageStart = (minStartTime + maxStartTime) / 2;
-    uint64_t averageEnd = (minEndTime + maxEndTime) / 2;
-    double averageTime = (double)(averageEnd - averageStart) / 1000000;
-    double averageOps = (double)totalThroughput / numProcs;
-
-
-    cout << "Average actual time: " << std::setprecision(8)<< averageTime << "s";
-    cout << " Start time variance: " << std::setprecision(8) << (maxStartTime - minStartTime) << 
-    " µs End time variance: "  << std::setprecision(8) << (maxEndTime - minEndTime) << " µs." << std::endl;
-    cout << "Total throughput of all threads: " << totalThroughput;
-    cout << " ops (" <<std::setprecision(8) << (totalThroughput / averageTime) << " ops/s)" << std::endl;
-    cout << "Average thread throughput: " << averageOps;
-    cout << " (" << (averageOps / averageTime) << " ops/s)." << std::endl;
-    cout << "Maximum thread throughput: " << maxOps << " (" << (maxOps / averageTime) << " ops/s), ";
-    double percentageDiff = ((double)(maxOps / averageOps) - 1.0) * 100;
-    cout << std::setprecision(5) << percentageDiff << "% above average" << std::endl;
-
-    cout << "Minimum thread throughput: " << minOps << " (" << (minOps / averageTime) << " ops/s), ";
-    percentageDiff = (1.0 - (double)(minOps / averageOps)) * 100;
-    cout << std::setprecision(5) << percentageDiff << "% below average" << std::endl;
-
 }
 
 
@@ -302,38 +337,9 @@ void multithreadTest(DynamicSet *set, ExperimentType exp, bool verbose){
     }
 
     cout << "Experiment results:" << std::endl;
-    assembleAndPrintStats(exp.numProcs, data, verbose);
-    // for(int i = 0;i < numProcs;++i){
-    //         #ifdef COUNT_CONTENTION
-    //             uallCounter[i].printInfo(pData.opCount);
-    //             ruallCounter[i].printInfo(pData.opCount);
-    //             //pallCounter[i].printInfo(pData.numOps);
-    //         #endif
-    //     }
-    //     //cout << data.startTime[i].value() << " " << data.endTime[i].value() << std::endl;
-    // }
-}
-
-
-void simpleTest(){
-    threadID = 0;
-    Trie<> trie(3);
-    cout << "Simple test." << std::endl;
-    trie.printInterpretedBits();
-    trie.insert(3);
-    cout << "Inserted 3" << std::endl;
-    trie.printInterpretedBits();
-    int pred1 = trie.predecessor(2);
-    int pred2 = trie.predecessor(5);
-    cout << "Pred(2): " << pred1 << " Pred(5): " << pred2 << std::endl;
-    trie.insert(5);
-    cout << "Inserted 5" << std::endl;
-    trie.printInterpretedBits();
-    cout << "Pred(5): " << trie.predecessor(5) << " Pred(7): " << trie.predecessor(7) << std::endl;
-    cout << "Del(3)" << std::endl;
-    trie.remove(3);
-    cout << "Del(5)" << std::endl;
-    trie.printInterpretedBits();
+    ResultData results(exp, data);
+    results.printResults();
+    results.writeToCSV();
 }
 
 int experimentProg(int argc, char **argv){

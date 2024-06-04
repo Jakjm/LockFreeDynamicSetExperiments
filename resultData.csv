@@ -1,0 +1,3 @@
+Expected Runtime(s),Num Processes,Universe Size,Insert Rate,Remove Rate,Pred Rate,Dynamic Set Type,Average Runtime(s),Start Time Variance(µs),End Time Variance(µs),Total Throughput,Throughput Per Second,Average Throughput,Average Throughput Per Second,Max Proc Throughput,Max Throughput Per Second,Max Exceeds Average by x%,Min Proc Throughput,Min Throughput Per Second,Min Below Average by x%
+5,4,1048576,1,1,2,Jeremy's Trie,5.000042,0,19,12817950,2563568.5,3204487.5,640892.12,3227450,645484.58,0.71657324,3171550,634304.67,1.0278555
+5,4,1048576,1,1,2,Jeremy's Trie,5.00001,0,16,12557350,2511465,3139337.5,627866.24,3150100,630018.74,0.34282711,3129250,625848.75,0.32132576

@@ -10,7 +10,7 @@ struct DynamicSet{
     virtual void remove(int64_t x) = 0;
     virtual int64_t predecessor(int64_t x) = 0;
     virtual bool search(int64_t) = 0;
-    std::string name(){
+    virtual std::string name(){
         return "dynamic set type not set";
     }
     virtual void prefill(uint64_t universeSize, uint64_t numValues){
