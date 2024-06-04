@@ -1,14 +1,12 @@
-#include "DynamicSet.h"
-#include "trie.h"
-#include "OtherDynamicSets/FRSkipList.h"
-#include "OtherDynamicSets/FRList.h"
+#include "DynamicSets/Trie/trie.h"
+#include "DynamicSets/FR_SkipList/FRSkipList.h"
+#include "DynamicSets/FR_List/FRList.h"
 #include "common.h"
-#include "trieNodeTypes.h"
 #include <cstdio>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
-#include <string>
+//#include <string>
 #include <string.h>
 #include <thread>
 #include <unistd.h>
@@ -261,9 +259,9 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
             cout << "finished at " << timeStr << "." << std::endl << std::endl;
 
             #ifdef COUNT_CONTENTION
-                uint64_t numUpdateOps = pData.insCount + pData.remCount;
-                uallCounter[i].printInfo(numUpdateOps);
-                ruallCounter[i].printInfo(numUpdateOps);
+                uallCounter[i].printInfo(pData.opCount);
+                ruallCounter[i].printInfo(pData.opCount);
+                //pallCounter[i].printInfo(pData.numOps);
             #endif
         }
         //cout << data.startTime[i].value() << " " << data.endTime[i].value() << std::endl;
