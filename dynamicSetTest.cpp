@@ -1,7 +1,9 @@
+#include "DynamicSets/DynamicSet.h"
 #include "DynamicSets/Trie/trie.h"
 #include "DynamicSets/FR_SkipList/FRSkipList.h"
 #include "DynamicSets/FR_List/FRList.h"
 #include "common.h"
+#include "DynamicSets/Trie/trieNodeTypes.h"
 #include <cstdio>
 #include <cstdlib>
 #include <iomanip>
@@ -15,7 +17,7 @@
 using std::cout;
 #define NUM_OPS_BEFORE_TIME_CHECK 50 //The number of operations that should be performed in between each check if the experiment is over.
 
-
+//Data type used by a process to store information about its progress during the experiment.
 struct ProcessData{
     volatile uint64_t insCount;
     volatile uint64_t remCount;
@@ -42,6 +44,43 @@ struct ExperimentData{
     }
 };
 
+//Struct which contains variables which uniquely define a kind of experiment.
+struct ExperimentType{
+    double time; //Scheduled duration of experiment
+    int numProcs; //Number of threads that participated
+    int64_t universeSize; //Number of keys in the universe
+    //Ratio of insert ops to remove ops to pred ops.
+    int64_t insertRate; 
+    int64_t removeRate;
+    int64_t predRate;
+    string dynamicSetType; //Name of dynamic set used during experiment.
+    ExperimentType(double runtime, int threadCount, int64_t universe, int64_t inserts, int64_t removes, int64_t preds, string setType) : 
+    time(runtime), numProcs(threadCount), universeSize(universe), insertRate(inserts), removeRate(removes), predRate(preds), dynamicSetType(setType){
+
+    }
+};
+
+
+//Data type used to write information about an experiment and its results.
+struct ResultData{
+    ExperimentType experimentType; //Type of experiment
+    
+    double actualTime; //Actual duration of experiment on average
+    uint64_t startTimeVariance; //Variance in start time in µs
+    uint64_t endTimeVariance; //Variance in end time in µs
+    uint64_t throughput; //Total ops performed by all processes
+    double throughputPerSecond; //Throughput divided by actual time in seconds
+    double averageThroughput; //Average ops performed by process
+    double averageThroughputPerSecond; //Average thread throughput per second
+    uint64_t maxOps; //Num ops performed by most productive thread
+    uint64_t minOps; //Num ops performed by least productive thread
+    double maxOpsPerSecond; //Ops/second of most productive thread
+    double minOpsPerSecond; //Ops/second of least productive thread
+
+
+
+};
+
 
 
 /**
@@ -51,29 +90,29 @@ struct ExperimentData{
 * Then the process will perform this update or predecessor operation with a randomly generated integer key, from 0 to range inclusive.
 * id is the ID of the process performing the experiment.
 */
-void randomExperiment(DynamicSet *set, int numProcs, int64_t universeSize, double time, int id, ExperimentData *data, long insertRate, long removeRate, long predRate){
+void randomExperiment(DynamicSet *set, int id, ExperimentData *data, ExperimentType type){
     threadID = id;
     uint64_t opCount = 0;
     
     ++data->numReady;
-    while(data->numReady != numProcs){ //Continue iterating while not all threads are ready...
+    while(data->numReady != type.numProcs){ //Continue iterating while not all threads are ready...
     }
 
     uint64_t startTime = micros();
     uint64_t currentTime = startTime;
-    uint64_t endTime = startTime + (time * 1000000);
+    uint64_t endTime = startTime + (type.time * 1000000);
     uint64_t insCount = 0, remCount = 0, predCount = 0;
-    int ratioTotal = insertRate + removeRate + predRate;
+    int ratioTotal = type.insertRate + type.removeRate + type.predRate;
     while(currentTime < endTime && !(data->done)){
         //Perform a series of operations....
         for(int i = 0;i < NUM_OPS_BEFORE_TIME_CHECK;++i){
-            int64_t key = rng(universeSize); //Key of the operation that will be performed...
+            int64_t key = rng(type.universeSize); //Key of the operation that will be performed...
             int coinFlip = rng(ratioTotal);
-            if(coinFlip < insertRate){ //Perform an insert operation at insertRate / ratioTotal percent chance.
+            if(coinFlip < type.insertRate){ //Perform an insert operation at insertRate / ratioTotal percent chance.
                 set->insert(key); 
                 ++insCount;
             }
-            else if(coinFlip < (insertRate + removeRate)){ //Perform a remove operation at removeRate / ratioTotal percent chance.
+            else if(coinFlip < (type.insertRate + type.removeRate)){ //Perform a remove operation at removeRate / ratioTotal percent chance.
                 set->remove(key);
                 ++remCount;
             }
@@ -98,10 +137,10 @@ void randomExperiment(DynamicSet *set, int numProcs, int64_t universeSize, doubl
 }
 //Converts current time in milliseconds millis into the current hour, minute and second in Eastern Time.
 //millis is the current time in milliseconds.
-void calcTime(long millis, int &hours, int &minutes, int &seconds){
+void calcTime(int64_t millis, int &hours, int &minutes, int &seconds){
     millis -= (5 * 60 * 60 * 1000); //Subtract five hours for EST.
-    long numDays = millis / (60 * 60 * 24 * 1000);
-    long time = millis - numDays * (60 * 60 * 24 * 1000);
+    int64_t numDays = millis / (60 * 60 * 24 * 1000);
+    int64_t time = millis - numDays * (60 * 60 * 24 * 1000);
     hours = time / (60 * 60 * 1000);
     minutes = time % (60 * 60 * 1000) / 60000;
     seconds = time % (60000) / 1000; 
@@ -136,68 +175,83 @@ void microsToStr(uint64_t micros, char *str){
 //     fclose(f);
 // }
 
+void assembleAndPrintStats(int numProcs, ExperimentData &data, bool verbose){
+    uint64_t minStartTime, maxStartTime;
+    uint64_t minEndTime, maxEndTime;
+    uint64_t totalThroughput = 0, minOps, maxOps;
+
+    ProcessData &pData = data.pData[0];
+    minStartTime = maxStartTime = pData.startTime;
+    minEndTime = maxEndTime = pData.endTime;
+    totalThroughput += pData.opCount;
+    minOps = pData.opCount;
+    maxOps = pData.opCount;
+
+    for(int i = 1;i < numProcs;++i){
+        pData = data.pData[i];
+        if(pData.startTime < minStartTime)minStartTime = pData.startTime;
+        else if(pData.startTime > maxStartTime)maxStartTime = pData.startTime;
+
+        if(pData.endTime < minEndTime)minEndTime = pData.endTime;
+        else if(pData.endTime > maxEndTime)maxEndTime = pData.endTime;
+
+        totalThroughput += pData.opCount;
+        if(pData.opCount < minOps)minOps = pData.opCount;
+        else if(pData.opCount > maxOps)maxOps = pData.opCount;
+    }
+
+    uint64_t averageStart = (minStartTime + maxStartTime) / 2;
+    uint64_t averageEnd = (minEndTime + maxEndTime) / 2;
+    double averageTime = (double)(averageEnd - averageStart) / 1000000;
+    double averageOps = (double)totalThroughput / numProcs;
+
+
+    cout << "Average actual time: " << std::setprecision(8)<< averageTime << "s";
+    cout << " Start time variance: " << std::setprecision(8) << (maxStartTime - minStartTime) << 
+    " µs End time variance: "  << std::setprecision(8) << (maxEndTime - minEndTime) << " µs." << std::endl;
+    cout << "Total throughput of all threads: " << totalThroughput;
+    cout << " ops (" <<std::setprecision(8) << (totalThroughput / averageTime) << " ops/s)" << std::endl;
+    cout << "Average thread throughput: " << averageOps;
+    cout << " (" << (averageOps / averageTime) << " ops/s)." << std::endl;
+    cout << "Maximum thread throughput: " << maxOps << " (" << (maxOps / averageTime) << " ops/s), ";
+    double percentageDiff = ((double)(maxOps / averageOps) - 1.0) * 100;
+    cout << std::setprecision(5) << percentageDiff << "% above average" << std::endl;
+
+    cout << "Minimum thread throughput: " << minOps << " (" << (minOps / averageTime) << " ops/s), ";
+    percentageDiff = (1.0 - (double)(minOps / averageOps)) * 100;
+    cout << std::setprecision(5) << percentageDiff << "% below average" << std::endl;
+
+}
+
+
 //time is the duration of the test in seconds.
 //numProcs is the number of threads that will participate in the test.
 //trieHeight is the base-2 logarithm of the universe size.
 //prefill is the amount the data structure should be prefilled prior to testing.
-void multithreadTest(char *setType, double time, int numProcs, int trieHeight, double prefill, bool verbose, int insertRate, int removeRate, int predRate){
+void multithreadTest(DynamicSet *set, ExperimentType exp, bool verbose){
     threadID=0;
-    
-    int universeSize = (1 << trieHeight); //The number of keys in the universe.
-
-    Trie<NotifDescNotifyThreshold> trieSetNotifDesc(trieHeight);
-    Trie<AtomicCopyNotifyThreshold> trieSetSwCopy(trieHeight);
-    LinkedListSet listSet;
-    SkipListSet<25> skipList;
-    
-    trieDebra.setActiveThreads(numProcs);
-    //bufferDebra.setActiveThreads(numProcs);
-    keyNodeDebra.setActiveThreads(numProcs);
-    skipDebra.setActiveThreads(numProcs);
-    DynamicSet *set;
-    
-	if(strcmp(setType,"trie") == 0 || strcmp(setType, "trieSwCopy") == 0){
-        set = &trieSetSwCopy;
-    }
-    else if(strcmp(setType, "skip") == 0){
-        set = &skipList;
-    }
-    else if(strcmp(setType, "list") == 0){
-        set = &listSet;
-    }
-    else{ // if(strcmp(setType, "trieSwCopy") == 0 ){
-        set = &trieSetNotifDesc;
-    }
-
     std::thread *th[MAX_THREADS];
+    //Prefill the set to a certain amount full
 
-    //Prefill the set to 50% full
-    std::set<int64_t> valSet;
-    while(valSet.size() < ceil(universeSize * prefill)){
-        int64_t key = rng(universeSize);
-        set->insert(key);
-        valSet.insert(key);
-    }
+    double prefillRate = (double)exp.insertRate / (exp.insertRate + exp.removeRate);
+    int64_t prefillAmount = ceil(exp.universeSize * prefillRate);
+    set->prefill(exp.universeSize,prefillAmount);
     
     ExperimentData data;
-    //volatile int64_t opCount[MAX_THREADS];
-    //vector<int64_t> dataPoints[MAX_THREADS];
-    if(verbose){
-        cout << numProcs << " threads performing random ops for " << std::setprecision(5) << time << " seconds on " << set->name() << "." << std::endl;
-        cout << "Ratio of " << insertRate << " insert ops to " << removeRate << " remove ops to " << predRate << " predecessor ops." << std::endl;
-        cout << "Keys drawn uniformly from universe of " << universeSize << " keys" << std::endl;
-        cout << "Prior to start, the structure was filled with exactly " << valSet.size() << " keys." << std::endl;
-        
-        int hours, minutes, seconds;
-        calcTime(millis(), hours, minutes, seconds);
-        printf("Test starting at %02d:%02d:%02d\n",hours,minutes,seconds);
-        calcTime(millis() + time * 1000, hours, minutes, seconds);
-        printf("Test will finish at %02d:%02d:%02d\n\n",hours,minutes,seconds);
-    }
+    cout << "Performing an experiment in which " << exp.numProcs << " threads will perform ops on "  << set->name() << " during " << exp.time << " seconds." << std::endl;
+    cout << "Ratio of " << exp.insertRate << " insert ops to " << exp.removeRate << " remove ops to " << exp.predRate << " predecessor ops." << std::endl;
+    cout << "Keys drawn uniformly from universe of " << exp.universeSize << " keys" << std::endl;
+    cout << "Prior to start, the structure was filled with exactly " << prefillAmount << " keys." << std::endl;
+    
+    int hours, minutes, seconds;
+    calcTime(millis(), hours, minutes, seconds);
+    printf("Test starting at %02d:%02d:%02d\n",hours,minutes,seconds);
+    calcTime(millis() + exp.time * 1000, hours, minutes, seconds);
+    printf("Test will finish at %02d:%02d:%02d\n\n",hours,minutes,seconds);
     //cout << "Perf FDs: " << perfControlFDStr << "," << perfAckFDStr << std::endl;
     //Allocate NUMTHREADS threads
-    for(int id = 0;id < numProcs;++id){
-        th[id] = new std::thread(randomExperiment, set, numProcs, universeSize, time, id, &data, insertRate, removeRate, predRate);
+    for(int id = 0;id < exp.numProcs;++id){
+        th[id] = new std::thread(randomExperiment, set, id, &data, exp);
     }
 
     int perfControlFD = -1;
@@ -221,7 +275,7 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
     
     if(perfControlFD != -1){
         //Put the thread asleep for time seconds to ensure it's not consuming cpu time during experiment.
-        long sleep_duration = time * 1000;
+        int64_t sleep_duration = exp.time * 1000;
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
         
         //Send disable message to perf, before joining processes to ensure statistics are not messed up. 
@@ -236,39 +290,30 @@ void multithreadTest(char *setType, double time, int numProcs, int trieHeight, d
     }
     else{
         //Put the thread to sleep for time seconds plus 50 millis to ensure thread is not used in the place of others.
-        long sleep_duration = time * 1000 + 50;
+        int64_t sleep_duration = exp.time * 1000 + 50;
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
     }
 
-    long totalThroughput = 0;
-    char timeStr[50];
-    for(int i = 0;i < numProcs;++i){
+   // int64_t totalThroughput = 0;
+    //char timeStr[50];
+    for(int i = 0;i < exp.numProcs;++i){
         th[i]->join();
         delete th[i];
     }
-    for(int i = 0;i < numProcs;++i){
-        ProcessData &pData = data.pData[i];
-        totalThroughput += pData.opCount;
-        if(verbose){
-            cout << "Thread " << i << " performed " << pData.opCount << " ops, for an average of ";
-            cout << std::setprecision(8) << ((double)pData.opCount / time) << " ops/sec." << std::endl;
-            cout << "Number of Inserts: " << pData.insCount << " Removes: " << pData.remCount << " Predecessors: " << pData.predCount << std::endl;
-            microsToStr(pData.startTime, &timeStr[0]);
-            cout << "Started at " << timeStr << ", ";
-            microsToStr(pData.endTime, &timeStr[0]);
-            cout << "finished at " << timeStr << "." << std::endl << std::endl;
 
-            #ifdef COUNT_CONTENTION
-                uallCounter[i].printInfo(pData.opCount);
-                ruallCounter[i].printInfo(pData.opCount);
-                //pallCounter[i].printInfo(pData.numOps);
-            #endif
-        }
-        //cout << data.startTime[i].value() << " " << data.endTime[i].value() << std::endl;
-    }
-
-    cout << "Total throughput (in ops): " << totalThroughput << std::endl;
+    cout << "Experiment results:" << std::endl;
+    assembleAndPrintStats(exp.numProcs, data, verbose);
+    // for(int i = 0;i < numProcs;++i){
+    //         #ifdef COUNT_CONTENTION
+    //             uallCounter[i].printInfo(pData.opCount);
+    //             ruallCounter[i].printInfo(pData.opCount);
+    //             //pallCounter[i].printInfo(pData.numOps);
+    //         #endif
+    //     }
+    //     //cout << data.startTime[i].value() << " " << data.endTime[i].value() << std::endl;
+    // }
 }
+
 
 void simpleTest(){
     threadID = 0;
@@ -296,9 +341,7 @@ int experimentProg(int argc, char **argv){
     int numProcs = 4;
     int keyRange = 20;
     bool verbose = false;
-    char defaultType[5] = "trie";
     char *setType = NULL;
-    double prefill;
     int insertRatio = 1, removeRatio = 1, predRatio = 2;
 
     if(argc == 2 && ((strcmp(argv[1], "-h") == 0) || (strcmp(argv[1], "--help") == 0))){
@@ -361,7 +404,9 @@ int experimentProg(int argc, char **argv){
                 verbose = true;
                 curArg += 1;
             }
+            //If type of dynamic set has not been specified
             else if(!setType){
+                //If this is a supported dynamic set...
                 if(strcmp(currentParam, "--list") == 0 || strcmp(currentParam, "--skip") == 0 || 
 					strcmp(currentParam, "--trie") == 0 || strcmp(currentParam, "--trieSwCopy") == 0|| 
 					strcmp(currentParam, "--trieNotifDesc") == 0){
@@ -379,9 +424,32 @@ int experimentProg(int argc, char **argv){
             }
         }
     }
-    if(!setType)setType = defaultType;
-    prefill = (double)insertRatio / (insertRatio + removeRatio);
-    multithreadTest(setType, runtime, numProcs, keyRange, prefill, verbose, insertRatio, removeRatio, predRatio);
+
+    DynamicSet *set;
+    Trie<NotifDescNotifyThreshold> trieSetNotifDesc(keyRange);
+    Trie<AtomicCopyNotifyThreshold> trieSetSwCopy(keyRange);
+    LinkedListSet listSet;
+    SkipListSet<25> skipList;
+    trieDebra.setActiveThreads(numProcs);
+    keyNodeDebra.setActiveThreads(numProcs);
+    skipDebra.setActiveThreads(numProcs);
+
+    if(!setType || strcmp(setType,"trie") == 0 || strcmp(setType, "trieSwCopy") == 0){
+        set = &trieSetSwCopy;
+    }
+    else if(strcmp(setType, "skip") == 0){
+        set = &skipList;
+    }
+    else if(strcmp(setType, "list") == 0){
+        set = &listSet;
+    }
+    else{ // if(strcmp(setType, "trieSwCopy") == 0 ){
+        set = &trieSetNotifDesc;
+    }
+
+
+    ExperimentType experimentType(runtime, numProcs, (1 << keyRange), insertRatio, removeRatio, predRatio, set->name());
+    multithreadTest(set, experimentType, verbose);
     return 0;
 }
 
