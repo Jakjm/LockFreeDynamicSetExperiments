@@ -1,5 +1,5 @@
 #Header file dependencies of all data structures and of dynamicSetTest 
-common = common.h DynamicSets/debra.h 
+common = common.h DynamicSets/debra.h DynamicSets/DynamicSet.h
 #Header file dependencies of the other data structures 
 dataStructures = DynamicSets/FR_List/FRList.h DynamicSets/FR_SkipList/FRSkipList.h 
 #Header files used for trie data structure

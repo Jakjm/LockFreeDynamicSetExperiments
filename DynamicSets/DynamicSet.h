@@ -13,7 +13,7 @@ struct DynamicSet{
     std::string name(){
         return "dynamic set type not set";
     }
-    void prefill(uint64_t universeSize, uint64_t numValues){
+    virtual void prefill(uint64_t universeSize, uint64_t numValues){
         std::set<int64_t> valSet;
         while(valSet.size() < numValues){
             int64_t key = rng(universeSize);

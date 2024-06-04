@@ -73,6 +73,22 @@ class LinkedListSet : public DynamicSet {
                 //listRecordMgr.deinitThread(i);
             //}
         }
+        //Prefill the linked list to contain numValues values from a universe of universeSize keys.
+        //Much more efficient then just starting a search every time to prefill.
+        void prefill(uint64_t universeSize, uint64_t numValues){
+            std::set<int64_t> valSet;
+            while(valSet.size() < numValues){
+                int64_t key = rng(universeSize);
+                valSet.insert(key);
+            }
+            KeyNode *curr = &head;
+            for(int64_t val : valSet){
+                KeyNode *newNode = new KeyNode(val);
+                newNode->successor = (uintptr_t)&tail;
+                curr->successor = (uintptr_t)newNode;
+                curr = newNode;
+            }
+        }
         //Precondition: prev.successor was <delNode, DelFlag> at an earlier point, and delNode is Marked.
         uintptr_t helpMarked(KeyNode *prev, KeyNode *delNode){
             KeyNode *next = (KeyNode*)((delNode->successor) & NEXT_MASK);
