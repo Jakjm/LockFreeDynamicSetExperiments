@@ -2,6 +2,8 @@
 #include "DynamicSets/Trie/trie.h"
 #include "DynamicSets/FR_SkipList/FRSkipList.h"
 #include "DynamicSets/FR_List/FRList.h"
+#include "DynamicSets/SkipTrie/skiptrie.h"
+#include "DynamicSets/FR_Augmented_Trie/augmentedTrie.h"
 #include "common.h"
 #include "DynamicSets/Trie/trieNodeTypes.h"
 #include <cstdio>
@@ -209,7 +211,7 @@ void randomExperiment(DynamicSet *set, int id, ExperimentData *data, ExperimentT
         //Perform a series of operations....
         for(int i = 0;i < NUM_OPS_BEFORE_TIME_CHECK;++i){
             int64_t key = rng(type.universeSize); //Key of the operation that will be performed...
-            int coinFlip = rng(ratioTotal);
+            int coinFlip = rng(ratioTotal); //Generate a number between 0 and ratioTotal - 1
             if(coinFlip < type.insertRate){ //Perform an insert operation at insertRate / ratioTotal percent chance.
                 set->insert(key); 
                 ++insCount;
@@ -415,7 +417,7 @@ int experimentProg(int argc, char **argv){
                 //If this is a supported dynamic set...
                 if(strcmp(currentParam, "--list") == 0 || strcmp(currentParam, "--skip") == 0 || 
 					strcmp(currentParam, "--trie") == 0 || strcmp(currentParam, "--trieSwCopy") == 0|| 
-					strcmp(currentParam, "--trieNotifDesc") == 0){
+					strcmp(currentParam, "--trieNotifDesc") == 0 || strcmp(currentParam, "--augTrie")){
                     setType = &currentParam[2]; //Remove two dashes...
                 }
                 else{
@@ -436,6 +438,7 @@ int experimentProg(int argc, char **argv){
     Trie<AtomicCopyNotifyThreshold> trieSetSwCopy(keyRange);
     LinkedListSet listSet;
     SkipListSet<25> skipList;
+    AS_Trie augmentedTrie(keyRange);
     trieDebra.setActiveThreads(numProcs);
     keyNodeDebra.setActiveThreads(numProcs);
     skipDebra.setActiveThreads(numProcs);
@@ -448,6 +451,9 @@ int experimentProg(int argc, char **argv){
     }
     else if(strcmp(setType, "list") == 0){
         set = &listSet;
+    }
+    else if(strcmp(setType, "augTrie") == 0){
+        set = &augmentedTrie;
     }
     else{ // if(strcmp(setType, "trieSwCopy") == 0 ){
         set = &trieSetNotifDesc;

@@ -41,13 +41,13 @@ struct SkipListPool{
 SkipListPool pool[MAX_THREADS];
 Debra<SkipNode, 7> skipDebra;
 
-template <int maxLevels>
+template <int numLevels> 
 class SkipListSet : public DynamicSet{
     public:
-    SkipNode head[maxLevels];
+    SkipNode head[numLevels];
     SkipNode tail;
     SkipListSet() : tail(INT64_MAX) {
-        for(int i = 0;i < maxLevels;++i){
+        for(int i = 0;i < numLevels;++i){
             head[i].succ = (uintptr_t)&tail;
             head[i].key = -1;
             head[i].root = &head[0];
@@ -61,7 +61,7 @@ class SkipListSet : public DynamicSet{
         tail.root = &tail;
     }
     ~ SkipListSet(){
-        for(int lv = maxLevels-1; lv >= 0;--lv){
+        for(int lv = numLevels-1; lv >= 0;--lv){
             SkipNode *cur = (SkipNode*)(head[lv].succ & NEXT_MASK); 
             SkipNode *next;
             while(cur != &tail){
@@ -149,6 +149,7 @@ class SkipListSet : public DynamicSet{
         }
     }
 
+    //Returns next and curr such that curr.key <= k < next.key
     SkipNode *searchRight(int64_t k, SkipNode *&curr){
         uintptr_t succ = curr->succ;
         SkipNode *next = (SkipNode*)(succ & NEXT_MASK);      
@@ -190,7 +191,7 @@ class SkipListSet : public DynamicSet{
         int curLevel = level;
         uintptr_t succ = head[curLevel + 1].succ;
         SkipNode *next = (SkipNode*)(succ & NEXT_MASK);
-        while(next != &tail && curLevel < maxLevels - 1){
+        while(next != &tail && curLevel < numLevels - 1){
             ++curLevel;
 
             succ = head[curLevel + 1].succ;
@@ -267,7 +268,8 @@ class SkipListSet : public DynamicSet{
     void insert(int64_t k){
         skipDebra.startOp();
         SkipNode *curr, *next;
-        curr = searchToLevel(k, 0, next);
+        stack<SkipNode*> startingPlaces;
+        curr = searchToLevel(k, 0, next, startingPlaces);
         if(curr->key == k){
             skipDebra.endOp();
             return;
@@ -276,7 +278,8 @@ class SkipListSet : public DynamicSet{
         SkipNode *newNode = newRoot;
         SkipNode *lastNode;
         int height = 1;
-        while(rng(2) == 0 && height < maxLevels - 1){
+        //Continue increasing height up to max level while flipping a fair coin
+        while(rng(2) == 0 && height < numLevels - 1){
             ++height;
         }
         int level = 0;
@@ -286,8 +289,6 @@ class SkipListSet : public DynamicSet{
             newNode->key = k;
             newNode->down = lastNode;
             newNode->root = newRoot;
-            //assert(newNode->down != nullptr);
-            //assert(newNode->key == k);
 
             //If insertion of node has failed, and this is the first level, keep node for subsequent insertion...
             SkipNode *result = insertNode(newNode, curr, next);
@@ -309,7 +310,15 @@ class SkipListSet : public DynamicSet{
                 skipDebra.endOp();
                 return;
             }
-            curr = searchToLevel(k, level, next);
+
+            
+            if(startingPlaces.empty()){ 
+                curr = searchToLevel(k, level, next, startingPlaces);
+            }
+            else{
+                curr = startingPlaces.top();
+                startingPlaces.pop();
+            }
         }
         skipDebra.endOp();
     }
@@ -325,14 +334,20 @@ class SkipListSet : public DynamicSet{
     void remove(int64_t k){
         skipDebra.startOp();
         SkipNode *curr, *delNode;
-        curr = searchToLevel(k-1,0, delNode);
+        stack<SkipNode*> startingPlaces;
+        curr = searchToLevel(k-1,0, delNode, startingPlaces);
         if(delNode->key != k){ //delNode does not have key k so we will not remove it.
             skipDebra.endOp();
             return;
         }
         removeNode(curr, delNode);
+        int level = 1;
+        while(startingPlaces.empty()){
+
+            ++level;
+        }
         SkipNode *next;
-        searchToLevel(k,1, next); //Delete nodes at other levels of the tower
+        searchToLevel(k,level, next); //Delete nodes at other levels of the tower
         skipDebra.endOp();
     }
     int64_t predecessor(int64_t k){
@@ -369,7 +384,7 @@ class SkipListSet : public DynamicSet{
 
     //Thread safe way of printing list
     void printList(){
-        for(int i = maxLevels - 1; i >= 0; --i){
+        for(int i = numLevels - 1; i >= 0; --i){
             std::ostringstream stream;
             SkipNode *node = &head[i];
             uintptr_t succ;

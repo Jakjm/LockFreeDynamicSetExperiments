@@ -1,6 +1,0 @@
-\frametitle{Reads and Writes to individual bits}
-Reading a particular bit atomically is trivial. Can a byte and then use bitshifting.
-
-But what about writing 0 to particular bit? We can use $fetch\&and$!
-
-To write 0 to bit $i$ of a particular byte $a$ atomically, we can use $a.FAA(11111111_2 - (1 << (7 - i)))$

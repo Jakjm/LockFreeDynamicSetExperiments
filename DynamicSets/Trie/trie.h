@@ -230,7 +230,6 @@ class Trie : public DynamicSet{
 
             //UpdateNode *latestNext = uNode->latestNext;
             //if(latestNext){
-                //latestNext->status = STALE;
                 
                 //Set uNode->latestNext to nullptr
             UpdateNode *latestNext = uNode->latestNext.exchange(nullptr); 
@@ -432,7 +431,6 @@ class Trie : public DynamicSet{
         #endif
         iNode->key = x;
         iNode->latestNext = dNode;
-        //latestNext->status = STALE;
         //dNode->latestNext = nullptr
         UpdateNode *latestNext = dNode->latestNext.exchange(nullptr); 
         //If latestNext was removed by this exchange operation....
@@ -460,7 +458,6 @@ class Trie : public DynamicSet{
         ruall.insert(iNode);
         iNode->status = ACTIVE;
         //iNode->status.compare_exchange_strong( expectedStatus, ACTIVE);
-        //dNode->status = STALE;
         
         //Instead of iNode->latestNext = nullptr, use swap to determine if this swap removes 
         UpdateNode *result = iNode->latestNext.exchange(nullptr); 
@@ -476,7 +473,6 @@ class Trie : public DynamicSet{
         notifyPredOps(iNode); //Notify predecessor operations that this insertion is in progress...
 
         //for each node uNode in U-ALL with uNode.key = x before and including v do
-            //uNode.status = STALE
 
         uall.remove(iNode);
         ruall.remove(iNode);

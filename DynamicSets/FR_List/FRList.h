@@ -28,7 +28,7 @@ struct KeyNode {
 Debra<KeyNode, 7> keyNodeDebra;
 
 //Structure used to store pointers to KeyNodes that go unused after allocations.
-//On subsequent insert/delete operations by the same thread, the previouslly allocated insert/delete node can be used again.
+//On subsequent insert/delete operations by the same thread, the previouslly allocated KeyNode can be used again.
 struct KeyNodePool{
     KeyNode *keyNode;
     volatile char padding[64-sizeof(KeyNode*)];
@@ -40,8 +40,6 @@ struct KeyNodePool{
     }
 };
 KeyNodePool keyNodePool[MAX_THREADS];
-#define reuse 1 //If reuse is defined, update nodes that are not inserted into the trie will be reused.
-
 //An implementation of Eric Ruppert and Michhail Fomitchev's Lock-Free Linked List
 //Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert
 class LinkedListSet : public DynamicSet {
@@ -132,12 +130,6 @@ class LinkedListSet : public DynamicSet {
             uint64_t state = succ & STATUS_MASK;
             KeyNode *newNode = keyNodePool[threadID].keyNode;
             newNode->key = key;
-            #ifdef reuse
-            //else newNode = new KeyNode(key);
-            //listRecordMgr.allocate<KeyNode>(threadID, key); 
-            #else
-            newNode = listRecordMgr.allocate<KeyNode>(threadID, key); 
-            #endif
             while(((KeyNode*)next)->key != key){
                 if(state == Normal){
                     if(key > ((KeyNode*)next)->key){ //node should be placed further along in the list if next <= key
@@ -149,9 +141,7 @@ class LinkedListSet : public DynamicSet {
                         succ = (uintptr_t)next;
                         curr->successor.compare_exchange_strong(succ, (uintptr_t)newNode);
                         if(succ == (uintptr_t)next){ //If the CAS succeeded, node has been successfully inserted and the operation can stop.
-                            #ifdef reuse
-                            keyNodePool[threadID].keyNode = new KeyNode(); //Do not reuse keynode...
-                            #endif
+                            keyNodePool[threadID].keyNode = new KeyNode(); //Need a new node for pool...
                             keyNodeDebra.endOp();
                             return;
                         }
@@ -174,10 +164,6 @@ class LinkedListSet : public DynamicSet {
                 next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;
             }
-            #ifdef reuse 
-            #else 
-            listRecordMgr.deallocate(threadID, newNode); //Reclaim node every time...
-            #endif 
             keyNodeDebra.endOp();
         }
         void remove(int64_t key){

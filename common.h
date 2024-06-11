@@ -27,7 +27,7 @@ uint64_t millis(){
     return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
 }
 
-//Produces a random integer between 0 and range (inclusive).
+//Produces a random integer between 0 and range (not inclusive).
 inline int rng(int range){
     //A random number seed that is local to this thread.
 	thread_local static std::random_device seed;

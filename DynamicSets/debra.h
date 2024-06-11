@@ -75,19 +75,18 @@ class Debra{
         int64_t e = epoch;
         if(threadData.currentEpoch != e){
             rotateAndReclaim();
-            threadData.checkNext = (threadID + 1) % numActiveThreads;
+            threadData.checkNext = 1;
             threadData.currentEpoch = e;
         }
         for(int i = 0;i < progressAmount;++i){
-            int otherPID = threadData.checkNext;
+            int otherPID = (threadID + threadData.checkNext) % numActiveThreads;
             int64_t other = data[otherPID].announcement;
 
             int otherQuiescent = (other & QUIESCENT_BIT_FLAG);
             int64_t otherAnnouncement = other >> 1;
             if(otherQuiescent || otherAnnouncement == e){
-                threadData.checkNext = (threadData.checkNext + 1) % MAX_THREADS;
-                if(threadData.checkNext == threadID){
-                    //data[threadID].checkNext = (threadID + 1) % numActiveThreads;
+                ++threadData.checkNext;
+                if(threadData.checkNext == numActiveThreads){
                     epoch.compare_exchange_strong(e, e+1);
                     break;
                 }
