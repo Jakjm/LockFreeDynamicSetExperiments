@@ -53,7 +53,7 @@ struct NodePool{
 #define reuse 1 //If reuse is defined, update nodes that are not inserted into the trie will be reused.
 #define seqSet unordered_set
 
-template <typename NotifDescType = NotifDescNotifyThreshold>
+template <typename NotifDescType = AtomicCopyNotifyThreshold>
 class Trie : public DynamicSet{
     private:
     const int trieHeight; //The height of the trie.
@@ -65,7 +65,7 @@ class Trie : public DynamicSet{
     RUALL<NotifDescType> ruall;
     NodePool<NotifDescType> nodePool[MAX_THREADS];
     public:
-    Trie(int height) : trieHeight(height), universeSize(1 << trieHeight), trieNodes(new TrieNode<NotifDescType>[universeSize - 1]), 
+    Trie(int height) : trieHeight(height), universeSize((int64_t)1 << trieHeight), trieNodes(new TrieNode<NotifDescType>[universeSize - 1]), 
     latest(new std::atomic<UpdateNode*>[universeSize]), pall(), uall(), ruall()
     {
         for(int i = 0;i < MAX_THREADS;++i){
@@ -99,7 +99,7 @@ class Trie : public DynamicSet{
             //Increment the dNodeCount accordingly.
             int k = key;
             int depth = trieHeight - 1;
-            while(depth >= 0 && (k & 1) == 0){
+            while(depth >= 0 && (k & 1) == 1){
                 int depthOffset = (1 << depth) - 1;
                 k /= 2;
                 trieNodes[depthOffset + k].dNodePtr = initialDelNode;
@@ -595,12 +595,12 @@ class Trie : public DynamicSet{
         //Let t be the latestList for key y.
         int depth = trieHeight; //depth is the depth of t.
         
-        //While t is the leftChild of t.parent or t.parent.left's interpreted bit equals 0
+        //While t is the left sibling or the sibling of t (which is the left child) has interpreted bit 0
         while((y & 1) == 0 || interpretedBit(y - 1, depth) == 0){
             //t = t.parent
             y = y >> 1; 
             --depth; 
-            if(depth == 0)return -1; //If t is the root node, no predecessors of y were found
+            if(depth == 0)return -1;
             
         }
 

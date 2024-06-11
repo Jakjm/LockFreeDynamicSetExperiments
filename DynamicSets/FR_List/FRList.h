@@ -25,7 +25,7 @@ struct KeyNode {
     }
 };
 
-Debra<KeyNode, 7> keyNodeDebra;
+Debra<KeyNode, 5> keyNodeDebra;
 
 //Structure used to store pointers to KeyNodes that go unused after allocations.
 //On subsequent insert/delete operations by the same thread, the previouslly allocated KeyNode can be used again.

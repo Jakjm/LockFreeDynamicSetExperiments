@@ -1,7 +1,10 @@
 #include <atomic>
+#include <stack>
 #include "../DynamicSet.h"
 #include "../debra.h"
-
+#include "../../common.h"
+#include <iostream>
+using std::cout;
 //An Implementation of Fatourou and Ruppert's Augmented Static Trie
 //Version objects which are pointed to by nodes of Augmented Static Trie
 //A Version only becomes immutable once inserted.
@@ -13,7 +16,7 @@ struct Version{
     }
 };
 
-Debra<Version, 7> versionDebra;
+Debra<Version, 5> versionDebra;
 
 //Augmented Static Trie Nodes, which contain only a pointer to their version objects.
 struct AST_Node{
@@ -74,12 +77,15 @@ VersionPool versionPool[MAX_THREADS];
 //Augmented Static Trie class type.
 struct AS_Trie : public DynamicSet{
     AST_Node *array;
-    AST_Node *leaf;
+    AST_Node *leaf; //Pointer to the part of array where the leaves start
     int64_t arraySize;
-    int64_t universeSize;
+    const int trieHeight;
+    const int64_t universeSize; //Equal to 2^trieHeight
+
 
     //height: the height of the AS_Trie.
-    AS_Trie(int height) {
+    AS_Trie(int height) : trieHeight(height), universeSize((int64_t)1 << height) {
+        
         arraySize = (1 << (uint64_t)(height + 1)) - 1;
         array = new AST_Node[arraySize]; //Dynamically allocate array of AST_Nodes...
 
@@ -108,7 +114,7 @@ struct AS_Trie : public DynamicSet{
 
     //Refreshes the version of an internal trie node.
     //i is the index of the AST_Node in array.
-    bool refresh(int64_t i){
+    inline bool refresh(int64_t i){
         AST_Node &node = array[i];
         AST_Node &left = array[(2 * i) + 1];
         AST_Node &right = array[(2 * i) + 2];
@@ -127,10 +133,11 @@ struct AS_Trie : public DynamicSet{
         node.version.compare_exchange_strong(result, v);
         //If the CAS was successful
         if(result == old){
-            //TODO insert old into limbo bag....
+            versionDebra.reclaimLater(old);
             pool.v = new Version(); //Allocate new version to be used...
             return true;
         }
+        else return false;
     }
     //Propogates the version objects up the trie.
     //start is the index of an internal AST_Node in the array.
@@ -146,24 +153,136 @@ struct AS_Trie : public DynamicSet{
     }
     void insert(int64_t x){
         versionDebra.startOp();
+        Version *old = leaf[x].version;
+
+        //If old->sum == 1, key was already in set 
+        if(old->sum == 0){
+            VersionPool &pool = versionPool[threadID];
+            Version *v = pool.v;
+            *v = Version(1); //New version in which sum is 1
+
+            Version *result = old;
+            leaf[x].version.compare_exchange_strong(result, v);
+            //CAS was successful
+            if(result == old){
+                //Will try to reclaim the version that was removed later....
+                versionDebra.reclaimLater(old);
+                //Allocate a new version for the pool
+                pool.v = new Version();
+            }
+        }
+
+        //Calculate array index for parent of x.
+        int64_t arrayIndex = (x + universeSize  - 1); //Array index of x
+        int64_t parent = (arrayIndex - 1) / 2; 
+        propogate(parent);
         versionDebra.endOp();
     }
     void remove(int64_t x){
         versionDebra.startOp();
-        versionDebra.endOp();
+        Version *old = leaf[x].version;
 
+        //If old->sum == 1, key was already in set 
+        if(old->sum == 1){
+
+            VersionPool &pool = versionPool[threadID];
+            Version *v = pool.v;
+            *v = Version(0); //New version in which sum is 0
+
+            Version *result = old;
+            leaf[x].version.compare_exchange_strong(result, v);
+            //CAS was successful
+            if(result == old){
+                //Will try to reclaim the version that was removed later....
+                versionDebra.reclaimLater(old);
+                //Allocate a new version for the pool
+                pool.v = new Version();
+            }
+        }
+
+        //Calculate array index for parent of x.
+        int64_t arrayIndex = (x + universeSize  - 1); //Array index of x
+        int64_t parent = (arrayIndex - 1) / 2; 
+        propogate(parent);
+
+        versionDebra.endOp();
     }
     int64_t predecessor(int64_t x){
         versionDebra.startOp();
+
+        Version *v = array[0].version; //Read the root version
+        std::stack<Version*> levels;
+        int height = trieHeight; //Height of v
+
+        //Traverse down to the AS_Node for key x.
+        while(height > 0){
+            //Check the (height - 1)-th bit of x.
+            levels.push(v);
+            int bit = (x >> (height - 1)) & 1; 
+            if(bit == 0)v = v->left;
+            else v = v->right;
+            --height;
+        }
+
+        //v is currently AT_Node for x.
+        //Perform predecessor query starting from node for x...
+        int depth = trieHeight;
+
+        //x is now the index of v within its row.
+        //While either v is the left sibling or v.parent.left has a 0 sum
+        while((x & 1) == 0 || levels.top()->left->sum == 0){
+            //Go up to v.parent
+            x = x >> 1;
+            --depth;
+            v = levels.top();
+            levels.pop();
+            if(levels.empty()){
+                versionDebra.endOp();
+                return -1;
+            }
+        }
+
+        //v = v.parent.left
+        if(!levels.empty()){
+            v = levels.top()->left;
+            x = x - (x & 1);
+        }
+        while(depth < trieHeight){
+            ++depth;
+            if(v->right->sum > 0){
+                x = 2 * x + 1;
+                v = v->right;
+            }
+            else if(v->left->sum > 0){
+                x = 2 * x;
+                v = v->left;
+            }
+            else{
+                versionDebra.endOp();
+                return -1;
+            }
+        }
         versionDebra.endOp();
+        return x;
     }
     bool search(int64_t x){
         versionDebra.startOp();
-        int64_t index = 0;
-        Version *rootVersion = 
+        Version *v = array[0].version; //Read the root version
+        int height = trieHeight; //Height of v
+        while(height > 0){
+            //Check the (height - 1)-th bit of x.
+            int bit = (x >> (height - 1)) & 1; 
+            if(bit == 0)v = v->left;
+            else v = v->right;
+            --height;
+        }
+        bool result = (v->sum == 1);
         versionDebra.endOp();
+        return result;
     }
-    virtual std::string name(){
+    std::string name(){
         return "Fatourou and Ruppert's Augmented Static Trie";
     }
+
+
 };

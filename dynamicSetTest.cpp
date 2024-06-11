@@ -145,19 +145,19 @@ struct ResultData{
     }
 
     void printResults(){
-            cout << "Average actual time: " << std::setprecision(7) << averageTime << "s";
-            cout << " Start time variance: " << startTimeVariance << 
-            " µs End time variance: "  << endTimeVariance << " µs." << std::endl;
-            cout << "Total throughput of all threads: " << throughput;
-            cout << " ops ("  << throughputPerSecond << " ops/s)" << std::endl;
-            cout << "Average thread throughput: " << averageThroughput;
-            cout << " (" << averageThroughputPerSecond << " ops/s)." << std::endl;
-            cout << "Maximum thread throughput: " << maxOps << " (" << maxOpsPerSecond << " ops/s), ";
-            cout << std::setprecision(5) << maxPercentageDiff << "% above average" << std::endl;
+        cout << "Average actual time: " << std::setprecision(7) << averageTime << "s";
+        cout << " Start time variance: " << startTimeVariance << 
+        " µs End time variance: "  << endTimeVariance << " µs." << std::endl;
+        cout << "Total throughput of all threads: " << throughput;
+        cout << " ops ("  << throughputPerSecond << " ops/s)" << std::endl;
+        cout << "Average thread throughput: " << averageThroughput;
+        cout << " (" << averageThroughputPerSecond << " ops/s)." << std::endl;
+        cout << "Maximum thread throughput: " << maxOps << " (" << maxOpsPerSecond << " ops/s), ";
+        cout << std::setprecision(5) << maxPercentageDiff << "% above average" << std::endl;
 
-            cout << std::setprecision(7);
-            cout << "Minimum thread throughput: " << minOps << " (" << minOpsPerSecond << " ops/s), ";
-            cout << std::setprecision(5) << minPercentageDiff << "% below average" << std::endl;
+        cout << std::setprecision(7);
+        cout << "Minimum thread throughput: " << minOps << " (" << minOpsPerSecond << " ops/s), ";
+        cout << std::setprecision(5) << minPercentageDiff << "% below average" << std::endl;
     }
 
 
@@ -249,15 +249,6 @@ void calcTime(int64_t millis, int &hours, int &minutes, int &seconds){
     minutes = time % (60 * 60 * 1000) / 60000;
     seconds = time % (60000) / 1000; 
 
-}
-void microsToStr(uint64_t micros, char *str){
-    micros -= (5 * 60 * 60 * (uint64_t)1000000);
-    uint64_t microsInDay = (uint64_t)60 * 60 * 24 * 1000000;
-    micros -= (micros / microsInDay) * microsInDay;
-    uint64_t hours = micros / (60 * 60 * (uint64_t)1000000);
-    uint64_t mins = (micros % (60 * 60 * (uint64_t)1000000)) / (60 * 1000000);
-    double seconds = (double)(micros % (60 * (uint64_t)1000000)) / 1000000;
-    sprintf(str,"%02ld:%02ld:%02.6f",hours,mins,seconds);
 }
 
 
@@ -417,7 +408,7 @@ int experimentProg(int argc, char **argv){
                 //If this is a supported dynamic set...
                 if(strcmp(currentParam, "--list") == 0 || strcmp(currentParam, "--skip") == 0 || 
 					strcmp(currentParam, "--trie") == 0 || strcmp(currentParam, "--trieSwCopy") == 0|| 
-					strcmp(currentParam, "--trieNotifDesc") == 0 || strcmp(currentParam, "--augTrie")){
+					strcmp(currentParam, "--trieNotifDesc") == 0 || strcmp(currentParam, "--augTrie") == 0){
                     setType = &currentParam[2]; //Remove two dashes...
                 }
                 else{
@@ -442,6 +433,7 @@ int experimentProg(int argc, char **argv){
     trieDebra.setActiveThreads(numProcs);
     keyNodeDebra.setActiveThreads(numProcs);
     skipDebra.setActiveThreads(numProcs);
+    versionDebra.setActiveThreads(numProcs);
 
     if(!setType || strcmp(setType,"trie") == 0 || strcmp(setType, "trieSwCopy") == 0){
         set = &trieSetSwCopy;

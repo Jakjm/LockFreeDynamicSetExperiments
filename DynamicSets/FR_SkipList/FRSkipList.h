@@ -39,7 +39,7 @@ struct SkipListPool{
 
 
 SkipListPool pool[MAX_THREADS];
-Debra<SkipNode, 7> skipDebra;
+Debra<SkipNode, 5> skipDebra;
 
 template <int numLevels> 
 class SkipListSet : public DynamicSet{
