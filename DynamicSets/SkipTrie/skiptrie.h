@@ -17,7 +17,7 @@ struct STNode{
     std::atomic<STNode*> prev; 
     std::atomic<STNode*> down;
     std::atomic<bool> ready;
-    std::atomic<bool> stop; //
+    std::atomic<bool> stop; 
     volatile char padding[64 - 4 * sizeof(STNode*) + sizeof(bool)];
     STNode(int64_t k=0) : key(k), NextMark(0), back(nullptr), down(nullptr), ready(false), stop(false){
 

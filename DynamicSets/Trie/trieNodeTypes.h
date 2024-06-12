@@ -42,24 +42,110 @@ class BaseType{
         uint64_t numReadNexts = 0;
         uint64_t descsTraversedWhileReadingNext = 0;
         //volatile char padding[64 - 7 * sizeof(uint64_t)];
-        void printInfo(uint64_t numOps){
+
+    };
+
+    struct UALLContentionInfo{
+        uint64_t minTrav, maxTrav, totalTrav;
+        uint64_t minBacks, maxBacks, totalBacks;
+        uint64_t minInsH, maxInsH, totalInsH;
+        uint64_t minRemH, maxRemH, totalRemH;
+        uint64_t minMrkH, maxMrkH, totalMrkH;
+        uint64_t minFailCAS, maxFailCAS, totalFailCAS;
+        uint64_t minReadNext, maxReadNext, totalReadNext;
+        uint64_t minDescRN, maxDescRN, totalDescRN;
+        int numProcs;
+
+        UALLContentionInfo(UALLCounter *counters, int numThreads){
+            numProcs = numThreads;
+            UALLCounter &ctr = counters[0];
+            minTrav = maxTrav = totalTrav = ctr.nodesTraversed;
+            minBacks = maxBacks = totalBacks = ctr.numBacktracks;
+            minInsH = maxInsH = totalInsH = ctr.numInsertsHelped;
+            minRemH = maxRemH = totalRemH = ctr.numRemovesHelped;
+            minMrkH = maxMrkH = totalMrkH = ctr.numMarksHelped;
+            minFailCAS = maxFailCAS = totalFailCAS = ctr.numFailedCASes;
+            minReadNext = maxReadNext = totalReadNext = ctr.numReadNexts;
+            minDescRN = maxDescRN = totalDescRN = ctr.descsTraversedWhileReadingNext;
+
+            for(int t = 1;t < numThreads;++t){
+                ctr = counters[t];
+
+                totalTrav += ctr.nodesTraversed;
+                if(ctr.nodesTraversed < minTrav)minTrav = ctr.nodesTraversed;
+                else if(ctr.nodesTraversed > maxTrav)maxTrav = ctr.nodesTraversed;
+
+                totalBacks += ctr.numBacktracks;
+                if(ctr.numBacktracks < minBacks)minBacks = ctr.numBacktracks;
+                else if(ctr.numBacktracks > maxBacks)maxBacks = ctr.numBacktracks;
+
+                totalInsH += ctr.numInsertsHelped;
+                if(ctr.numInsertsHelped < minInsH)minInsH = ctr.numInsertsHelped;
+                else if(ctr.numInsertsHelped > maxInsH)maxInsH = ctr.numInsertsHelped;
+
+                totalRemH += ctr.numRemovesHelped;
+                if(ctr.numRemovesHelped < minRemH)minRemH = ctr.numRemovesHelped;
+                else if(ctr.numRemovesHelped > maxRemH)maxRemH = ctr.numRemovesHelped;
+
+                totalMrkH += ctr.numMarksHelped;
+                if(ctr.numMarksHelped < minMrkH)minMrkH = ctr.numMarksHelped;
+                else if(ctr.numMarksHelped > maxMrkH)maxMrkH = ctr.numMarksHelped;
+
+                totalFailCAS += ctr.numFailedCASes;
+                if(ctr.numFailedCASes < minFailCAS)minFailCAS = ctr.numFailedCASes;
+                else if(ctr.numFailedCASes > maxFailCAS)maxFailCAS = ctr.numFailedCASes;
+
+                totalReadNext += ctr.numReadNexts;
+                if(ctr.numReadNexts < minReadNext)minReadNext = ctr.numReadNexts;
+                else if(ctr.numReadNexts > maxReadNext)maxReadNext = ctr.numReadNexts;
+
+                totalDescRN += ctr.descsTraversedWhileReadingNext;
+                if(ctr.descsTraversedWhileReadingNext < minDescRN)minDescRN = ctr.descsTraversedWhileReadingNext;
+                else if(ctr.descsTraversedWhileReadingNext > maxDescRN)maxDescRN = ctr.descsTraversedWhileReadingNext;
+            }
+        }
+
+        void printInfo(){
             cout << "UALL Contention Information:" << std::endl;
-            cout << "Nodes traversed while inserting/removing: " << nodesTraversed;
-            cout << "(" << std::setprecision(5) << ((double)nodesTraversed / numOps) << " per op)" << std::endl;
-            cout << "Number of failed insert/removal CASes: " << numFailedCASes;
-            cout << "(" << std::setprecision(5) << ((double)numFailedCASes / numOps) << " per op)" << std::endl;
+            cout << "Average nodes encountered while inserting/removing: " << std::setprecision(8) << (double)totalTrav / numProcs;
+            cout << " Max: " << maxTrav <<  " Min: " << minTrav << std::endl;
 
-            cout << "Inserts helped: " << numInsertsHelped; 
-            cout << "(" << std::setprecision(5) << ((double)numInsertsHelped / numOps) << " per op)" << std::endl;
-            cout << "Removes helped: " << numRemovesHelped;
-            cout << "(" << std::setprecision(5) << ((double)numRemovesHelped / numOps) << " per op)"<< std::endl;
-            cout << "Marks helped: " << numMarksHelped;
-            cout << "(" << std::setprecision(5) << ((double)numMarksHelped / numOps) << " per op)"<< std::endl;
-            cout << "Number of backtracks: " << numBacktracks;
-            cout << "(" << std::setprecision(5) << ((double)numBacktracks / numOps) << " per op)" <<  std::endl;
+            cout << "Average number of inserts helped: " << (double)totalInsH / numProcs;
+            cout << " Max: " << maxInsH <<  " Min: " << minInsH << std::endl;
 
-            cout << "Number of read nexts: " << numReadNexts << std::endl;
-            cout << "Number of insert descs accessed while reading next: " << descsTraversedWhileReadingNext << std::endl << std::endl;
+            cout << "Average number of removes helped: " << (double)totalRemH / numProcs;
+            cout << " Max: " << maxRemH <<  " Min: " << minRemH << std::endl;
+
+            cout << "Average number of marks helped: " << (double)totalMrkH / numProcs;
+            cout << " Max: " << maxMrkH <<  " Min: " << minMrkH << std::endl;
+
+            cout << "Average number of backtracks: " << (double)totalBacks / numProcs;
+            cout << " Max: " << maxBacks <<  " Min: " << minBacks << std::endl;
+
+            cout << "Average number of failed insert/remove CASes: " << (double)totalFailCAS / numProcs;
+            cout << " Max: " << maxFailCAS<<  " Min: " << minFailCAS<< std::endl;
+
+            cout << "Average number of readNexts: " << (double)totalReadNext/ numProcs;
+            cout << " Max: " << maxReadNext<<  " Min: " << minReadNext<< std::endl;
+
+            cout << "Average number of insert descs read while reading next: " << (double)totalDescRN / numProcs;
+            cout << " Max: " << maxDescRN <<  " Min: " << minDescRN << std::endl;
+            // cout << "Nodes traversed while inserting/removing: " << nodesTraversed;
+            // cout << "(" << std::setprecision(5) << ((double)nodesTraversed / numOps) << " per op)" << std::endl;
+            // cout << "Number of failed insert/removal CASes: " << numFailedCASes;
+            // cout << "(" << std::setprecision(5) << ((double)numFailedCASes / numOps) << " per op)" << std::endl;
+
+            // cout << "Inserts helped: " << numInsertsHelped; 
+            // cout << "(" << std::setprecision(5) << ((double)numInsertsHelped / numOps) << " per op)" << std::endl;
+            // cout << "Removes helped: " << numRemovesHelped;
+            // cout << "(" << std::setprecision(5) << ((double)numRemovesHelped / numOps) << " per op)"<< std::endl;
+            // cout << "Marks helped: " << numMarksHelped;
+            // cout << "(" << std::setprecision(5) << ((double)numMarksHelped / numOps) << " per op)"<< std::endl;
+            // cout << "Number of backtracks: " << numBacktracks;
+            // cout << "(" << std::setprecision(5) << ((double)numBacktracks / numOps) << " per op)" <<  std::endl;
+
+            // cout << "Number of read nexts: " << numReadNexts << std::endl;
+            // cout << "Number of insert descs accessed while reading next: " << descsTraversedWhileReadingNext << std::endl << std::endl;
         }
     };
 
@@ -124,6 +210,7 @@ class BaseType{
         uint64_t numNotifyNodesEncountered = 0;
     };
     PALLCounter pallCounter[MAX_THREADS];
+
 #endif
 
 

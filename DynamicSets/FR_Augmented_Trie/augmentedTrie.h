@@ -18,6 +18,8 @@ struct Version{
 
 Debra<Version, 5> versionDebra;
 
+#define space_nodes 5
+
 //Augmented Static Trie Nodes, which contain only a pointer to their version objects.
 struct AST_Node{
     std::atomic<Version*> version;

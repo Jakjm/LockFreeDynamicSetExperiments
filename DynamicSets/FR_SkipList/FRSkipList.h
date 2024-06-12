@@ -13,6 +13,7 @@
 #include "../debra.h"
 #pragma once
 using std::string;
+using std::vector;
 
 struct SkipNode{
     int64_t key;
@@ -59,6 +60,7 @@ class SkipListSet : public DynamicSet{
             }
         }
         tail.root = &tail;
+        tail.down = &tail;
     }
     ~ SkipListSet(){
         for(int lv = numLevels-1; lv >= 0;--lv){
@@ -202,13 +204,12 @@ class SkipListSet : public DynamicSet{
     }
 
     //Storing nodes with key <= k for each level on the stack
-    SkipNode* searchToLevel(int64_t k, int level, SkipNode *&next, stack<SkipNode*> levelStart){
-        int curLevel = level;
-        SkipNode *curr;
-        curr = findStart(curLevel);
+    SkipNode* searchToLevel(int64_t k, int level, SkipNode *&next, vector<SkipNode*> &levelStart){
+        int curLevel = numLevels - 1;
+        SkipNode *curr = &head[curLevel];
         while(curLevel > level){
             next = searchRight(k, curr);
-            levelStart.push(curr);
+            levelStart.push_back(curr);
             curr = curr->down;
             --curLevel;
         }
@@ -216,9 +217,8 @@ class SkipListSet : public DynamicSet{
         return curr; //Return <curr, next>
     }
     SkipNode* searchToLevel(int64_t k, int level, SkipNode *&next){
-        int curLevel = level;
-        SkipNode *curr;
-        curr = findStart(curLevel);
+        int curLevel = numLevels - 1;
+        SkipNode *curr = &head[curLevel];
         while(curLevel > level){
             next = searchRight(k, curr);
             curr = curr->down;
@@ -268,7 +268,7 @@ class SkipListSet : public DynamicSet{
     void insert(int64_t k){
         skipDebra.startOp();
         SkipNode *curr, *next;
-        stack<SkipNode*> startingPlaces;
+        vector<SkipNode*> startingPlaces;
         curr = searchToLevel(k, 0, next, startingPlaces);
         if(curr->key == k){
             skipDebra.endOp();
@@ -299,6 +299,7 @@ class SkipListSet : public DynamicSet{
             }
             pool[threadID].node = new SkipNode(k);
             if((newRoot->succ & STATUS_MASK) == Marked){
+                //If newNode was inserted and this is not the bottom level, help remove newnode...
                 if(result == newNode && newNode != newRoot){
                     removeNode(curr, newNode);
                 }
@@ -311,14 +312,10 @@ class SkipListSet : public DynamicSet{
                 return;
             }
 
-            
-            if(startingPlaces.empty()){ 
-                curr = searchToLevel(k, level, next, startingPlaces);
-            }
-            else{
-                curr = startingPlaces.top();
-                startingPlaces.pop();
-            }
+
+            curr = startingPlaces.back();
+            next = searchRight(k,curr);
+            startingPlaces.pop_back();
         }
         skipDebra.endOp();
     }
@@ -334,20 +331,18 @@ class SkipListSet : public DynamicSet{
     void remove(int64_t k){
         skipDebra.startOp();
         SkipNode *curr, *delNode;
-        stack<SkipNode*> startingPlaces;
-        curr = searchToLevel(k-1,0, delNode, startingPlaces);
+        vector<SkipNode*> startingPlaces;
+        curr = searchToLevel(k-1,0, delNode,startingPlaces);
         if(delNode->key != k){ //delNode does not have key k so we will not remove it.
             skipDebra.endOp();
             return;
         }
         removeNode(curr, delNode);
-        int level = 1;
-        while(startingPlaces.empty()){
-
-            ++level;
+        //searchToLevel(k,1,delNode);
+        for(int level = numLevels - 2; level >= 0;--level){
+            curr = startingPlaces[level];
+            searchRight(k+1,curr);
         }
-        SkipNode *next;
-        searchToLevel(k,level, next); //Delete nodes at other levels of the tower
         skipDebra.endOp();
     }
     int64_t predecessor(int64_t k){

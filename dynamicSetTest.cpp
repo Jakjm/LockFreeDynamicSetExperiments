@@ -145,7 +145,7 @@ struct ResultData{
     }
 
     void printResults(){
-        cout << "Average actual time: " << std::setprecision(7) << averageTime << "s";
+        cout << "Average actual time: " << std::setprecision(7) << averageTime << " s";
         cout << " Start time variance: " << startTimeVariance << 
         " µs End time variance: "  << endTimeVariance << " µs." << std::endl;
         cout << "Total throughput of all threads: " << throughput;
@@ -333,6 +333,12 @@ void multithreadTest(DynamicSet *set, ExperimentType exp, bool verbose){
     ResultData results(exp, data);
     results.printResults();
     results.writeToCSV();
+
+    #ifdef COUNT_CONTENTION
+        cout << std::endl;
+        UALLContentionInfo uallInfo(uallCounter, exp.numProcs);
+        uallInfo.printInfo();
+    #endif 
 }
 
 int experimentProg(int argc, char **argv){
