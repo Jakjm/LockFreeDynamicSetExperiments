@@ -412,7 +412,7 @@ class Trie : public DynamicSet{
     /**
     Insert operation on the binary trie.
     */
-    void insert(int64_t x){
+    bool insert(int64_t x){
         //assert(x >= 0 && x <= universeSize);
         trieDebra.startOp();
         //trieRecordManager.startOp(threadID);
@@ -420,7 +420,7 @@ class Trie : public DynamicSet{
         if (dNode->type == INS){
             trieDebra.endOp();
             //trieRecordManager.endOp(threadID); //x already in S, nothing to do!
-            return;
+            return false;
         } 
         //dNode has type DEL and its child, if it has one, is of type INS
 
@@ -449,7 +449,7 @@ class Trie : public DynamicSet{
             #endif
             //trieRecordManager.endOp(threadID);
             trieDebra.endOp();
-            return;
+            return false;
         }
         #ifdef reuse 
         nodePool[threadID].insNode = new InsNode<NotifDescType>(); //Ensure that iNode has been removed from the pool...
@@ -477,11 +477,12 @@ class Trie : public DynamicSet{
         uall.remove(iNode);
         ruall.remove(iNode);
         trieDebra.endOp();
+        return true;
         //trieRecordManager.endOp(threadID);
     }
     
 
-    void remove(int64_t x){
+    bool remove(int64_t x){
         //assert(x >= 0 && x <= universeSize);
         trieDebra.startOp();
         //trieRecordManager.startOp(threadID);
@@ -489,7 +490,7 @@ class Trie : public DynamicSet{
         if(iNode->type == DEL){ //Already a delNode with key x at head of latestList...
             trieDebra.endOp();
             //trieRecordManager.endOp(threadID);
-            return; //x is not in S, nothing to do!
+            return false; //x is not in S, nothing to do!
         }
         //iNode has type INS. If it has a child, its child has type DEL.
 
@@ -539,7 +540,7 @@ class Trie : public DynamicSet{
             //trieRecordManager.reclaimLater(threadID, pNode);
             trieDebra.endOp();
             //trieRecordManager.endOp(threadID);
-            return;
+            return false;
         }
         #ifdef reuse
         nodePool[threadID].delNode = new DelNode<NotifDescType>(trieHeight); //Remove dNode from the pool; it should not be reused for the next deletion
@@ -587,6 +588,7 @@ class Trie : public DynamicSet{
         //trieRecordManager.reclaimLater(threadID, dNode);
         trieDebra.endOp();
         //trieRecordManager.endOp(threadID);
+        return true;
     }
 
     //Computes the relaxed predecessor of key y.

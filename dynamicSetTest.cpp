@@ -23,12 +23,14 @@ using std::cout;
 //Data type used by a process to store information about its progress during the experiment.
 struct ProcessData{
     volatile uint64_t insCount;
+    volatile uint64_t succIns;
     volatile uint64_t remCount;
+    volatile uint64_t succRem;
     volatile uint64_t predCount;
     volatile uint64_t opCount;
     volatile uint64_t startTime;
     volatile uint64_t endTime;
-    volatile char padding [64 - 6*sizeof(uint64_t)];
+    //volatile char padding [64 - 6*sizeof(uint64_t)];
     ProcessData(): insCount(0),remCount(0), predCount(0), opCount(0), startTime(0), endTime(0){
 
     }
@@ -71,6 +73,14 @@ struct ExperimentType{
 struct ResultData{
     ExperimentType type; //Type of experiment
     
+
+    uint64_t minInserts, maxInserts, totalInserts;
+    uint64_t minSuccIns, maxSuccIns, totalSuccIns;
+    uint64_t minRemoves, maxRemoves, totalRemoves;
+    uint64_t minSuccRem, maxSuccRem, totalSuccRem;
+    uint64_t minPreds, maxPreds, totalPreds;
+    double avgInserts, avgSuccIns, avgRemoves, avgSuccRem, avgPreds;
+
     uint64_t minStartTime, maxStartTime;
     uint64_t minEndTime, maxEndTime;
     double averageTime; //Actual duration of experiment on average
@@ -94,7 +104,10 @@ struct ResultData{
         stream << "Average Runtime(s),Start Time Variance(µs),End Time Variance(µs),";
         stream << "Total Throughput,Throughput Per Second,Average Throughput,Average Throughput Per Second,";
         stream << "Max Proc Throughput,Max Throughput Per Second,Max Exceeds Average by x%,";
-        stream << "Min Proc Throughput,Min Throughput Per Second,Min Below Average by x%";
+        stream << "Min Proc Throughput,Min Throughput Per Second,Min Below Average by x%,";
+        stream << "Total Preds,Average Preds,Min Preds,Max Preds,";
+        stream << "Total Inserts,Total Successful Inserts,Average Inserts,Average Successful Inserts,Min Inserts,Max Inserts,Min Successful Inserts,Max Successful Inserts,";
+        stream << "Total Removes,Total Successful Removes,Average Removes,Average Successful Removes,Min Removes,Max Removes,Min Successful Removes,Max Successful Removes";
         stream << std::endl;
     }
     void writeValues(std::ofstream &stream){
@@ -104,7 +117,10 @@ struct ResultData{
         stream << averageTime << "," << startTimeVariance << "," << endTimeVariance << ",";
         stream << throughput << "," << throughputPerSecond << "," << averageThroughput << "," << averageThroughputPerSecond << ",";
         stream << maxOps << "," << maxOpsPerSecond << "," << maxPercentageDiff << ",";
-        stream << minOps << "," << minOpsPerSecond << "," << minPercentageDiff;
+        stream << minOps << "," << minOpsPerSecond << "," << minPercentageDiff << ",";
+        stream << totalPreds << "," << avgPreds << "," << minPreds << "," << maxPreds << ",";
+        stream << totalInserts << "," << totalSuccIns << "," << avgInserts << "," << avgSuccIns << "," << minInserts << "," << maxInserts << "," << minSuccIns << "," << maxSuccIns <<",";
+        stream << totalRemoves << "," << totalSuccRem << "," << avgRemoves << "," << avgSuccRem << "," << minRemoves << "," << maxRemoves << "," << minSuccRem << "," << maxSuccRem <<",";
         stream << std::endl;
     }
 
@@ -117,6 +133,14 @@ struct ResultData{
         minOps = pData.opCount;
         maxOps = pData.opCount;
 
+        minInserts = maxInserts = totalInserts = pData.insCount;
+        minSuccIns = maxSuccIns = totalSuccIns = pData.succIns;
+        minRemoves = maxRemoves = totalRemoves = pData.remCount;
+        minSuccRem = maxSuccRem = totalSuccRem = pData.succRem;
+        minPreds = maxPreds = totalPreds = pData.predCount;
+
+
+
         for(int i = 1;i < type.numProcs;++i){
             pData = data.pData[i];
             if(pData.startTime < minStartTime)minStartTime = pData.startTime;
@@ -128,6 +152,26 @@ struct ResultData{
             throughput += pData.opCount;
             if(pData.opCount < minOps)minOps = pData.opCount;
             else if(pData.opCount > maxOps)maxOps = pData.opCount;
+
+            totalInserts += pData.insCount;
+            if(pData.insCount < minInserts)minInserts = pData.insCount;
+            else if(pData.insCount > maxInserts)maxInserts = pData.insCount;
+
+            totalRemoves += pData.remCount;
+            if(pData.remCount < minRemoves)minRemoves = pData.remCount;
+            else if(pData.remCount > maxRemoves)maxRemoves = pData.remCount;
+
+            totalPreds += pData.predCount;
+            if(pData.predCount < minPreds)minPreds = pData.predCount;
+            else if(pData.predCount > maxPreds)maxPreds = pData.predCount;
+
+            totalSuccIns += pData.succIns;
+            if(pData.succIns < minSuccIns)minSuccIns = pData.succIns;
+            else if(pData.succIns > maxSuccIns)maxSuccIns = pData.succIns;
+
+            totalSuccRem += pData.succRem;
+            if(pData.succRem < minSuccRem)minSuccRem = pData.succRem;
+            else if(pData.succRem > maxSuccRem)maxSuccRem = pData.succRem;
         }
 
         startTimeVariance = maxStartTime - minStartTime;
@@ -137,6 +181,12 @@ struct ResultData{
         averageTime = (double)(averageEnd - averageStart) / 1000000;
         throughputPerSecond = (double)throughput / averageTime;
         averageThroughput = (double)throughput / type.numProcs;
+
+        avgInserts = (double)totalInserts / type.numProcs;
+        avgRemoves = (double)totalRemoves / type.numProcs;
+        avgPreds = (double)totalPreds / type.numProcs;
+        avgSuccIns = (double)totalSuccIns / type.numProcs;
+        avgSuccRem = (double)totalSuccRem / type.numProcs;
         averageThroughputPerSecond = averageThroughput / averageTime;
         maxOpsPerSecond = maxOps / averageTime;
         minOpsPerSecond = minOps / averageTime;
@@ -148,7 +198,7 @@ struct ResultData{
         cout << "Average actual time: " << std::setprecision(7) << averageTime << " s";
         cout << " Start time variance: " << startTimeVariance << 
         " µs End time variance: "  << endTimeVariance << " µs." << std::endl;
-        cout << "Total throughput of all threads: " << throughput;
+        cout << "Total thread throughput: " << throughput;
         cout << " ops ("  << throughputPerSecond << " ops/s)" << std::endl;
         cout << "Average thread throughput: " << averageThroughput;
         cout << " (" << averageThroughputPerSecond << " ops/s)." << std::endl;
@@ -206,6 +256,7 @@ void randomExperiment(DynamicSet *set, int id, ExperimentData *data, ExperimentT
     uint64_t currentTime = startTime;
     uint64_t endTime = startTime + (type.time * 1000000);
     uint64_t insCount = 0, remCount = 0, predCount = 0;
+    uint64_t succIns = 0, succRem = 0;
     int ratioTotal = type.insertRate + type.removeRate + type.predRate;
     while(currentTime < endTime && !(data->done)){
         //Perform a series of operations....
@@ -213,11 +264,15 @@ void randomExperiment(DynamicSet *set, int id, ExperimentData *data, ExperimentT
             int64_t key = rng(type.universeSize); //Key of the operation that will be performed...
             int coinFlip = rng(ratioTotal); //Generate a number between 0 and ratioTotal - 1
             if(coinFlip < type.insertRate){ //Perform an insert operation at insertRate / ratioTotal percent chance.
-                set->insert(key); 
+                if(set->insert(key)){
+                    ++succIns; 
+                }
                 ++insCount;
             }
             else if(coinFlip < (type.insertRate + type.removeRate)){ //Perform a remove operation at removeRate / ratioTotal percent chance.
-                set->remove(key);
+                if(set->remove(key)){
+                    ++succRem;
+                }
                 ++remCount;
             }
             else{ //Perform a predecessor operation at predRate / ratioTotal percent chance.
@@ -234,6 +289,8 @@ void randomExperiment(DynamicSet *set, int id, ExperimentData *data, ExperimentT
 
     pData.opCount = opCount;
     pData.insCount = insCount;
+    pData.succIns = succIns;
+    pData.succRem = succRem;
     pData.remCount = remCount;
     pData.predCount = predCount;
     pData.startTime = startTime;
@@ -334,11 +391,11 @@ void multithreadTest(DynamicSet *set, ExperimentType exp, bool verbose){
     results.printResults();
     results.writeToCSV();
 
-    #ifdef COUNT_CONTENTION
-        cout << std::endl;
-        UALLContentionInfo uallInfo(uallCounter, exp.numProcs);
-        uallInfo.printInfo();
-    #endif 
+    // #ifdef COUNT_CONTENTION
+    //     cout << std::endl;
+    //     UALLContentionInfo uallInfo(uallCounter, exp.numProcs);
+    //     uallInfo.printInfo();
+    // #endif 
 }
 
 int experimentProg(int argc, char **argv){

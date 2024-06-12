@@ -153,7 +153,8 @@ struct AS_Trie : public DynamicSet{
         //Try twice to update root
         if(!refresh(cur))refresh(cur); 
     }
-    void insert(int64_t x){
+    bool insert(int64_t x){
+        bool success = false;
         versionDebra.startOp();
         Version *old = leaf[x].version;
 
@@ -167,6 +168,7 @@ struct AS_Trie : public DynamicSet{
             leaf[x].version.compare_exchange_strong(result, v);
             //CAS was successful
             if(result == old){
+                success = true;
                 //Will try to reclaim the version that was removed later....
                 versionDebra.reclaimLater(old);
                 //Allocate a new version for the pool
@@ -179,14 +181,15 @@ struct AS_Trie : public DynamicSet{
         int64_t parent = (arrayIndex - 1) / 2; 
         propogate(parent);
         versionDebra.endOp();
+        return success;
     }
-    void remove(int64_t x){
+    bool remove(int64_t x){
+        bool success = false;
         versionDebra.startOp();
         Version *old = leaf[x].version;
 
         //If old->sum == 1, key was already in set 
         if(old->sum == 1){
-
             VersionPool &pool = versionPool[threadID];
             Version *v = pool.v;
             *v = Version(0); //New version in which sum is 0
@@ -195,6 +198,7 @@ struct AS_Trie : public DynamicSet{
             leaf[x].version.compare_exchange_strong(result, v);
             //CAS was successful
             if(result == old){
+                success = true;
                 //Will try to reclaim the version that was removed later....
                 versionDebra.reclaimLater(old);
                 //Allocate a new version for the pool
@@ -208,6 +212,7 @@ struct AS_Trie : public DynamicSet{
         propogate(parent);
 
         versionDebra.endOp();
+        return success;
     }
     int64_t predecessor(int64_t x){
         versionDebra.startOp();

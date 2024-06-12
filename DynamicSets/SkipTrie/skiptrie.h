@@ -131,7 +131,7 @@ struct SkipTrie : public DynamicSet {
         }
         node->ready = true;
     }
-    void insert(int64_t x){
+    bool insert(int64_t x){
         int height = 1;
         //Continue increasing height up to max level while flipping a fair coin
         while(rng(2) == 0 && height < maxLevels - 1){
@@ -172,7 +172,7 @@ struct SkipTrie : public DynamicSet {
         //while levelsInserted < height
         do{
             if(baseNode->stop){
-                return;
+                return true;
             }
 
             newNode->key = x;
@@ -199,8 +199,8 @@ struct SkipTrie : public DynamicSet {
         }while(level < height);
 
     }
-    void remove(int64_t x){
-        
+    bool remove(int64_t x){
+        return false;
     }
     int64_t predecessor(int64_t x){
         STNode *curr, *next;

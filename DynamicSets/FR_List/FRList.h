@@ -122,7 +122,7 @@ class LinkedListSet : public DynamicSet {
             return succ;
         }
 
-        void insert(int64_t key){
+        bool insert(int64_t key){
             keyNodeDebra.startOp();
             KeyNode *curr = &head;
             uintptr_t succ = curr->successor;
@@ -143,7 +143,7 @@ class LinkedListSet : public DynamicSet {
                         if(succ == (uintptr_t)next){ //If the CAS succeeded, node has been successfully inserted and the operation can stop.
                             keyNodePool[threadID].keyNode = new KeyNode(); //Need a new node for pool...
                             keyNodeDebra.endOp();
-                            return;
+                            return true;
                         }
                     }
                 }
@@ -165,8 +165,9 @@ class LinkedListSet : public DynamicSet {
                 state = succ & STATUS_MASK;
             }
             keyNodeDebra.endOp();
+            return false;
         }
-        void remove(int64_t key){
+        bool remove(int64_t key){
             keyNodeDebra.startOp();
             KeyNode *curr = &head;
             uintptr_t succ = curr->successor;
@@ -187,7 +188,7 @@ class LinkedListSet : public DynamicSet {
                             keyNodeDebra.reclaimLater((KeyNode*)next);
                             //listRecordMgr.retire(threadID, next); //Retire a node upon successfully giving its predecessor del flag.
                             keyNodeDebra.endOp();
-                            return;
+                            return true;
                         }
                     }
                 }
@@ -208,6 +209,7 @@ class LinkedListSet : public DynamicSet {
                 state = succ & STATUS_MASK;
             }
             keyNodeDebra.endOp();
+            return false;
         }
         bool search(int64_t key){
             bool result;

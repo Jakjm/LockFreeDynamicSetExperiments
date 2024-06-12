@@ -265,14 +265,14 @@ class SkipListSet : public DynamicSet{
             }
         }
     }
-    void insert(int64_t k){
+    bool insert(int64_t k){
         skipDebra.startOp();
         SkipNode *curr, *next;
         vector<SkipNode*> startingPlaces;
         curr = searchToLevel(k, 0, next, startingPlaces);
         if(curr->key == k){
             skipDebra.endOp();
-            return;
+            return false;
         }
         SkipNode *newRoot = pool[threadID].node;
         SkipNode *newNode = newRoot;
@@ -295,7 +295,7 @@ class SkipListSet : public DynamicSet{
             if(result == nullptr && level == 0){
                 //delete newNode; <-- instead of this, nodes are pooled.
                 skipDebra.endOp();
-                return;
+                return false;
             }
             pool[threadID].node = new SkipNode(k);
             if((newRoot->succ & STATUS_MASK) == Marked){
@@ -304,12 +304,12 @@ class SkipListSet : public DynamicSet{
                     removeNode(curr, newNode);
                 }
                 skipDebra.endOp();
-                return;
+                return true;
             }
             ++level;
             if(level >= height){ //Stop building the tower if we've already reached the desired height...
                 skipDebra.endOp();
-                return;
+                return true;
             }
 
 
@@ -318,6 +318,7 @@ class SkipListSet : public DynamicSet{
             startingPlaces.pop_back();
         }
         skipDebra.endOp();
+
     }
     SkipNode *removeNode(SkipNode *prev, SkipNode *delNode){
         bool inList;
@@ -328,14 +329,14 @@ class SkipListSet : public DynamicSet{
         if(result)return delNode;
         else return nullptr;
     }
-    void remove(int64_t k){
+    bool remove(int64_t k){
         skipDebra.startOp();
         SkipNode *curr, *delNode;
         vector<SkipNode*> startingPlaces;
         curr = searchToLevel(k-1,0, delNode,startingPlaces);
         if(delNode->key != k){ //delNode does not have key k so we will not remove it.
             skipDebra.endOp();
-            return;
+            return false;
         }
         removeNode(curr, delNode);
         //searchToLevel(k,1,delNode);
@@ -344,6 +345,7 @@ class SkipListSet : public DynamicSet{
             searchRight(k+1,curr);
         }
         skipDebra.endOp();
+        return true;
     }
     int64_t predecessor(int64_t k){
         skipDebra.startOp();
