@@ -771,7 +771,7 @@ class Trie : public DynamicSet{
                     break;
                 }
             }
-            vector <UpdateNode*> L;
+            vector<UpdateNode*> L;
             vector<UpdateNode*> L1;
             if(pNodePrime){
                 //Insert all updateNodes of the notify nodes of pNodePrime to LPrime.

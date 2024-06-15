@@ -1,5 +1,6 @@
 #include <atomic>
-#include <stack>
+#include <vector>
+#include <array>
 #include "../DynamicSet.h"
 #include "../debra.h"
 #include "../../common.h"
@@ -49,7 +50,7 @@ struct VersionPool{
         delete v;
     }
 };
-VersionPool versionPool[MAX_THREADS];
+std::array<VersionPool,MAX_THREADS> versionPool;
 
 /*
 * In my implementation, the AST_Nodes do not need left, right or parent pointers since the 
@@ -218,13 +219,13 @@ struct AS_Trie : public DynamicSet{
         versionDebra.startOp();
 
         Version *v = array[0].version; //Read the root version
-        std::stack<Version*> levels;
+        std::vector<Version*> levels; //Internal nodes while traversing downwards.
         int height = trieHeight; //Height of v
 
         //Traverse down to the AS_Node for key x.
         while(height > 0){
             //Check the (height - 1)-th bit of x.
-            levels.push(v);
+            levels.push_back(v);
             int bit = (x >> (height - 1)) & 1; 
             if(bit == 0)v = v->left;
             else v = v->right;
@@ -233,27 +234,24 @@ struct AS_Trie : public DynamicSet{
 
         //v is currently AT_Node for x.
         //Perform predecessor query starting from node for x...
-        int depth = trieHeight;
+        int depth = trieHeight; //Depth of v
 
         //x is now the index of v within its row.
         //While either v is the left sibling or v.parent.left has a 0 sum
-        while((x & 1) == 0 || levels.top()->left->sum == 0){
+        while((x & 1) == 0 || levels[depth - 1]->left->sum == 0){
             //Go up to v.parent
             x = x >> 1;
             --depth;
-            v = levels.top();
-            levels.pop();
-            if(levels.empty()){
+            if(depth == 0){
                 versionDebra.endOp();
                 return -1;
             }
+            v = levels[depth];
         }
 
         //v = v.parent.left
-        if(!levels.empty()){
-            v = levels.top()->left;
-            x = x - (x & 1);
-        }
+        v = levels[depth - 1]->left;
+        x = x - (x & 1);
         while(depth < trieHeight){
             ++depth;
             if(v->right->sum > 0){

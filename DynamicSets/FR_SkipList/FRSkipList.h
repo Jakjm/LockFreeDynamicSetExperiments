@@ -8,6 +8,7 @@
 #include <iterator>
 #include <atomic>
 #include <cassert>
+#include <array>
 #include "../DynamicSet.h"
 #include "../../common.h"
 #include "../debra.h"
@@ -45,7 +46,7 @@ Debra<SkipNode, 5> skipDebra;
 template <int numLevels> 
 class SkipListSet : public DynamicSet{
     public:
-    SkipNode head[numLevels];
+    std::array<SkipNode,numLevels> head;
     SkipNode tail;
     SkipListSet() : tail(INT64_MAX) {
         for(int i = 0;i < numLevels;++i){
@@ -189,31 +190,32 @@ class SkipListSet : public DynamicSet{
     }
 
 
-    SkipNode* findStart(int &level){
-        int curLevel = level;
-        uintptr_t succ = head[curLevel + 1].succ;
-        SkipNode *next = (SkipNode*)(succ & NEXT_MASK);
-        while(next != &tail && curLevel < numLevels - 1){
-            ++curLevel;
+    // SkipNode* findStart(int &level){
+    //     int curLevel = level;
+    //     uintptr_t succ = head[curLevel + 1].succ;
+    //     SkipNode *next = (SkipNode*)(succ & NEXT_MASK);
+    //     while(next != &tail && curLevel < numLevels - 1){
+    //         ++curLevel;
 
-            succ = head[curLevel + 1].succ;
-            next = (SkipNode*)(succ & NEXT_MASK);
-        }
-        level = curLevel;
-        return &head[curLevel];
-    }
+    //         succ = head[curLevel + 1].succ;
+    //         next = (SkipNode*)(succ & NEXT_MASK);
+    //     }
+    //     level = curLevel;
+    //     return &head[curLevel];
+    // }
 
     //Storing nodes with key <= k for each level on the stack
-    SkipNode* searchToLevel(int64_t k, int level, SkipNode *&next, vector<SkipNode*> &levelStart){
+    SkipNode* searchToLevel(int64_t k, int level, SkipNode *&next, std::array<SkipNode*,numLevels> &levelStart){
         int curLevel = numLevels - 1;
         SkipNode *curr = &head[curLevel];
         while(curLevel > level){
             next = searchRight(k, curr);
-            levelStart.push_back(curr);
+            levelStart[curLevel] = curr;;
             curr = curr->down;
             --curLevel;
         }
         next = searchRight(k, curr);
+        levelStart[curLevel] = curr;
         return curr; //Return <curr, next>
     }
     SkipNode* searchToLevel(int64_t k, int level, SkipNode *&next){
@@ -268,7 +270,7 @@ class SkipListSet : public DynamicSet{
     bool insert(int64_t k){
         skipDebra.startOp();
         SkipNode *curr, *next;
-        vector<SkipNode*> startingPlaces;
+        std::array<SkipNode*,numLevels> startingPlaces;
         curr = searchToLevel(k, 0, next, startingPlaces);
         if(curr->key == k){
             skipDebra.endOp();
@@ -283,7 +285,7 @@ class SkipListSet : public DynamicSet{
             ++height;
         }
         int level = 0;
-        while(1){
+        while(true){
             lastNode = newNode;
             newNode = pool[threadID].node;
             newNode->key = k;
@@ -312,13 +314,11 @@ class SkipListSet : public DynamicSet{
                 return true;
             }
 
-
-            curr = startingPlaces.back();
+            curr = startingPlaces[level];
             next = searchRight(k,curr);
-            startingPlaces.pop_back();
         }
         skipDebra.endOp();
-
+        return level > 0;
     }
     SkipNode *removeNode(SkipNode *prev, SkipNode *delNode){
         bool inList;
@@ -332,15 +332,15 @@ class SkipListSet : public DynamicSet{
     bool remove(int64_t k){
         skipDebra.startOp();
         SkipNode *curr, *delNode;
-        vector<SkipNode*> startingPlaces;
+        std::array<SkipNode*,numLevels> startingPlaces;
         curr = searchToLevel(k-1,0, delNode,startingPlaces);
         if(delNode->key != k){ //delNode does not have key k so we will not remove it.
             skipDebra.endOp();
             return false;
         }
         removeNode(curr, delNode);
-        //searchToLevel(k,1,delNode);
-        for(int level = numLevels - 2; level >= 0;--level){
+        //Search for other levels....
+        for(int level = numLevels - 1; level >= 1;--level){
             curr = startingPlaces[level];
             searchRight(k+1,curr);
         }
