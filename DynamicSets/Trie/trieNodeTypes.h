@@ -441,13 +441,10 @@ class DelNode : public UpdateNode, public BaseType{
         std::atomic<bool> stop;
         volatile char padding2[64 - sizeof(int64_t) - sizeof(int) - sizeof(int8_t) - sizeof(bool)- sizeof(BaseType)];
 
-        DelNode(int64_t key, int trieHeight) : 
-            UpdateNode(key, DEL), delPredNode(nullptr), delPred(-1), lower1Boundary(trieHeight+1),  
+        DelNode(int trieHeight) : 
+            UpdateNode(-1, DEL), delPredNode(nullptr), delPred(-1), lower1Boundary(trieHeight+1),  
               delPred2(-1), upper0Boundary(0), dNodeCount(2), stop(false){
-        
-        }
-        DelNode(int trieHeight) :  DelNode(0, trieHeight) {
-        
+                assert(lower1Boundary.minRead() == trieHeight + 1);
         }
         ~DelNode(){
         }

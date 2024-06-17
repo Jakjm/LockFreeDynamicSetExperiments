@@ -24,11 +24,11 @@ class MinReg{
             minWrite(initVal);
         }
     }
-    //Precondition: 0 <= value <= 64
+    //Precondition: 0 <= x <= 64
     //If the min register holds a value greater than x, then this operation reduces the value to x.
     //Otherwise, this operation does not change the value of the min register.
     void minWrite(int x){
-        uint64_t mask = UINT64_MAX >> x; //Create a word consisting of 64-x zeros followed by x ones.
+        uint64_t mask = UINT64_MAX >> (64-x); //Create a word consisting of 64-x zeros followed by x ones.
         value.fetch_and(mask);  //Turn off bits 63 through x, provided x is not 64.
     }
 

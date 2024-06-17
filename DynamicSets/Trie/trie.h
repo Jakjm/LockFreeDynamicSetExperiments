@@ -87,7 +87,8 @@ class Trie : public DynamicSet{
         //Initialize row b of binary trie nodes.
         //Initially, each latest list's head = a DelNode with
         for(int64_t key = 0; key < universeSize;++key){
-            DelNode<NotifDescType> *initialDelNode = new DelNode<NotifDescType>(key, trieHeight);
+            DelNode<NotifDescType> *initialDelNode = new DelNode<NotifDescType>(trieHeight);
+            initialDelNode->key = key;
             //trieRecordManager.allocate<DelNode>(threadID, key, trieHeight);
             initialDelNode->upper0Boundary = trieHeight; // The initial delNodes for the trie have upper0Boundary = trieHeight.
             latest[key] = initialDelNode;
