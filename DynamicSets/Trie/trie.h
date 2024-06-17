@@ -279,16 +279,20 @@ class Trie : public DynamicSet{
     //Traverses through the Update Announcement Linked List
     //Returns: - An integer, maxI, which is the maximum key over all active InsNodes with key < x encountered while traversing, or -1 if no such InsNode exists
     //         - A vector, D, of pointers to active DelNodes of key < x encountered while traversing.
-    void traverseUALL(int64_t x, int64_t &maxI, vector<DelNode<NotifDescType>*> &D){
+    void traverseUALL(int64_t x, int64_t &maxI, int64_t &maxD, std::set<DelNode<NotifDescType>*> &D_ruall){
         UpdateNode *uNode = (UpdateNode*)uall.first();   
-        maxI = -1;
+        maxD = maxI = -1;
         while(uNode && uNode->key < x){
             if(uNode->status != INACTIVE && firstActivated(uNode)){
+                int64_t uKey = uNode->key;
                 if(uNode->type == INS){
-                    int64_t uKey = uNode->key;
                     if(uKey > maxI)maxI = uKey;
                 }
-                else D.push_back((DelNode<NotifDescType>*)uNode);
+                else{
+                    if(uKey > maxD && (D_ruall.find((DelNode<NotifDescType>*)uNode) == D_ruall.end())){
+                        maxD = uKey;
+                    }
+                }
             }
             uNode = (UpdateNode*)uall.next(uNode);
         }                                                                                             
@@ -733,14 +737,17 @@ class Trie : public DynamicSet{
     }
 
     int64_t predHelper(PredecessorNode<NotifDescType> *pNode){
+        int64_t y = pNode->key;
         int64_t max_I_Notify = -1;
-        int64_t max_I_uall;
-        //set<InsNode<NotifDescType>*, UpdateNodeGreater> I_uall;
-        vector<DelNode<NotifDescType>*> D_uall; 
-        vector<DelNode<NotifDescType>*> D_notify;
+        int64_t max_D_notify = -1;
+        int64_t max_I_uall; //Maximum key of an active INS node encountered while traversing an 
+        //Let D_uall be the set of all active DelNodes with key < yencountered while traversing UALL
+        //max_D_uall is the maximum key of such a DelNode that is not in D_ruall.
+        int64_t max_D_uall; 
+        //vector<DelNode<NotifDescType>*> D_notify;
         set<InsNode<NotifDescType>*> I_ruall;
         set<DelNode<NotifDescType>*> D_ruall;
-        int64_t y = pNode->key;
+
 
         //Insert pNode into the PALL
         pall.insert(pNode);
@@ -755,7 +762,7 @@ class Trie : public DynamicSet{
 
         traverseRUALL(pNode,I_ruall, D_ruall);
         int64_t r0 = relaxedPredecessor(y);
-        traverseUALL(y, max_I_uall, D_uall);
+        traverseUALL(y, max_I_uall, max_D_uall, D_ruall);
 
         //Traverse pNode's notify list...
         NotifyNode<NotifDescType> *nNode = pNode->notifyListHead;
@@ -767,8 +774,11 @@ class Trie : public DynamicSet{
                         //I_notify.push_back((InsNode<NotifDescType>*)nNode->updateNode);
                     }
                 }
-                else{
-                    if(nNode->key > nNode->notifyThreshold)D_notify.push_back((DelNode<NotifDescType>*)nNode->updateNode);
+                else if(nNode->key > nNode->notifyThreshold){
+                    if(nNode->key > max_D_notify && (D_ruall.find((DelNode<NotifDescType>*)nNode->updateNode) != D_ruall.end())){
+                        max_D_notify = nNode->key;
+                    }
+                    //D_notify.push_back((DelNode<NotifDescType>*)nNode->updateNode);
                 }
                 if((nNode->notifyThreshold == -1) && 
                     ((nNode->updateNode->type == INS && (I_ruall.find((InsNode<NotifDescType>*)nNode->updateNode)) == I_ruall.end())) && 
@@ -787,6 +797,8 @@ class Trie : public DynamicSet{
         //Let i be the InsNode of maximum key in I_all, if one exists.
         //if i->key > r1, r1 = i->key
         if(max_I_uall > r1)r1 = max_I_uall;
+        if(max_D_uall > r1)r1 = max_D_uall;
+        if(max_D_notify > r1)r1 = max_D_notify;
         // auto max_uall = I_uall.begin(); 
         // if(max_uall != I_uall.end()){
         //     InsNode<NotifDescType> *i = *max_uall;
@@ -796,21 +808,21 @@ class Trie : public DynamicSet{
 
         //Let d be the DelNode of maximum key which is in D_uall and not in D_ruall, if one exists.
         //if d->key > r1, r1 = d->key
-        for(auto it = D_uall.begin(); it != D_uall.end();++it){
-            DelNode<NotifDescType> *d = *it;
-            if(d->key > r1 && D_ruall.find(d) == D_ruall.end()){
-                r1 = d->key;
-            }
-        }
+        // for(auto it = D_uall.begin(); it != D_uall.end();++it){
+        //     DelNode<NotifDescType> *d = *it;
+        //     if(d->key > r1 && D_ruall.find(d) == D_ruall.end()){
+        //         r1 = d->key;
+        //     }
+        // }
 
         //Let d be the DelNode of maximum key which is in D_notify and not in D_ruall, if one exists.
         //if d->key > r1, r1 = d->key
-        for(auto it = D_notify.begin(); it != D_notify.end();++it){
-            DelNode<NotifDescType> *d = *it;
-            if(d->key > r1 && D_ruall.find(d) == D_ruall.end()){
-                r1 = d->key;
-            }
-        }
+        // for(auto it = D_notify.begin(); it != D_notify.end();++it){
+        //     DelNode<NotifDescType> *d = *it;
+        //     if(d->key > r1 && D_ruall.find(d) == D_ruall.end()){
+        //         r1 = d->key;
+        //     }
+        // }
 
         //Traversal of the binary trie stopped while traversing back down.....
         if(r0 == -2 && !D_ruall.empty()){
