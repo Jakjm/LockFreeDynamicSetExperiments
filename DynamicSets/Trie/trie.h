@@ -50,8 +50,9 @@ struct NodePool{
     }
 };
 
+
+
 #define reuse 1 //If reuse is defined, update nodes that are not inserted into the trie will be reused.
-#define seqSet unordered_set
 
 template <typename NotifDescType = AtomicCopyNotifyThreshold>
 class Trie : public DynamicSet{
@@ -172,6 +173,28 @@ class Trie : public DynamicSet{
         // }
                 
     }
+    
+
+    //Comparator for UpdateNodes, returns true if a->key > b->key or  a->key == b->key and a > b.
+    struct UpdateNodeGreater{
+        bool operator ()(UpdateNode * const a, UpdateNode * const b) const {
+            int64_t diff = a->key - b->key;
+            if(diff > 0)return true;
+            else if(diff < 0)return false;
+            else return a > b;
+        }
+    };
+    //Comparator for UpdateNodes, returns true if a->key > b->key or  a->key == b->key and a > b.
+    struct UpdateNodeLess{
+        bool operator ()(UpdateNode * const a, UpdateNode * const b) const {
+            int64_t diff = a->key - b->key;
+            if(diff < 0)return true;
+            else if(diff > 0)return false;
+            else return a > b;
+        }
+    };
+
+
     UpdateNode *findLatest(int64_t x){
         UpdateNode *l = latest[x];
         if(l->status == INACTIVE){
@@ -236,32 +259,47 @@ class Trie : public DynamicSet{
             UpdateNode *latestNext = uNode->latestNext.exchange(nullptr); 
             if(latestNext != nullptr){ //This operation unlinked latestNext from the latest list.
                 if(latestNext->type == INS){
-                    trieDebra.reclaimLater((InsNode<NotifDescType>*)latestNext);
-                    //trieRecordManager.reclaimLater(threadID, (InsNode*)latestNext); //Retire latestNext if it's an insert node.
+                    trieDebra.reclaimLater((InsNode<NotifDescType>*)latestNext); //Put latestNext into a limbo bagif it's an insert node.
                 }
                 else{
-                    //Otherwise, decrement latestNext's dNodeCount, and retire latestNext if dNodeCount was reduced to 0.
+                    //Otherwise, decrement latestNext's dNodeCount, and put latestNext into a limbo bag if dNodeCount was reduced to 0.
                     int retire = ((DelNode<NotifDescType>*)latestNext)->dNodeCount.fetch_add(-1); 
                     if(retire == 1){
                         trieDebra.reclaimLater((DelNode<NotifDescType>*)latestNext);
-                        //trieRecordManager.reclaimLater(threadID, (DelNode*)latestNext);
                     }
                 }
             }
             //The following code is not needed due to how we implemented the UALL/RUALL. 
-            //The UALL/RUALL do not allow reinsertions, which means this helper doesn't need to remove uNode if uNode is not the first activated node...
+            //The UALL/RUALL do not allow reinsertions, which means this helper doesn't need to remove uNode if uNode is not the first activComparatorated node...
             //if uNode is not the first activated node, then can removed uNode from UALL/RUALL
         }
     }
 
-    //Traverse through the Update Announcement Linked List
-    //Returns two sets, I and D, of UpdateNodes of either type encountered while traversing the UALL.
-    void traverseUALL(int64_t x, vector<InsNode<NotifDescType>*> &I, vector<DelNode<NotifDescType>*> &D){
+    
+    //Traverses through the Update Announcement Linked List
+    //Returns: - An integer, maxI, which is the maximum key over all active InsNodes with key < x encountered while traversing, or -1 if no such InsNode exists
+    //         - A vector, D, of pointers to active DelNodes of key < x encountered while traversing.
+    void traverseUALL(int64_t x, int64_t &maxI, vector<DelNode<NotifDescType>*> &D){
         UpdateNode *uNode = (UpdateNode*)uall.first();   
+        maxI = -1;
         while(uNode && uNode->key < x){
             if(uNode->status != INACTIVE && firstActivated(uNode)){
-                if(uNode->type == INS)I.push_back((InsNode<NotifDescType>*)uNode);
+                if(uNode->type == INS){
+                    int64_t uKey = uNode->key;
+                    if(uKey > maxI)maxI = uKey;
+                }
                 else D.push_back((DelNode<NotifDescType>*)uNode);
+            }
+            uNode = (UpdateNode*)uall.next(uNode);
+        }                                                                                             
+    }
+    //Traverse through the Update Announcement Linked List
+    //Returns a set, I, of active InsNodes of key < x encountered while traversing the UALL.
+    void traverseUALL(int64_t x, set<InsNode<NotifDescType>*,UpdateNodeGreater> &I){
+        UpdateNode *uNode = (UpdateNode*)uall.first();   
+        while(uNode && uNode->key < x){
+            if(uNode->type == INS && uNode->status != INACTIVE && firstActivated(uNode)){
+                I.insert((InsNode<NotifDescType>*)uNode);
             }
             uNode = (UpdateNode*)uall.next(uNode);
         }                                                                                             
@@ -289,11 +327,11 @@ class Trie : public DynamicSet{
 
     //Send notifications to predecessor operations.
     void notifyPredOps(UpdateNode * const uNode){
-        vector<InsNode<NotifDescType>*> I; 
-        vector<DelNode<NotifDescType>*> D;
-        traverseUALL(INT64_MAX, I, D);
+        set<InsNode<NotifDescType>*, UpdateNodeGreater> I; 
+        traverseUALL(INT64_MAX, I);
 
         PredecessorNode<NotifDescType> *pNode = (PredecessorNode<NotifDescType>*)pall.first();
+        InsNode<NotifDescType> dummyNode;
         while(pNode){
             UpdateNode *notifyThres = pNode->notifyThreshold.read();
             int64_t tau = notifyThres->key;
@@ -307,15 +345,11 @@ class Trie : public DynamicSet{
             nNode->key = uNode->key;
             nNode->updateNode = uNode;
             nNode->notifyThreshold = tau;
-            int64_t maxKey = -1;
-            InsNode<NotifDescType> *updateNodeMax = nullptr;
-            for(InsNode<NotifDescType>* insNode : I){
-                if(insNode->key < pNode->key && insNode->key > maxKey){
-                    maxKey = insNode->key;
-                    updateNodeMax = insNode;
-                }
-            }
-            nNode->updateNodeMax = updateNodeMax;
+            dummyNode.key = pNode->key;
+            auto iter = I.upper_bound(&dummyNode);
+            if(iter == I.end())nNode->updateNodeMax = nullptr;            
+            else nNode->updateNodeMax = *iter;
+
             if(!sendNotification(nNode, pNode)){
                 break;
             }
@@ -397,7 +431,7 @@ class Trie : public DynamicSet{
             }
 
             //dNode has successfully taken d's place as t->dNodePtr
-            //Retire d if it is no longer in shared memory.
+            //Put d in a limbo bag if it is no longer in shared memory.
             int count = d->dNodeCount.fetch_add(-1);
             if(count == 1){
                 trieDebra.reclaimLater(d);
@@ -684,7 +718,7 @@ class Trie : public DynamicSet{
     // }
 
     //Traverse the reverse update announcement linked list.
-    void traverseRUALL(PredecessorNode<NotifDescType> *pNode, seqSet<InsNode<NotifDescType> *> &I, seqSet<DelNode<NotifDescType>*> &D){
+    void traverseRUALL(PredecessorNode<NotifDescType> *pNode, set<InsNode<NotifDescType> *> &I, set<DelNode<NotifDescType>*> &D){
         UpdateNode *uNode = (UpdateNode*)ruall.first(pNode); //Atomically set pNode.notifyThreshold....
         while(uNode){
             if(uNode->key < pNode->key){
@@ -699,19 +733,20 @@ class Trie : public DynamicSet{
     }
 
     int64_t predHelper(PredecessorNode<NotifDescType> *pNode){
-
-        vector<InsNode<NotifDescType>*> I_uall, I_notify;
-        vector<DelNode<NotifDescType>*> D_uall, D_notify;
-        seqSet<InsNode<NotifDescType>*> I_ruall;
-        seqSet<DelNode<NotifDescType>*> D_ruall;
+        int64_t max_I_Notify = -1;
+        int64_t max_I_uall;
+        //set<InsNode<NotifDescType>*, UpdateNodeGreater> I_uall;
+        vector<DelNode<NotifDescType>*> D_uall; 
+        vector<DelNode<NotifDescType>*> D_notify;
+        set<InsNode<NotifDescType>*> I_ruall;
+        set<DelNode<NotifDescType>*> D_ruall;
         int64_t y = pNode->key;
 
-        //traverseAndInsertPALL(pNode, Q);
         //Insert pNode into the PALL
         pall.insert(pNode);
         
+        //Traverse the pall from the PredecessorNode following pNode to the end, inserting every node encountered into Q 
         vector<PredecessorNode<NotifDescType>*> Q;
-        //Traverse the pall from pNode to the end, 
         PredecessorNode<NotifDescType> *p = pall.next(pNode);
         while(p){
             Q.push_back(p);
@@ -719,60 +754,83 @@ class Trie : public DynamicSet{
         }
 
         traverseRUALL(pNode,I_ruall, D_ruall);
-        int64_t pred0 = relaxedPredecessor(y);
-        traverseUALL(y, I_uall, D_uall);
+        int64_t r0 = relaxedPredecessor(y);
+        traverseUALL(y, max_I_uall, D_uall);
 
         //Traverse pNode's notify list...
         NotifyNode<NotifDescType> *nNode = pNode->notifyListHead;
         while(nNode){
             if(nNode->key < y){ //For every NotifyNode in pNode's notifyList with key < y....
                 if(nNode->updateNode->type == INS){
-                    if(nNode->key >= nNode->notifyThreshold)I_notify.push_back((InsNode<NotifDescType>*)nNode->updateNode);
+                    if(nNode->notifyThreshold <= nNode->key && nNode->key > max_I_Notify){
+                        max_I_Notify = nNode->key;
+                        //I_notify.push_back((InsNode<NotifDescType>*)nNode->updateNode);
+                    }
                 }
                 else{
                     if(nNode->key > nNode->notifyThreshold)D_notify.push_back((DelNode<NotifDescType>*)nNode->updateNode);
                 }
                 if((nNode->notifyThreshold == -1) && 
-                    ((nNode->updateNode->type == INS && I_ruall.count((InsNode<NotifDescType>*)nNode->updateNode)) == 0) && 
-                    ((nNode->updateNode->type == DEL && D_ruall.count((DelNode<NotifDescType>*)nNode->updateNode)) == 0)){
-                    if(nNode->updateNodeMax)I_notify.push_back(nNode->updateNodeMax);
+                    ((nNode->updateNode->type == INS && (I_ruall.find((InsNode<NotifDescType>*)nNode->updateNode)) == I_ruall.end())) && 
+                    ((nNode->updateNode->type == DEL && (D_ruall.find((DelNode<NotifDescType>*)nNode->updateNode)) == D_ruall.end()))){
+                    if(nNode->updateNodeMax && nNode->updateNodeMax->key > max_I_Notify){
+                        max_I_Notify = nNode->updateNodeMax->key;
+                        //I_notify.push_back(nNode->updateNodeMax);
+                    }
                 }
             }
             nNode = nNode->next;
         }
-        //p1 = key of UpdateNode with largest key among those in the union of I_uall, I_notify, (D_uall - D_ruall) and (D_notify - D_ruall).
-        int64_t p1 = -1;
-        for(InsNode<NotifDescType> *i : I_uall){
-            if(i->key > p1)p1 = i->key;
+        //r1 = key of UpdateNode with largest key among those in the union of I_uall, I_notify, (D_uall - D_ruall) and (D_notify - D_ruall).
+        int64_t r1 = max_I_Notify;
+
+        //Let i be the InsNode of maximum key in I_all, if one exists.
+        //if i->key > r1, r1 = i->key
+        if(max_I_uall > r1)r1 = max_I_uall;
+        // auto max_uall = I_uall.begin(); 
+        // if(max_uall != I_uall.end()){
+        //     InsNode<NotifDescType> *i = *max_uall;
+        //     int64_t maxUALLKey = i->key;
+        //     if(maxUALLKey > r1)r1 = maxUALLKey;
+        // }
+
+        //Let d be the DelNode of maximum key which is in D_uall and not in D_ruall, if one exists.
+        //if d->key > r1, r1 = d->key
+        for(auto it = D_uall.begin(); it != D_uall.end();++it){
+            DelNode<NotifDescType> *d = *it;
+            if(d->key > r1 && D_ruall.find(d) == D_ruall.end()){
+                r1 = d->key;
+            }
         }
-        for(InsNode<NotifDescType> *i : I_notify){
-            if(i->key > p1)p1 = i->key;
-        }
-        for(DelNode<NotifDescType> *d : D_uall){
-            if(D_ruall.count(d) == 0 && d->key > p1)p1 = d->key;
-        }
-        for(DelNode<NotifDescType> *d : D_notify){
-            if(D_ruall.count(d) == 0 && d->key > p1)p1 = d->key;
+
+        //Let d be the DelNode of maximum key which is in D_notify and not in D_ruall, if one exists.
+        //if d->key > r1, r1 = d->key
+        for(auto it = D_notify.begin(); it != D_notify.end();++it){
+            DelNode<NotifDescType> *d = *it;
+            if(d->key > r1 && D_ruall.find(d) == D_ruall.end()){
+                r1 = d->key;
+            }
         }
 
         //Traversal of the binary trie stopped while traversing back down.....
-        if(pred0 == -2 && D_ruall.size() > 0){
-            seqSet<PredecessorNode<NotifDescType>*> predNodes;
-            //predNodes.insert(pNode);
+        if(r0 == -2 && !D_ruall.empty()){
+            set<PredecessorNode<NotifDescType>*> predNodes; //Set containing the delPredNodes of DeleteNodes encountered in the RUALL.
+            set<int64_t> R; //Set containing the delPreds of DeleteNodes encountered in the RUALL.
             for(DelNode<NotifDescType> *d : D_ruall){
                 predNodes.insert(d->delPredNode);
+                R.insert(d->delPred);
             }
 
             //pNodePrime is the predecessor node in predNodes that is the latest in Q.
             PredecessorNode<NotifDescType> *pNodePrime = nullptr;
             for (auto rit = Q.rbegin(); rit != Q.rend(); ++rit) { //Iterate through Q backwards.
                 PredecessorNode<NotifDescType> *p = *rit;
-                if(predNodes.count(p) > 0){ //Stop as soon as such a predecessor node is found.
+                if(predNodes.find(p) != predNodes.end()){ //Stop as soon as such a predecessor node is found.
                     pNodePrime = p;
                     break;
                 }
             }
-            vector<UpdateNode*> L;
+            
             vector<UpdateNode*> L1;
             if(pNodePrime){
                 //Insert all updateNodes of the notify nodes of pNodePrime to LPrime.
@@ -783,7 +841,7 @@ class Trie : public DynamicSet{
                 }
             }
 
-            seqSet<UpdateNode*> LPrime;
+            set<UpdateNode*> LPrime;
             vector<UpdateNode*> L2; //L2 is a stack. The top of the stack is at the end of the vector.
             //For every notifyNode in pNode's notifyList with key < y
             nNode = pNode->notifyListHead;
@@ -801,70 +859,70 @@ class Trie : public DynamicSet{
             }
 
             //L is the sequence of nodes in L1 and L2 that are not in LPrime.
-            //vector<UpdateNode*> L;
+            vector<UpdateNode*> L;
             for (auto it = L1.rbegin(); it != L1.rend(); ++it) {
                 UpdateNode *uNode = *it;
-                if(LPrime.count(uNode) == 0)L.push_back(uNode);
+                if(LPrime.find(uNode) == LPrime.end())L.push_back(uNode);
             }
             for (auto rit = L2.rbegin(); rit != L2.rend(); ++rit) {
                 UpdateNode *uNode = *rit;
-                if(LPrime.count(uNode) == 0)L.push_back(uNode);
+                if(LPrime.find(uNode) == LPrime.end())L.push_back(uNode);
             }
 
-            seqSet<int64_t> R; //Set containing the delNodePreds of DeleteNodes encountered in the RUALL.
-            for(DelNode<NotifDescType> *dNode : D_ruall){
-                R.insert(dNode->delPred); //Insert the embedded predecessor value of the delNodes in D_0
-            }
             for(UpdateNode *uNode : L){
                 if(uNode->type == INS){
                     R.insert(uNode->key);
                 }
                 else{
-                    int64_t delPred2 = ((DelNode<NotifDescType>*)uNode)->delPred2;
-                    R.insert(delPred2);
+                    //If uNode->key in R, delete uNode->key and uNode->delPred2 from R
+                    auto it = R.find(uNode->key);
+                    if(it != R.end()){
+                        R.erase(it);
+                        R.erase(((DelNode<NotifDescType>*)uNode)->delPred2);
+                    }
                 }
             }
             //Set of keys in R, such that for every key x in goodKeys, 
             //there is an UpdateNode with key x in L'' and the last one in L'' has type INS.
-            seqSet<int64_t> goodKeys;
+            //set<int64_t> goodKeys;
 
             //For any key x, if x is in R and there is an UpdateNode with key x in D_ruall, remove x from R.
             for(UpdateNode *d : D_ruall){
-                if(R.count(d->key) > 0)R.erase(d->key);
+                auto it = R.find(d->key);
+                if(it != R.end())R.erase(it);
             }
 
             //Remove every key x from R such that the last UpdateNode with key x in L'' is an UpdateNode of type DEL.
             //Go through LDouble prime in reverse...
-            for(auto it = L.begin(); it != L.end(); ++it){
-                UpdateNode *uNode = *it;
-                int64_t key = uNode->key;
-                //If uNode->key is not in goodKeys and uNode->key is in R, then remove uNode->key from R.
-                if(goodKeys.count(key) == 0 && R.count(key) > 0){
-                    if(uNode->type == DEL){
-                        //If uNode is a delete node, then remove key from R as the furthest node in L'' with key uNode->key has type DEL
-                        R.erase(key); 
-                    }
-                    else{
-                        //Otherwise add uNode->key to goodKeys, since uNode is the furthest node with key uNode->key in L'' and it has type INS
-                        goodKeys.insert(key);
-                    }
-                }
-            }
+            // for(auto it = L.begin(); it != L.end(); ++it){
+            //     UpdateNode *uNode = *it;
+            //     int64_t key = uNode->key;
+            //     //If uNode->key is not in goodKeys and uNode->key is in R, then remove uNode->key from R.
+            //     if(goodKeys.count(key) == 0 && R.count(key) > 0){
+            //         if(uNode->type == DEL){
+            //             //If uNode is a delete node, then remove key from R as the furthest node in L'' with key uNode->key has type DEL
+            //             R.erase(key); 
+            //         }
+            //         else{
+            //             //Otherwise add uNode->key to goodKeys, since uNode is the furthest node with key uNode->key in L'' and it has type INS
+            //             goodKeys.insert(key);
+            //         }
+            //     }
+            // }
 
-            //Pred0 = maximum value among keys in R
-            pred0 = -1;
-            for(int64_t v : R){
-                if(v > pred0)pred0 = v;
-            }
+            //r0 = maximum value -1 and among keys in R
+            r0 = -1;
+            auto maxIter = R.rbegin();
+            if(maxIter != R.rend())r0 = *maxIter;
             // for(UpdateNode* i : I_ruall){
             //     if(i->key > pred0)pred0 = i->key;
             // }
 
         }
 
-        //Return the max among pred0 and p1.
-        if(pred0 > p1)return pred0;
-        else return p1;
+        //Return the max among r0 and r1.
+        if(r0 > r1)return r0;
+        else return r1;
     }
     int64_t predecessor(int64_t y){
         //assert(y >= 0 && y <= universeSize);

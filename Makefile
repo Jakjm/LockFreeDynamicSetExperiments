@@ -10,6 +10,7 @@ trie = $(triePath)/BoundedMinReg/minreg.h $(triePath)/trieNodeTypes.h $(linkedLi
 compileFlags = -Wall -pedantic -pthread -Werror -fgnu-tm
 testingFlags = -fdump-lang-class -fno-omit-frame-pointer -g
 countersFlags = -D COUNT_CONTENTION
+optimizationFlags  = -O3
 
 dynamicSetTest : $(dataStructures) $(trie) $(common) dynamicSetTest.cpp  Makefile 
 	g++ $(compileFlags) $(optimizationFlags) $(testingFlags) $(countersFlags) -o dynamicSetTest dynamicSetTest.cpp
