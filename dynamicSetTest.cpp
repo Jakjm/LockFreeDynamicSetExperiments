@@ -72,7 +72,6 @@ struct ExperimentType{
 //Data type used to write information about an experiment and its results.
 struct ResultData{
     ExperimentType type; //Type of experiment
-    
 
     uint64_t minInserts, maxInserts, totalInserts;
     uint64_t minSuccIns, maxSuccIns, totalSuccIns;
@@ -120,7 +119,7 @@ struct ResultData{
         stream << minOps << "," << minOpsPerSecond << "," << minPercentageDiff << ",";
         stream << totalPreds << "," << avgPreds << "," << minPreds << "," << maxPreds << ",";
         stream << totalInserts << "," << totalSuccIns << "," << avgInserts << "," << avgSuccIns << "," << minInserts << "," << maxInserts << "," << minSuccIns << "," << maxSuccIns <<",";
-        stream << totalRemoves << "," << totalSuccRem << "," << avgRemoves << "," << avgSuccRem << "," << minRemoves << "," << maxRemoves << "," << minSuccRem << "," << maxSuccRem <<",";
+        stream << totalRemoves << "," << totalSuccRem << "," << avgRemoves << "," << avgSuccRem << "," << minRemoves << "," << maxRemoves << "," << minSuccRem << "," << maxSuccRem;
         stream << std::endl;
     }
 
@@ -138,8 +137,6 @@ struct ResultData{
         minRemoves = maxRemoves = totalRemoves = pData.remCount;
         minSuccRem = maxSuccRem = totalSuccRem = pData.succRem;
         minPreds = maxPreds = totalPreds = pData.predCount;
-
-
 
         for(int i = 1;i < type.numProcs;++i){
             pData = data.pData[i];

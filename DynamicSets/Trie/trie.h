@@ -51,6 +51,26 @@ struct NodePool{
 };
 
 
+//Comparator for UpdateNodes, returns true if a->key > b->key or  a->key == b->key and a > b.
+struct UpdateNodeGreater{
+    bool operator ()(UpdateNode * const a, UpdateNode * const b) const {
+        int64_t diff = a->key - b->key;
+        if(diff > 0)return true;
+        else if(diff < 0)return false;
+        else return a > b;
+    }
+};
+//Comparator for UpdateNodes, returns true if a->key > b->key or  a->key == b->key and a > b.
+struct UpdateNodeLess{
+    bool operator ()(UpdateNode * const a, UpdateNode * const b) const {
+        int64_t diff = a->key - b->key;
+        if(diff < 0)return true;
+        else if(diff > 0)return false;
+        else return a > b;
+    }
+};
+
+
 
 #define reuse 1 //If reuse is defined, update nodes that are not inserted into the trie will be reused.
 
@@ -175,24 +195,7 @@ class Trie : public DynamicSet{
     }
     
 
-    //Comparator for UpdateNodes, returns true if a->key > b->key or  a->key == b->key and a > b.
-    struct UpdateNodeGreater{
-        bool operator ()(UpdateNode * const a, UpdateNode * const b) const {
-            int64_t diff = a->key - b->key;
-            if(diff > 0)return true;
-            else if(diff < 0)return false;
-            else return a > b;
-        }
-    };
-    //Comparator for UpdateNodes, returns true if a->key > b->key or  a->key == b->key and a > b.
-    struct UpdateNodeLess{
-        bool operator ()(UpdateNode * const a, UpdateNode * const b) const {
-            int64_t diff = a->key - b->key;
-            if(diff < 0)return true;
-            else if(diff > 0)return false;
-            else return a > b;
-        }
-    };
+
 
 
     UpdateNode *findLatest(int64_t x){
@@ -298,10 +301,10 @@ class Trie : public DynamicSet{
         }                                                                                             
     }
     //Traverse through the Update Announcement Linked List
-    //Returns a set, I, of active InsNodes of key < x encountered while traversing the UALL.
-    void traverseUALL(int64_t x, set<InsNode<NotifDescType>*,UpdateNodeGreater> &I){
+    //Returns a set, I, of active InsNodes encountered while traversing the UALL.
+    void traverseUALL(set<InsNode<NotifDescType>*,UpdateNodeGreater> &I){
         UpdateNode *uNode = (UpdateNode*)uall.first();   
-        while(uNode && uNode->key < x){
+        while(uNode){
             if(uNode->type == INS && uNode->status != INACTIVE && firstActivated(uNode)){
                 I.insert((InsNode<NotifDescType>*)uNode);
             }
@@ -327,27 +330,21 @@ class Trie : public DynamicSet{
         }
     }
 
-
-
     //Send notifications to predecessor operations.
     void notifyPredOps(UpdateNode * const uNode){
         set<InsNode<NotifDescType>*, UpdateNodeGreater> I; 
-        traverseUALL(INT64_MAX, I);
+        traverseUALL(I);
 
         PredecessorNode<NotifDescType> *pNode = (PredecessorNode<NotifDescType>*)pall.first();
         InsNode<NotifDescType> dummyNode;
         while(pNode){
-            UpdateNode *notifyThres = pNode->notifyThreshold.read();
-            int64_t tau = notifyThres->key;
-
-            if(!firstActivated(uNode)){
-                return;
-            }
-
+            if(!firstActivated(uNode)) return;
             NotifyNode<NotifDescType> *nNode = nodePool[threadID].notifNode;
 
             nNode->key = uNode->key;
             nNode->updateNode = uNode;
+            UpdateNode *notifyThres = pNode->notifyThreshold.read();
+            int64_t tau = notifyThres->key;
             nNode->notifyThreshold = tau;
             dummyNode.key = pNode->key;
             auto iter = I.upper_bound(&dummyNode);
@@ -358,7 +355,6 @@ class Trie : public DynamicSet{
                 break;
             }
             nodePool[threadID].notifNode = new NotifyNode<NotifDescType>();
-
             pNode = (PredecessorNode<NotifDescType>*)pall.next(pNode);
         }
     }
@@ -414,7 +410,8 @@ class Trie : public DynamicSet{
             
             
             DelNode<NotifDescType> *expected = d;
-            dNode->dNodeCount.fetch_add(1); 
+            dNode->dNodeCount.fetch_add(1); //Increment dNodeCount of dNode
+            
             //assert(count > 0);
             t->dNodePtr.compare_exchange_strong(expected, dNode);
             if(expected != d){
@@ -442,7 +439,6 @@ class Trie : public DynamicSet{
             }
                 //trieRecordManager.reclaimLater(threadID, d);
 
-            //Increment dNodeCount of dNode
             if(interpretedBit(key * 2, depth + 1) || interpretedBit(key * 2 + 1, depth + 1))return;
             dNode->upper0Boundary = (trieHeight - depth);
         }
@@ -1018,10 +1014,5 @@ class Trie : public DynamicSet{
         assert(uall.head.succ == (uintptr_t)&uall.tail);
         assert(ruall.head.rSucc == (uintptr_t)&ruall.tail);
         assert(pall.head.succ == (uintptr_t)&pall.tail);
-    }
-
-    //TODO ifdef debug
-    void printOpLog(){
-
     }
 };
