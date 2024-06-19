@@ -488,7 +488,7 @@ int experimentProg(int argc, char **argv){
     Trie<NotifDescNotifyThreshold> trieSetNotifDesc(keyRange);
     Trie<AtomicCopyNotifyThreshold> trieSetSwCopy(keyRange);
     LinkedListSet listSet;
-    SkipListSet<25> skipList;
+    SkipListSet<22> skipList;
     AS_Trie augmentedTrie(keyRange);
     trieDebra.setActiveThreads(numProcs);
     keyNodeDebra.setActiveThreads(numProcs);

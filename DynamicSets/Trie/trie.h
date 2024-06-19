@@ -412,21 +412,18 @@ class Trie : public DynamicSet{
             DelNode<NotifDescType> *expected = d;
             dNode->dNodeCount.fetch_add(1); //Increment dNodeCount of dNode
             
-            //assert(count > 0);
             t->dNodePtr.compare_exchange_strong(expected, dNode);
             if(expected != d){
                 d = expected;
 
                 if(dNode->stop || (dNode->lower1Boundary.minRead() != trieHeight+1 || firstActivated(dNode) == false)){
                     dNode->dNodeCount.fetch_add(-1);
-                    //assert(count > 1);
                     return;
                 }
                 expected = d;
                 t->dNodePtr.compare_exchange_strong(expected, dNode);
                 if(expected != d){
                     dNode->dNodeCount.fetch_add(-1);
-                    //assert(count > 1);
                     return;
                 }
             }
@@ -448,7 +445,6 @@ class Trie : public DynamicSet{
     Insert operation on the binary trie.
     */
     bool insert(int64_t x){
-        //assert(x >= 0 && x <= universeSize);
         trieDebra.startOp();
         //trieRecordManager.startOp(threadID);
         UpdateNode *dNode = findLatest(x);
@@ -470,7 +466,6 @@ class Trie : public DynamicSet{
         UpdateNode *latestNext = dNode->latestNext.exchange(nullptr); 
         //If latestNext was removed by this exchange operation....
         if(latestNext != nullptr){
-            //assert(latestNext->type == INS);
             trieDebra.reclaimLater((InsNode<NotifDescType>*)latestNext);
             //trieRecordManager.reclaimLater(threadID, (InsNode*)latestNext); //Retire the InsertNode following dNode in latest list.
         }
@@ -498,7 +493,6 @@ class Trie : public DynamicSet{
         UpdateNode *result = iNode->latestNext.exchange(nullptr); 
         if(result == dNode){ //If this exchange removed dNode from the latest list....
             //Retire the delete node if it is no longer in the latest list or stored as a dNodePtr
-            //assert(dNode->type == DEL);
             int retire = ((DelNode<NotifDescType>*)dNode)->dNodeCount.fetch_add(-1);
             if(retire == 1)trieDebra.reclaimLater((DelNode<NotifDescType>*)dNode);
             //trieRecordManager.reclaimLater(threadID, (DelNode*)dNode);
@@ -518,7 +512,6 @@ class Trie : public DynamicSet{
     
 
     bool remove(int64_t x){
-        //assert(x >= 0 && x <= universeSize);
         trieDebra.startOp();
         //trieRecordManager.startOp(threadID);
         UpdateNode *iNode = findLatest(x);
@@ -543,13 +536,11 @@ class Trie : public DynamicSet{
         dNode->delPredNode = pNode;
         dNode->delPred = delPred;
         dNode->latestNext = iNode;
-        //assert(dNode->dNodeCount == 2);
     
         
         UpdateNode *latestNext = iNode->latestNext.exchange(nullptr); 
             //Swap iNode's latestNext with nullptr.
         if(latestNext != nullptr){ //If this operation removed latestNext, decrement its dNodeCount.
-            //assert(latestNext->type == DEL);
             int retire = ((DelNode<NotifDescType>*)latestNext)->dNodeCount.fetch_add(-1);
             if(retire == 1)trieDebra.reclaimLater((DelNode<NotifDescType>*)latestNext);
             //trieRecordManager.reclaimLater(threadID, (DelNode*)latestNext); //Retire if dNodeCount was lowered to 0.
@@ -592,7 +583,6 @@ class Trie : public DynamicSet{
         UpdateNode *result = dNode->latestNext.exchange(nullptr);
         if(result == iNode){  
             //If this CAS unlinked iNode from the latest list, retire iNode.
-            //assert(iNode->type == INS);
             trieDebra.reclaimLater((InsNode<NotifDescType>*)iNode);
             //trieRecordManager.reclaimLater(threadID, (InsNode*)iNode);
         }
@@ -601,7 +591,6 @@ class Trie : public DynamicSet{
         int64_t delPred2 = predHelper(pNode2);
         dNode->delPred2 = delPred2;
 
-        //assert(dNode->dNodeCount > 0);
         deleteBinaryTrie(dNode);
         notifyPredOps(dNode);
 
@@ -729,7 +718,6 @@ class Trie : public DynamicSet{
             }
             uNode = (UpdateNode*)ruall.next(pNode,uNode); //Atomically set pNode.notifyThreshold....
         }
-        //assert(pNode->notifyThreshold == &ZERO_THRES);
     }
 
     int64_t predHelper(PredecessorNode<NotifDescType> *pNode){
@@ -933,7 +921,6 @@ class Trie : public DynamicSet{
         else return r1;
     }
     int64_t predecessor(int64_t y){
-        //assert(y >= 0 && y <= universeSize);
         trieDebra.startOp();
         //trieRecordManager.startOp(threadID);
         

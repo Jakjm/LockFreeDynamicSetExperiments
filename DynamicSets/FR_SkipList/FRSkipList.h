@@ -82,8 +82,7 @@ class SkipListSet : public DynamicSet{
         uintptr_t expected = (uintptr_t)delNode + DelFlag;
         uintptr_t result = expected;
         prev->succ.compare_exchange_strong(result, (uintptr_t)next);
-        //assert(prev->key < next->key);
-        //assert((SkipNode*)(next->succ & NEXT_MASK) != prev);
+
         
         if(result == expected){
             skipDebra.reclaimLater(delNode);
@@ -106,7 +105,6 @@ class SkipListSet : public DynamicSet{
                 uintptr_t markedSuccessor = (uintptr_t)next + Marked;
                 succ = next;
                 delNode->succ.compare_exchange_strong(succ, markedSuccessor); //Try to update from <next, Normal> to <next, Marked>
-                //assert((SkipNode*)(delNode->succ & NEXT_MASK) != prev);
                 if(succ == next)break; //The CAS succeeded!
             }
             state = succ & STATUS_MASK;
@@ -128,7 +126,6 @@ class SkipListSet : public DynamicSet{
             }
             succ = (uintptr_t)targetNode;
             prev->succ.compare_exchange_strong(succ, ((uintptr_t)targetNode) + DelFlag);
-            assert((SkipNode*)(targetNode->succ & NEXT_MASK) != prev);
             if(succ == (uintptr_t)targetNode){
                 inList = true;
                 return true;
@@ -138,27 +135,26 @@ class SkipListSet : public DynamicSet{
                 return false;
             }
             while((succ & STATUS_MASK) == Marked){
-                assert(prev->key > ((SkipNode*)prev->backlink)->key);
                 prev = prev->backlink;
                 succ = prev->succ;
             }
 
             SkipNode *delNode = searchRight(targetNode->key - 1,prev);
-            assert(prev->key <= (targetNode->key - 1) && (targetNode->key - 1) < delNode->key);
             if(targetNode != delNode){
                 inList = false;
                 return false;
             }
         }
     }
-
-    //Returns next and curr such that curr.key <= k < next.key
+    //Searches through the list starting from curr for two nodes, curr and next, such that 
+    //curr->key <= k < next->key and both curr and next are unmarked.
+    //curr is updated.
+    //Returns a pointer to next.
     SkipNode *searchRight(int64_t k, SkipNode *&curr){
         uintptr_t succ = curr->succ;
         SkipNode *next = (SkipNode*)(succ & NEXT_MASK);      
         int64_t status = (succ & STATUS_MASK);  
-        //assert((curr->key <= k) && (curr->key < next->key));
-        while(next->key <= k){
+        while(true){
             if(status == DelFlag){ //If curr is flagged,, try to remove the node following it.
                 succ = helpRemove(curr, next);
             }
@@ -173,19 +169,19 @@ class SkipListSet : public DynamicSet{
             else if((next->root->succ & STATUS_MASK) == Marked){ //If next is superfluous, try to flag the node preceding it.
                 succ = (uintptr_t)next;
                 curr->succ.compare_exchange_strong(succ, (uintptr_t)next + DelFlag);
-                if(succ == (uintptr_t)next){ //CAS succeeded, try to remove node.
-                    helpRemove(curr, next);
-                }
             }
             else{
-                curr = next;
-                succ = curr->succ;
+                if(next->key <= k){
+                    curr = next;
+                    succ = curr->succ;
+                }
+                else{
+                    break;
+                }
             }
             next = (SkipNode*)(succ & NEXT_MASK);
             status = (succ & STATUS_MASK);  
         }
-        //assert(curr->key <= k);
-        //assert(next->key > k);
         return next; //Return <curr, next> such that curr->key <= k < next->key
     }
 
@@ -230,7 +226,6 @@ class SkipListSet : public DynamicSet{
         return curr; //Return <curr, next>
     }
     SkipNode *insertNode(SkipNode *newNode, SkipNode *&prev, SkipNode *next){
-        //assert(newNode->down);
         if(prev->key == newNode->key){
             return nullptr;
         }
@@ -242,10 +237,7 @@ class SkipListSet : public DynamicSet{
             else{
                 newNode->succ = (uintptr_t)next;
                 succ = (uintptr_t)next;
-                //assert(prev->key < newNode->key);
-                //assert(newNode->key < next->key);
                 prev->succ.compare_exchange_strong(succ, (uintptr_t)newNode);
-                //assert((SkipNode*)(newNode->succ & NEXT_MASK) != prev);
                 if(succ == (uintptr_t)next){
                     return newNode; //CAS succeeded in inserting new node :)
                 }
@@ -260,8 +252,6 @@ class SkipListSet : public DynamicSet{
                 }
             }
             next = searchRight(newNode->key, prev);
-            //assert(prev->key <= newNode->key);
-            //assert(newNode->key < next->key);
             if(prev->key == newNode->key){
                 return nullptr;
             }
@@ -342,7 +332,7 @@ class SkipListSet : public DynamicSet{
         //Search for other levels....
         for(int level = numLevels - 1; level >= 1;--level){
             curr = startingPlaces[level];
-            searchRight(k+1,curr);
+            searchRight(k,curr);
         }
         skipDebra.endOp();
         return true;

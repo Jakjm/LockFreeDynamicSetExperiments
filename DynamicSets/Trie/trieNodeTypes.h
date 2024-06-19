@@ -217,17 +217,18 @@ class BaseType{
 
 class UpdateNode{
     public:
+        const TYPE type;
+        int64_t key;
         std::atomic<uintptr_t> succ; //Successor for the UALL
         std::atomic<UpdateNode*> backlink; //Backlink for the UALL
-        volatile char padding1[64 - sizeof(uintptr_t) - sizeof(UpdateNode*)];
+        volatile char padding1[64 - 3*sizeof(uintptr_t) - sizeof(TYPE)];
         std::atomic<uintptr_t> rSucc; //Successor for the RUALL
         std::atomic<UpdateNode*> rBacklink; //Backlink for the RUALL.
-        volatile char padding2[64 - sizeof(uintptr_t) - sizeof(UpdateNode*)];
+        volatile char padding2[64 - 2*sizeof(uintptr_t)];
         std::atomic<UpdateNode *> latestNext;
-        int64_t key;
-        const TYPE type; 
+        volatile char padding3[64 - sizeof(uintptr_t)];
         std::atomic<STATUS> status; 
-        UpdateNode(int64_t k, TYPE t) :  succ(0), backlink(0), rSucc(0), rBacklink(0), latestNext(nullptr), key(k), type(t), status(INACTIVE){
+        UpdateNode(int64_t k, TYPE t) :  type(t), key(k), succ(0), backlink(0), rSucc(0), rBacklink(0), latestNext(nullptr), status(INACTIVE){
         
         }
         UpdateNode(TYPE t): UpdateNode(-1, t){
@@ -237,7 +238,7 @@ class UpdateNode{
 };
 
 //Definition of the Insert Descriptor Node object.
-struct InsertDescNode{
+struct alignas(128) InsertDescNode{
     std::atomic<UpdateNode*> newNode;
     std::atomic<UpdateNode*> next;
     std::atomic<uint64_t> seqNum; //Sequence number.
@@ -256,7 +257,7 @@ class RUALL;
 
 
 //NotifyThreshold atomic copy implementation from CAS.
-struct AtomicCopyNotifyThreshold{
+struct alignas(64) AtomicCopyNotifyThreshold{
     std::atomic<uintptr_t> threshold;
     InsertDescNode *descNodes;
     volatile char padding [64 - 2*sizeof(uintptr_t)];
@@ -379,17 +380,16 @@ class NotifyNode {
 };
 
 template <typename NotifyThresholdType>
-class PredecessorNode:  public BaseType{
+class alignas(128)PredecessorNode:  public BaseType{
     public:
+    const int64_t key;
     std::atomic<uintptr_t> succ;
     std::atomic<PredecessorNode*> backlink;
-    volatile char padding1[64 - 2*sizeof(UpdateNode*)];
+    volatile char padding1[64 - 3*sizeof(PredecessorNode*)];
     std::atomic<NotifyNode<NotifyThresholdType>*> notifyListHead;
     volatile char padding2[64 - (sizeof(NotifyNode<NotifyThresholdType>*))];
     NotifyThresholdType notifyThreshold;
-    const int64_t key;
-    volatile char padding3[64 - 2*sizeof(int64_t)];
-    PredecessorNode(int64_t k, UpdateNode *ruallHead): succ(0), backlink(nullptr), notifyListHead(nullptr), notifyThreshold(ruallHead), key(k){
+    PredecessorNode(int64_t k, UpdateNode *ruallHead): key(k), succ(0), backlink(nullptr), notifyListHead(nullptr), notifyThreshold(ruallHead){
     
     }
     ~PredecessorNode(){
@@ -403,7 +403,7 @@ class PredecessorNode:  public BaseType{
 };
 
 /*
-*Using 7 bags, since if an instance I puts a node N into a limbo bag, N will not be accessed once every instance at
+*Using 5 bags, since if an instance I puts a node N into a limbo bag, N will not be accessed once every instance at
 * distance 3 from I has terminated. 
 */
 Debra<BaseType, 5> trieDebra; 
@@ -411,11 +411,11 @@ Debra<BaseType, 5> trieDebra;
 //record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
 
 template <typename NotifyThresholdType>
-class InsNode : public UpdateNode, public BaseType{
+class alignas(128) InsNode : public UpdateNode, public BaseType{
     public:
         std::atomic<DelNode<NotifyThresholdType> *> target;
         std::atomic<int64_t> target_key;
-        char padding[192 - sizeof(DelNode<NotifyThresholdType>*) - sizeof(UpdateNode) - sizeof(BaseType)];
+        //char padding[128 - 2*sizeof(uintptr_t) - sizeof(UpdateNode) - sizeof(BaseType)];
         InsNode(int64_t key): UpdateNode(key, INS),  target(nullptr), target_key(-1){
             
         }
@@ -429,22 +429,21 @@ class InsNode : public UpdateNode, public BaseType{
 };
 
 template <typename NotifyThresholdType>
-class DelNode : public UpdateNode, public BaseType{
+class alignas(128) DelNode : public UpdateNode, public BaseType{
     public:
         PredecessorNode<NotifyThresholdType> *delPredNode;
         int64_t delPred;
         MinReg lower1Boundary; //A 65-bounded min register, which is sufficient for tries whose height is at most 63.
-        volatile char padding1[192-sizeof(UpdateNode)-sizeof(delPredNode)-sizeof(int64_t)-sizeof(MinReg)];
+        volatile char padding1[64-sizeof(delPredNode)-sizeof(int64_t)-sizeof(MinReg)];
         std::atomic<int64_t> delPred2;
         std::atomic<int> upper0Boundary;
         std::atomic<int8_t> dNodeCount;
         std::atomic<bool> stop;
-        volatile char padding2[64 - sizeof(int64_t) - sizeof(int) - sizeof(int8_t) - sizeof(bool)- sizeof(BaseType)];
+        //volatile char padding2[64 - 2*sizeof(uintptr_t)];
 
         DelNode(int trieHeight) : 
             UpdateNode(-1, DEL), delPredNode(nullptr), delPred(-1), lower1Boundary(trieHeight+1),  
               delPred2(-1), upper0Boundary(0), dNodeCount(2), stop(false){
-                assert(lower1Boundary.minRead() == trieHeight + 1);
         }
         ~DelNode(){
         }
@@ -454,10 +453,10 @@ class DelNode : public UpdateNode, public BaseType{
 //Pred nodes can be reclaimed as soon as they're removed from P_ALL....
 //Update nodes can be reclaimed upon removal from latest list...
 template <typename NotifyThresholdType>
-class TrieNode{
+class alignas(64) TrieNode{
     public:
         std::atomic<DelNode<NotifyThresholdType>*> dNodePtr;
-        volatile char padding [64 - sizeof(UpdateNode*)];
+        //volatile char padding [64 - sizeof(UpdateNode*)];
         TrieNode(): dNodePtr((DelNode<NotifyThresholdType>*)nullptr){
 
         }
