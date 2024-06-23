@@ -17,9 +17,10 @@ struct alignas(64) STNode{
     std::atomic<STNode*> prev; 
     STNode* down;
     STNode* root;
+    std::atomic<bool> stop;
     std::atomic<bool> ready;
     //volatile char padding[64 - 4 * sizeof(STNode*) + sizeof(bool)];
-    STNode(int64_t k=0) : key(k), nextState(0), back(nullptr), down(nullptr), root(nullptr), ready(false){
+    STNode(int64_t k=0) : key(k), nextState(0), back(nullptr), down(nullptr), root(nullptr), stop(false), ready(false){
 
     }
 };
@@ -48,9 +49,9 @@ struct SkipTrie : public DynamicSet {
     STNode tail;
     SkipTrie(): tail(INT64_MAX){
         //Initialize the skip trie...
-        head[0] = STNode(INT64_MIN);
+        head[0] = STNode(-1);
         for(int l = 1; l < numLevels; ++l){
-            head[l] = STNode(INT64_MIN);
+            head[l] = STNode(-1);
             head[l].nextState = (uintptr_t)&tail;
             head[l].down = head[l - 1];
         }
@@ -91,6 +92,22 @@ struct SkipTrie : public DynamicSet {
             state = nextState & STATUS_MASK;
         }
         node->ready = true;
+    }
+    void topLevelDelete(STNode *pred, STNode *node){
+        STNode *left, *right;
+        if(!node->ready){
+            fixPrev(pred, node);
+        }
+        //TODO delete node from every level of skip list...
+        //top to bottom
+        left = pred;
+        bool marked;
+        do{
+            right = searchRight(node->key-1, left);
+            fixPrev(left, right);
+            uintptr_t nextState = left->nextState;
+            marked = (nextState & STATUS_MASK) == Marked;
+        }while(marked);
     }
     //Precondition: prev.successor was <delNode, DelFlag> at an earlier point, and delNode is Marked.
     uintptr_t helpMarked(STNode *prev, STNode *delNode){
@@ -183,7 +200,7 @@ struct SkipTrie : public DynamicSet {
                 }
                 curr = prev;
             }
-            else if((next->root->nextState & STATUS_MASK) == Marked){ //If next is superfluous, try to flag the node preceding it.
+            else if(next->root->stop){ //If next is superfluous, try to flag the node preceding it.
                 succ = (uintptr_t)next;
                 curr->nextState.compare_exchange_strong(succ, (uintptr_t)next + DelFlag);
             }
@@ -219,6 +236,7 @@ struct SkipTrie : public DynamicSet {
     //     return &head[curLevel];
     // }
 
+    
     //Storing nodes with key <= k for each level on the stack
     STNode* searchToLevel(int64_t k, int level, STNode *&next, std::array<STNode*,numLevels> &levelStart){
         int curLevel = numLevels - 1;
@@ -232,6 +250,17 @@ struct SkipTrie : public DynamicSet {
         next = searchRight(k, curr);
         levelStart[curLevel] = curr;
         return curr; //Return <curr, next>
+    }
+    STNode* searchToLevel(int64_t k, int level, STNode *&next, STNode*start){
+        int curLevel = numLevels - 1;
+        STNode *curr = start;
+        while(curLevel > level){
+            next = searchRight(k, curr);
+            curr = curr->down;
+            --curLevel;
+        }
+        next = searchRight(k, curr);
+        return curr;
     }
     STNode* searchToLevel(int64_t k, int level, STNode *&next){
         int curLevel = numLevels - 1;
@@ -335,49 +364,55 @@ struct SkipTrie : public DynamicSet {
         stDebra.endOp();
         return level > 0;
     }
-    STNode *removeNode(STNode *prev, STNode *delNode){
-        bool inList;
-        bool result = tryFlag(prev, delNode, inList);
-        if(inList){
-            helpRemove(prev,delNode);
-        }
-        if(result)return delNode;
-        else return nullptr;
-    }
-    bool remove(int64_t k){
-        stDebra.startOp();
-        STNode *curr, *delNode;
-        std::array<STNode*,numLevels> startingPlaces;
-        curr = searchToLevel(k-1,0, delNode,startingPlaces);
-        if(delNode->key != k){ //delNode does not have key k so we will not remove it.
-            stDebra.endOp();
-            return false;
-        }
-        removeNode(curr, delNode);
-        //Search for other levels....
-        for(int level = numLevels - 1; level >= 1;--level){
-            curr = startingPlaces[level];
-            searchRight(k+1,curr);
-        }
-        stDebra.endOp();
-        return true;
-    }
-    int64_t predecessor(int64_t k){
-        stDebra.startOp();
+    // STNode *removeNode(STNode *prev, STNode *delNode){
+    //     bool inList;
+    //     bool result = tryFlag(prev, delNode, inList);
+    //     if(inList){
+    //         helpRemove(prev,delNode);
+    //     }
+    //     if(result)return delNode;
+    //     else return nullptr;
+    // }
+    // bool remove(int64_t k){
+    //     stDebra.startOp();
+    //     STNode *curr, *delNode;
+    //     std::array<STNode*,numLevels> startingPlaces;
+    //     curr = searchToLevel(k-1,0, delNode,startingPlaces);
+    //     if(delNode->key != k){ //delNode does not have key k so we will not remove it.
+    //         stDebra.endOp();
+    //         return false;
+    //     }
+    //     removeNode(curr, delNode);
+    //     //Search for other levels....
+    //     for(int level = numLevels - 1; level >= 1;--level){
+    //         curr = startingPlaces[level];
+    //         searchRight(k+1,curr);
+    //     }
+    //     stDebra.endOp();
+    //     return true;
+    // }
+    int64_t predecessor(int64_t x){
+        STNode *start = xFastTriePred(x);
         STNode *curr, *next;
-        curr = searchToLevel(k-1, 0,next);
-        int64_t result = curr->key;
-        stDebra.endOp();
-        return result;
+        curr = searchToLevel(x-1,0,next,start);
+        return curr->key;
     }
-    bool search(int64_t k){
-        stDebra.startOp();
-        STNode *curr, *next;
-        curr = searchToLevel(k, 0,next);
-        bool keyContained = curr->key == k;
-        stDebra.endOp();
-        return keyContained;
-    }
+    // int64_t predecessor(int64_t k){
+    //     stDebra.startOp();
+    //     STNode *curr, *next;
+    //     curr = searchToLevel(k-1, 0,next);
+    //     int64_t result = curr->key;
+    //     stDebra.endOp();
+    //     return result;
+    // }
+    // bool search(int64_t k){
+    //     stDebra.startOp();
+    //     STNode *curr, *next;
+    //     curr = searchToLevel(k, 0,next);
+    //     bool keyContained = curr->key == k;
+    //     stDebra.endOp();
+    //     return keyContained;
+    // }
     std::string name(){
         return "Shavit SkipTrie";
     }

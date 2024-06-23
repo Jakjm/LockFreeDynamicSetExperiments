@@ -396,7 +396,7 @@ class alignas(128)PredecessorNode:  public BaseType{
         NotifyNode<NotifyThresholdType> *curNode = notifyListHead;
         while(curNode){
             NotifyNode<NotifyThresholdType> *next = curNode->next;
-            delete curNode; //Retire notify node...
+            delete curNode;
             curNode = next;
         }
     }
