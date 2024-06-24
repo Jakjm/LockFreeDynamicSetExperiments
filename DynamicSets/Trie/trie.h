@@ -353,7 +353,7 @@ class Trie : public DynamicSet{
             else nNode->updateNodeMax = *iter;
 
             if(!sendNotification(nNode, pNode)){
-                break;
+                return;
             }
             nodePool[threadID].notifNode = new NotifyNode<NotifDescType>();
             pNode = (PredecessorNode<NotifDescType>*)pall.next(pNode);
@@ -546,7 +546,12 @@ class Trie : public DynamicSet{
             if(retire == 1)trieDebra.reclaimLater((DelNode<NotifDescType>*)latestNext);
             //trieRecordManager.reclaimLater(threadID, (DelNode*)latestNext); //Retire if dNodeCount was lowered to 0.
         }   
-        notifyPredOps(iNode); //Help previous insert send notifications...
+        
+        //If operations might not have been notified about iNode, 
+        //Notify predecessor ops about iNode.
+        uint64_t iNodeState = (iNode->succ & STATUS_MASK);
+        if(iNodeState != Marked)notifyPredOps(iNode); 
+
         UpdateNode *expected = iNode;
         latest[x].compare_exchange_strong(expected, dNode);
 
@@ -845,33 +850,32 @@ class Trie : public DynamicSet{
             while(nNode){
                 if(nNode->key < y){
                     UpdateNode *uNode = nNode->updateNode;
+                    LPrime.insert(uNode);
                     if(nNode->key <= nNode->notifyThreshold){
                         L2.push_back(uNode);
-                    }
-                    else{
-                        LPrime.insert(uNode);
                     }
                 }
                 nNode = nNode->next;
             }
 
-            //L is the sequence of nodes in L1 and L2 that are not in LPrime.
-            vector<UpdateNode*> L;
-            for (auto it = L1.rbegin(); it != L1.rend(); ++it) {
-                UpdateNode *uNode = *it;
-                if(LPrime.find(uNode) == LPrime.end())L.push_back(uNode);
-            }
-            for (auto rit = L2.rbegin(); rit != L2.rend(); ++rit) {
+            //Go through L1 then L2 and do stuff to R
+            //For elements of L1, skip elements that are in L Prime.
+            for(auto rit = L1.rbegin(); rit != L1.rend(); ++rit){
                 UpdateNode *uNode = *rit;
-                if(LPrime.find(uNode) == LPrime.end())L.push_back(uNode);
-            }
-
-            for(UpdateNode *uNode : L){
-                if(uNode->type == INS){
-                    R.insert(uNode->key);
+                if(LPrime.find(uNode) != LPrime.end())continue;
+                if(uNode->type == INS)R.insert(uNode->key);
+                else{  //If uNode->key in R, delete uNode->key and uNode->delPred2 from R
+                    auto it = R.find(uNode->key);
+                    if(it != R.end()){
+                        R.erase(it);
+                        R.erase(((DelNode<NotifDescType>*)uNode)->delPred2);
+                    }
                 }
-                else{
-                    //If uNode->key in R, delete uNode->key and uNode->delPred2 from R
+            }
+            for(auto rit = L2.rbegin(); rit != L2.rend(); ++rit){
+                UpdateNode *uNode = *rit;
+                if(uNode->type == INS)R.insert(uNode->key);
+                else{  //If uNode->key in R, delete uNode->key and uNode->delPred2 from R
                     auto it = R.find(uNode->key);
                     if(it != R.end()){
                         R.erase(it);
