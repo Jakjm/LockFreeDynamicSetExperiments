@@ -70,10 +70,6 @@ struct UpdateNodeLess{
     }
 };
 
-
-
-#define reuse 1 //If reuse is defined, update nodes that are not inserted into the trie will be reused.
-
 template <typename NotifDescType = AtomicCopyNotifyThreshold>
 class Trie : public DynamicSet{
     private:
@@ -455,12 +451,7 @@ class Trie : public DynamicSet{
             return false;
         } 
         //dNode has type DEL and its child, if it has one, is of type INS
-
-        #ifdef reuse 
         InsNode<NotifDescType> *iNode = nodePool[threadID].insNode;
-        #else
-        InsNode *iNode = trieRecordManager.allocate<InsNode>(threadID); //Allocate a new node for each insert
-        #endif
         iNode->key = x;
         iNode->latestNext = dNode;
         //dNode->latestNext = nullptr
@@ -474,17 +465,11 @@ class Trie : public DynamicSet{
         latest[x].compare_exchange_strong(expected, iNode);
         if (expected != dNode){
             helpActivate(expected);
-            #ifdef reuse //This insert node can be reused by subsequent insert operations...
-            #else
-            trieRecordManager.deallocate(threadID, iNode);
-            #endif
             //trieRecordManager.endOp(threadID);
             trieDebra.endOp();
             return false;
         }
-        #ifdef reuse 
         nodePool[threadID].insNode = new InsNode<NotifDescType>(); //Ensure that iNode has been removed from the pool...
-        #endif 
         uall.insert(iNode);
         ruall.insert(iNode);
         iNode->status = ACTIVE;
@@ -528,11 +513,7 @@ class Trie : public DynamicSet{
         int64_t delPred = predHelper(pNode);
 
         //Initialize update node for this delete operation.
-        #ifdef reuse 
         DelNode<NotifDescType> *dNode = nodePool[threadID].delNode;
-        #else 
-        DelNode *dNode = trieRecordManager.allocate<DelNode>(threadID, trieHeight); //Allocate a delNode for each delete...
-        #endif
         dNode->key = x;
         dNode->delPredNode = pNode;
         dNode->delPred = delPred;
@@ -563,10 +544,6 @@ class Trie : public DynamicSet{
             //Remove pNode from pall.
             pall.remove(pNode);
 
-            #ifdef reuse
-            #else 
-            trieRecordManager.deallocate(threadID, dNode);
-            #endif
             //Retire pNode as it is no longer in shared memory.
             trieDebra.reclaimLater(pNode);
             //trieRecordManager.reclaimLater(threadID, pNode);
@@ -574,9 +551,7 @@ class Trie : public DynamicSet{
             //trieRecordManager.endOp(threadID);
             return false;
         }
-        #ifdef reuse
         nodePool[threadID].delNode = new DelNode<NotifDescType>(trieHeight); //Remove dNode from the pool; it should not be reused for the next deletion
-        #endif
         uall.insert(dNode);
         ruall.insert(dNode);
 
