@@ -30,8 +30,9 @@ struct ProcessData{
     volatile uint64_t opCount;
     volatile uint64_t startTime;
     volatile uint64_t endTime;
-    //volatile char padding [64 - 6*sizeof(uint64_t)];
-    ProcessData(): insCount(0),remCount(0), predCount(0), opCount(0), startTime(0), endTime(0){
+    volatile int64_t checkSum;
+    volatile char padding[56];
+    ProcessData(): insCount(0),remCount(0), predCount(0), opCount(0), startTime(0), endTime(0), checkSum(0){
 
     }
 };
@@ -128,7 +129,7 @@ struct ResultData{
         ProcessData &pData = data.pData[0];
         minStartTime = maxStartTime = pData.startTime;
         minEndTime = maxEndTime = pData.endTime;
-        throughput += pData.opCount;
+        throughput = pData.opCount;
         minOps = pData.opCount;
         maxOps = pData.opCount;
 
@@ -255,6 +256,7 @@ void randomExperiment(DynamicSet *set, int id, ExperimentData *data, ExperimentT
     uint64_t insCount = 0, remCount = 0, predCount = 0;
     uint64_t succIns = 0, succRem = 0;
     int ratioTotal = type.insertRate + type.removeRate + type.predRate;
+    int64_t checkSum = 0;
     while(currentTime < endTime && !(data->done)){
         //Perform a series of operations....
         for(int i = 0;i < NUM_OPS_BEFORE_TIME_CHECK;++i){
@@ -263,12 +265,14 @@ void randomExperiment(DynamicSet *set, int id, ExperimentData *data, ExperimentT
             if(coinFlip < type.insertRate){ //Perform an insert operation at insertRate / ratioTotal percent chance.
                 if(set->insert(key)){
                     ++succIns; 
+                    checkSum += key;
                 }
                 ++insCount;
             }
             else if(coinFlip < (type.insertRate + type.removeRate)){ //Perform a remove operation at removeRate / ratioTotal percent chance.
                 if(set->remove(key)){
                     ++succRem;
+                    checkSum -= key;
                 }
                 ++remCount;
             }
@@ -292,6 +296,7 @@ void randomExperiment(DynamicSet *set, int id, ExperimentData *data, ExperimentT
     pData.predCount = predCount;
     pData.startTime = startTime;
     pData.endTime = actualEndTime;
+    pData.checkSum = checkSum;
 }
 //Converts current time in milliseconds millis into the current hour, minute and second in Eastern Time.
 //millis is the current time in milliseconds.
@@ -318,6 +323,7 @@ void multithreadTest(DynamicSet *set, ExperimentType exp, bool verbose){
     double prefillRate = (double)exp.insertRate / (exp.insertRate + exp.removeRate);
     int64_t prefillAmount = ceil(exp.universeSize * prefillRate);
     set->prefill(exp.universeSize,prefillAmount);
+    int64_t initialChecksum = set->getChecksum(exp.universeSize);
     
     ExperimentData data;
     cout << "Performing an experiment in which " << exp.numProcs << " threads will perform ops on "  << set->name() << " during " << exp.time << " seconds." << std::endl;
@@ -378,10 +384,16 @@ void multithreadTest(DynamicSet *set, ExperimentType exp, bool verbose){
 
    // int64_t totalThroughput = 0;
     //char timeStr[50];
+    int64_t checkSumTotal = initialChecksum;
     for(int i = 0;i < exp.numProcs;++i){
         th[i]->join();
         delete th[i];
+        checkSumTotal += data.pData[i].checkSum;
     }
+    int64_t setChecksum = set->getChecksum(exp.universeSize);
+    cout << "Key Checksum (initial + threads): " << checkSumTotal << " Actual set: " << setChecksum << std::endl; 
+    assert(checkSumTotal == setChecksum);
+
 
     cout << "Experiment results:" << std::endl;
     ResultData results(exp, data);

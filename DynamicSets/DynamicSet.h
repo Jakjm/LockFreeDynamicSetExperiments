@@ -13,6 +13,8 @@ struct DynamicSet{
     virtual std::string name(){
         return "dynamic set type not set";
     }
+
+    //Prefills the dynamic set with 'numValues' keys that are randomly selected.
     virtual void prefill(uint64_t universeSize, uint64_t numValues){
         std::set<int64_t> valSet;
         while(valSet.size() < numValues){
@@ -20,5 +22,15 @@ struct DynamicSet{
             insert(key);
             valSet.insert(key);
         }
+    }
+
+    virtual int64_t getChecksum(int64_t universeSize){
+        int64_t checkSum = 0;
+        for(int64_t i = 0; i < universeSize;++i){
+            if(search(i)){
+                checkSum += i;
+            }
+        }
+        return checkSum;
     }
 };

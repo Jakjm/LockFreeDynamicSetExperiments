@@ -347,7 +347,7 @@ struct SkipTrie : public DynamicSet {
             if((newRoot->nextState & STATUS_MASK) == Marked){
                 //If newNode was inserted and this is not the bottom level, help remove newnode...
                 if(result == newNode && newNode != newRoot){
-                    removeNode(curr, newNode);
+                    //removeNode(curr, newNode);
                 }
                 stDebra.endOp();
                 return true;
