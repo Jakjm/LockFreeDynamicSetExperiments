@@ -332,13 +332,14 @@ class Trie : public DynamicSet{
 
     //Send notifications to predecessor operations.
     void notifyPredOps(UpdateNode * const uNode){
+        if(!firstActivated(uNode))return;
         set<InsNode<NotifDescType>*, UpdateNodeGreater> I; 
         traverseUALL(I);
 
         PredecessorNode<NotifDescType> *pNode = (PredecessorNode<NotifDescType>*)pall.first();
         InsNode<NotifDescType> dummyNode;
         while(pNode){
-            if(!firstActivated(uNode)) return;
+            //if(!firstActivated(uNode)) return;
             NotifyNode<NotifDescType> *nNode = nodePool[threadID].notifNode;
 
             nNode->key = uNode->key;
@@ -545,7 +546,7 @@ class Trie : public DynamicSet{
             if(retire == 1)trieDebra.reclaimLater((DelNode<NotifDescType>*)latestNext);
             //trieRecordManager.reclaimLater(threadID, (DelNode*)latestNext); //Retire if dNodeCount was lowered to 0.
         }   
-        notifyPredOps(iNode);
+        notifyPredOps(iNode); //Help previous insert send notifications...
         UpdateNode *expected = iNode;
         latest[x].compare_exchange_strong(expected, dNode);
 
