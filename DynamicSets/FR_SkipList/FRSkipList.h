@@ -310,14 +310,13 @@ class SkipListSet : public DynamicSet{
         skipDebra.endOp();
         return level > 0;
     }
-    SkipNode *removeNode(SkipNode *prev, SkipNode *delNode){
+    bool removeNode(SkipNode *prev, SkipNode *delNode){
         bool inList;
         bool result = tryFlag(prev, delNode, inList);
         if(inList){
             helpRemove(prev,delNode);
         }
-        if(result)return delNode;
-        else return nullptr;
+        return result;
     }
     bool remove(int64_t k){
         skipDebra.startOp();
@@ -328,14 +327,16 @@ class SkipListSet : public DynamicSet{
             skipDebra.endOp();
             return false;
         }
-        removeNode(curr, delNode);
-        //Search for other levels....
-        for(int level = numLevels - 1; level >= 1;--level){
-            curr = startingPlaces[level];
-            searchRight(k,curr);
+        bool removed = removeNode(curr, delNode);
+        if(removed){
+            //Search for other levels....
+            for(int level = numLevels - 1; level >= 1;--level){
+                curr = startingPlaces[level];
+                searchRight(k,curr);
+            }
         }
         skipDebra.endOp();
-        return true;
+        return removed;
     }
     int64_t predecessor(int64_t k){
         skipDebra.startOp();
