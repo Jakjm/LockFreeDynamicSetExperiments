@@ -132,7 +132,7 @@ struct AS_Trie : public DynamicSet{
             v = rightV;
         }
         else{//Both rightV and leftV have children...
-            v = pool.v;
+            //v = pool.v;
             //Redblack join of leftV and rightV...
             //v = join(leftV, rightV);
             //std::vector<RBVersion*> parents;

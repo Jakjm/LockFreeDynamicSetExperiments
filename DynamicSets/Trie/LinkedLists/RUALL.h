@@ -16,10 +16,7 @@
 using std::string;
 
 
-
-
-template <>
-class RUALL<AtomicCopyNotifyThreshold>{
+class RUALL{
     public:
         UpdateNode head, tail; //Head, tail of the linked list. 
     public:
@@ -258,13 +255,13 @@ class RUALL<AtomicCopyNotifyThreshold>{
         }
         //Special RU-ALL traversal algorithms here: 
         //Returns the head of the linked list, or null if the list is empty...
-        UpdateNode *first(PredecessorNode<AtomicCopyNotifyThreshold> *pNode){
+        UpdateNode *first(PredecessorNode *pNode){
             return next(pNode, &head);
         }
 
         //Returns the node following node, or null if bottom was following node.
-        UpdateNode *next(PredecessorNode<AtomicCopyNotifyThreshold> *pNode, UpdateNode *node){
-            UpdateNode *next = pNode->notifyThreshold.copyNext(node, descs);
+        UpdateNode *next(PredecessorNode *pNode, UpdateNode *node){
+            UpdateNode *next = pNode->ruallPosition.copyNext(node, descs);
             if(next == &tail)return nullptr;
             else return next;
         }

@@ -4,7 +4,7 @@ common = common.h DynamicSets/debra.h DynamicSets/DynamicSet.h
 dataStructures = DynamicSets/FR_List/FRList.h DynamicSets/FR_SkipList/FRSkipList.h DynamicSets/SkipTrie/skiptrie.h DynamicSets/FR_Augmented_Trie/augmentedTrie.h
 #Header files used for trie data structure
 triePath=DynamicSets/Trie
-linkedLists = $(triePath)/LinkedLists/PALL.h $(triePath)/LinkedLists/RUALL_notifDesc.h $(triePath)/LinkedLists/RUALL_swCopy.h $(triePath)/LinkedLists/UALL.h
+linkedLists = $(triePath)/LinkedLists/PALL.h $(triePath)/LinkedLists/RUALL.h $(triePath)/LinkedLists/UALL.h
 trie = $(triePath)/BoundedMinReg/minreg.h $(triePath)/trieNodeTypes.h $(linkedLists) $(triePath)/trie.h 
 
 compileFlags = -Wall -pedantic -pthread -Werror -fgnu-tm

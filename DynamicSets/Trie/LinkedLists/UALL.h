@@ -13,7 +13,6 @@
 #pragma once
 using std::string;
 
-
 //Linearizable lock-free sorted linked list based on the PODC Paper by Mikhail Fomitchev and Eric Ruppert
 class UALL {
     public:

@@ -496,9 +496,8 @@ int experimentProg(int argc, char **argv){
         }
     }
 
-    DynamicSet *set;
-    Trie<NotifDescNotifyThreshold> trieSetNotifDesc(keyRange);
-    Trie<AtomicCopyNotifyThreshold> trieSetSwCopy(keyRange);
+    DynamicSet *set = nullptr;;
+    Trie trie(keyRange);
     LinkedListSet listSet;
     SkipListSet<22> skipList;
     AS_Trie augmentedTrie(keyRange);
@@ -507,8 +506,8 @@ int experimentProg(int argc, char **argv){
     skipDebra.setActiveThreads(numProcs);
     versionDebra.setActiveThreads(numProcs);
 
-    if(!setType || strcmp(setType,"trie") == 0 || strcmp(setType, "trieSwCopy") == 0){
-        set = &trieSetSwCopy;
+    if(!setType || strcmp(setType,"trie") == 0){
+        set = &trie;
     }
     else if(strcmp(setType, "skip") == 0){
         set = &skipList;
@@ -519,8 +518,8 @@ int experimentProg(int argc, char **argv){
     else if(strcmp(setType, "augTrie") == 0){
         set = &augmentedTrie;
     }
-    else{ // if(strcmp(setType, "trieSwCopy") == 0 ){
-        set = &trieSetNotifDesc;
+    else{
+        assert(false);
     }
 
 
