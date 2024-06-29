@@ -59,14 +59,14 @@ struct UpdateNodeGreater{
     }
 };
 //Comparator for UpdateNodes, returns true if a->key > b->key or  a->key == b->key and a > b.
-struct UpdateNodeLess{
-    bool operator ()(UpdateNode * const a, UpdateNode * const b) const {
-        int64_t diff = a->key - b->key;
-        if(diff < 0)return true;
-        else if(diff > 0)return false;
-        else return a > b;
-    }
-};
+// struct UpdateNodeLess{
+//     bool operator ()(UpdateNode * const a, UpdateNode * const b) const {
+//         int64_t diff = a->key - b->key;
+//         if(diff < 0)return true;
+//         else if(diff > 0)return false;
+//         else return a > b;
+//     }
+// };
 
 
 class Trie : public DynamicSet{
