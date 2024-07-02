@@ -282,7 +282,7 @@ class Trie : public DynamicSet{
                 if(uNode->type == INS){
                     if(uKey > maxI)maxI = uKey;
                 }
-                else{
+                else{//uNode is a DelNode (uNode->type is DEL)...
                     if(uKey > maxD && (D_ruall.find((DelNode*)uNode) == D_ruall.end())){
                         maxD = uKey;
                     }
@@ -292,7 +292,7 @@ class Trie : public DynamicSet{
         }                                                                                             
     }
     //Traverse through the Update Announcement Linked List
-    //Returns a set, I, of active InsNodes encountered while traversing the UALL.
+    //Returns a list of InsNodes that were the first active 
     void traverseUALL(vector<InsNode*> &I){
         UpdateNode *uNode = (UpdateNode*)uall.first();   
         while(uNode){
@@ -316,10 +316,14 @@ class Trie : public DynamicSet{
 
             //Otherwise, attempt to put newNotifyNode at the head of the notifyList for pNode.
             NotifyNode *expected = nNode;
-            pNode->notifyListHead.compare_exchange_strong(expected,newNotifyNode); 
-            if(expected == nNode){
-                return true; //Succeeded in putting newNotifyNode at the head of the notifyList.
-            }
+
+            //If pNode->notifyListHead is still nNode...
+            if(pNode->notifyListHead == nNode){
+                pNode->notifyListHead.compare_exchange_strong(expected,newNotifyNode); 
+                if(expected == nNode){
+                    return true; //Succeeded in putting newNotifyNode at the head of the notifyList.
+                }
+            }            
         }
     }
 
@@ -974,7 +978,7 @@ class Trie : public DynamicSet{
         }
     }
 
-    //Verify that all of the lists are empty
+    //Verify that all of the lists are empty at the end of the execution.
     void verifyLists(){
         assert(uall.head.succ == (uintptr_t)&uall.tail);
         assert(ruall.head.rSucc == (uintptr_t)&ruall.tail);

@@ -68,8 +68,14 @@ class PALL{
                 if(state == Normal){
                     succ = first;
                     node->succ = (uintptr_t)first;
-                    head.succ.compare_exchange_strong(succ, (uintptr_t)node);
-                    if(succ == first)return;
+                    uintptr_t read = head.succ;
+                    if(read == first){
+                        head.succ.compare_exchange_strong(succ, (uintptr_t)node);
+                        if(succ == first)return;
+                    }
+                    else{
+                        succ = read;
+                    }
 
                     #ifdef COUNT_CONTENTION
                         ++counter.numFailedInsertCASes;
