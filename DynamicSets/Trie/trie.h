@@ -10,6 +10,7 @@
 #include "LinkedLists/UALL.h"
 #include "trieNodeTypes.h"
 #include "BoundedMinReg/minreg.h"
+#include <algorithm>
 #include "../DynamicSet.h"
 
 #include <thread>
@@ -49,32 +50,28 @@ struct NodePool{
 };
 
 
-//Comparator for UpdateNodes, returns true if a->key > b->key or  a->key == b->key and a > b.
+//Comparator for UpdateNodes, returns true if a->key > b->key, else return false.
 struct UpdateNodeGreater{
     bool operator ()(UpdateNode * const a, UpdateNode * const b) const {
-        int64_t diff = a->key - b->key;
-        if(diff > 0)return true;
-        else if(diff < 0)return false;
-        else return a > b;
+        if(a->key > b->key)return true;
+        else return false;
     }
 };
-//Comparator for UpdateNodes, returns true if a->key > b->key or  a->key == b->key and a > b.
-// struct UpdateNodeLess{
-//     bool operator ()(UpdateNode * const a, UpdateNode * const b) const {
-//         int64_t diff = a->key - b->key;
-//         if(diff < 0)return true;
-//         else if(diff > 0)return false;
-//         else return a > b;
-//     }
-// };
 
+
+struct UpdateNodeLesser{
+    bool operator ()(UpdateNode * const a, UpdateNode * const b) const {
+        if(a->key < b->key)return true;
+        else return false;
+    }
+};
 
 class Trie : public DynamicSet{
     private:
     const int trieHeight; //The height of the trie.
     const int64_t universeSize; //Equal to 2^trieHeight
-    TrieNode * const trieNodes;
-    std::atomic<UpdateNode*> * const latest;
+    TrieNode * const trieNodes; //Array of TrieNodes...
+    std::atomic<UpdateNode*> * const latest; //Array of LatestLists...
     PALL pall;
     UALL uall;
     RUALL ruall;
@@ -296,11 +293,13 @@ class Trie : public DynamicSet{
     }
     //Traverse through the Update Announcement Linked List
     //Returns a set, I, of active InsNodes encountered while traversing the UALL.
-    void traverseUALL(set<InsNode*,UpdateNodeGreater> &I){
+    void traverseUALL(vector<InsNode*> &I){
         UpdateNode *uNode = (UpdateNode*)uall.first();   
         while(uNode){
-            if(uNode->type == INS && uNode->status != INACTIVE && firstActivated(uNode)){
-                I.insert((InsNode*)uNode);
+            if(uNode->type == INS && uNode->status != INACTIVE){
+                if(I.empty() || I.back()->key != uNode->key){
+                    if(firstActivated(uNode))I.push_back((InsNode*)uNode);
+                }
             }
             uNode = (UpdateNode*)uall.next(uNode);
         }                                                                                             
@@ -327,7 +326,7 @@ class Trie : public DynamicSet{
     //Send notifications to predecessor operations.
     void notifyPredOps(UpdateNode * const uNode){
         if(!firstActivated(uNode))return;
-        set<InsNode*, UpdateNodeGreater> I; 
+        vector<InsNode*> I; 
         traverseUALL(I);
 
         PredecessorNode *pNode = (PredecessorNode*)pall.first();
@@ -342,8 +341,9 @@ class Trie : public DynamicSet{
             int64_t tau = notifyThres->key;
             nNode->notifyThreshold = tau;
             dummyNode.key = pNode->key;
-            auto iter = I.upper_bound(&dummyNode);
-            if(iter == I.end())nNode->updateNodeMax = nullptr;            
+            //auto iter = std::adjacent_find(I.begin(), I.end(), UpdateNodeLess());
+            auto iter = std::upper_bound(I.rbegin(),I.rend(),&dummyNode, UpdateNodeGreater());
+            if(iter == I.rend())nNode->updateNodeMax = nullptr;            
             else nNode->updateNodeMax = *iter;
 
             if(!sendNotification(nNode, pNode)){
