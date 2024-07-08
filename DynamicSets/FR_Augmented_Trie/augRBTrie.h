@@ -7,6 +7,9 @@
 #include <iostream>
 using std::cout;
 
+
+
+
 enum Colour{black, red};
 //An Implementation of Fatourou and Ruppert's Augmented Static Trie
 //RBVersion objects which are pointed to by nodes of Augmented Static Trie
@@ -17,8 +20,26 @@ struct RBVersion{
     int64_t rank;
     RBVersion *left, *right;
     Colour colour;
-    RBVersion(int64_t s = 0, int64_t k = 0, RBVersion *l = nullptr, RBVersion *r = nullptr) : sum(s), key(k), rank(0), left(l), right(r), colour(black){
+    //List of other versions that were allocated with this version
+    std::vector<RBVersion*> *versionList; 
+    RBVersion(int64_t s = 0, int64_t k = 0, RBVersion *l = nullptr, RBVersion *r = nullptr) : sum(s), key(k), rank(0), left(l), right(r), colour(black), versionList(nullptr){
 
+    }
+    void copy(RBVersion *v){
+        sum = v->sum;
+        key = v->key;
+        rank = v->rank;
+        left = v->left;
+        right = v->right;
+        colour = v->colour;
+    }
+    ~RBVersion(){ //Destructor...
+        if(versionList){
+            for(RBVersion *v : *versionList){
+                delete v;
+            }
+            delete versionList;
+        }
     }
 };
 
@@ -50,6 +71,11 @@ struct RBVersionPool{
     volatile char padding[64-sizeof(RBVersion*)];
     RBVersionPool(): v(new RBVersion()){
 
+    }
+    RBVersion *getVersion(){
+        RBVersion *old = v;
+        v = new RBVersion();
+        return old;
     }
     ~RBVersionPool(){
         delete v;
@@ -133,38 +159,40 @@ struct AS_Trie : public DynamicSet{
         }
         else{//Both rightV and leftV have children...
             //v = pool.v;
-            //Redblack join of leftV and rightV...
             //v = join(leftV, rightV);
-            //std::vector<RBVersion*> parents;
             RBVersion *x, *parent = nullptr;
             if(leftV->rank >= rightV->rank){
+                //Perform a persistent removal of the max element from leftV.
+                //Copy nodes on way down
                 x = leftV;
-                while(x->rank > rightV->rank){
-                    parent = x;
-                    //parents.push_back(x);
+                std::vector<RBVersion*> parents;
+                //Remove version from pool.
+                v = pool.getVersion();
+                v->copy(x);
+                parents.push_back(v);
+                while(x->right){
                     x = x->right;
+                    v = pool.getVersion();
+                    v->copy(x);
+                    parents.push_back(v);
                 }
-                v->left = x;
-                v->right = rightV;
-                if(parent){
-                    //parent->right = x;
-                    v = leftV;
-                }
+
+                // x = leftV;
+                // while(x->rank > rightV->rank){
+                //     parent = x;
+                //     //parents.push_back(x);
+                //     x = x->right;
+                // }
+                // v->left = x;
+                // v->right = rightV;
+                // if(parent){
+                //     //parent->right = x;
+                //     v = leftV;
+                // }
                 //Otherwise, just replace node.version with v?
             }
             else{
-                x = rightV;
-                while(x->rank > leftV->rank){
-                    parent = x;
-                    x = x->left;
-                }
-                v->right = x;
-                v->left = leftV;
-                if(parent){
-                    //parent->left = x;
-                    v = rightV;
-                }
-                //Otherwise just replace node.version with v?
+                //TODO symmetrical case...
             }
         }
         //int64_t newSum = leftV->sum + rightV->sum;
@@ -254,6 +282,53 @@ struct AS_Trie : public DynamicSet{
 
         RBVersionDebra.endOp();
         return success;
+    }
+
+    bool search(int64_t x){
+        RBVersionDebra.startOp();
+        RBVersion *v = array[0].version; //Read the root RBVersion
+        bool result = false;
+        while(v){
+            if(x > v->key){
+                v = v->right;
+            }
+            else if(x < v->key){
+                v = v->left;
+            }
+            else{ //x == v->key; v->key was in the RB tree.
+                result = true;
+                break;
+            }
+        }
+        RBVersionDebra.endOp();
+        return result;
+    }
+
+    int64_t predecessor(int64_t x){
+        RBVersionDebra.startOp();
+        RBVersion *v = array[0].version; //Read the root RBVersion
+        int64_t pred = -1;
+        while(v){
+            if(x > v->key){
+                pred = v->key;
+                v = v->right;
+            }
+            else if(x < v->key){
+                pred = v->key;
+            }
+            else{
+                break;
+            }
+        }
+        if(v){
+            v = v->left;
+            while(v){
+                pred = v->key;
+                v = v->right;
+            }
+        }
+        RBVersionDebra.endOp();
+        return pred;
     }
     // int64_t predecessor(int64_t x){
     //     RBVersionDebra.startOp();

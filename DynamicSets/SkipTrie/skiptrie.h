@@ -42,18 +42,21 @@ STNodePool node_pool[MAX_THREADS];
 
 Debra<STNode,5> stDebra;
 
-//numLevels - max number of levels in the skip list....
-template <int numLevels>
+//logU - max number of levels in the skip list....
+template <int loglogU = 5>
 struct SkipTrie : public DynamicSet {
-    STNode head[numLevels]; //levels are numbered 0, ..., levels - 1
+    STNode head[loglogU]; //levels are numbered 0, ..., levels - 1
     STNode tail;
-    SkipTrie(): tail(INT64_MAX){
+    int64_t universeSize;
+    int64_t logU;
+    SkipTrie(int log_U): tail(INT64_MAX), universeSize(1 << log_U), logU(log_U){
         //Initialize the skip trie...
-        head[0] = STNode(-1);
-        for(int l = 1; l < numLevels; ++l){
+
+        for(int l = 0; l < loglogU; ++l){
             head[l] = STNode(-1);
             head[l].nextState = (uintptr_t)&tail;
-            head[l].down = head[l - 1];
+            if(l > 0)head[l].down = head[l - 1];
+            else head[l].down = head[l];
         }
     }
     STNode *lowestAncestor(int64_t key){
@@ -226,7 +229,7 @@ struct SkipTrie : public DynamicSet {
     //     int curLevel = level;
     //     uintptr_t succ = head[curLevel + 1].succ;
     //     STNode *next = (STNode*)(succ & NEXT_MASK);
-    //     while(next != &tail && curLevel < numLevels - 1){
+    //     while(next != &tail && curLevel < logU - 1){
     //         ++curLevel;
 
     //         succ = head[curLevel + 1].succ;
@@ -238,8 +241,8 @@ struct SkipTrie : public DynamicSet {
 
     
     //Storing nodes with key <= k for each level on the stack
-    STNode* searchToLevel(int64_t k, int level, STNode *&next, std::array<STNode*,numLevels> &levelStart){
-        int curLevel = numLevels - 1;
+    STNode* searchToLevel(int64_t k, int level, STNode *&next, std::array<STNode*,loglogU> &levelStart){
+        int curLevel = loglogU - 1;
         STNode *curr = &head[curLevel];
         while(curLevel > level){
             next = searchRight(k, curr);
@@ -252,7 +255,7 @@ struct SkipTrie : public DynamicSet {
         return curr; //Return <curr, next>
     }
     STNode* searchToLevel(int64_t k, int level, STNode *&next, STNode*start){
-        int curLevel = numLevels - 1;
+        int curLevel = loglogU - 1;
         STNode *curr = start;
         while(curLevel > level){
             next = searchRight(k, curr);
@@ -263,7 +266,7 @@ struct SkipTrie : public DynamicSet {
         return curr;
     }
     STNode* searchToLevel(int64_t k, int level, STNode *&next){
-        int curLevel = numLevels - 1;
+        int curLevel = loglogU - 1;
         STNode *curr = &head[curLevel];
         while(curLevel > level){
             next = searchRight(k, curr);
@@ -313,19 +316,36 @@ struct SkipTrie : public DynamicSet {
     }
     bool insert(int64_t k){
         stDebra.startOp();
+        STNode *pred = xFastTriePred(k);
+        if(pred->key == k)return false;
+        int height;
+        STNode *node = skipListInsert(k,height);
+        if(!node)return false; //node was already in list...
+        if(height != loglogU)return true;
+        
+
+        int64_t p = k;
+        while(true){
+            //TODO insert into prefixes....
+            if(p == 0)break;
+            p = p >> 1;
+        }
+        return true;
+        stDebra.endOp();
+    }
+    STNode *skipListInsert(int64_t k, int &height){
         STNode *curr, *next;
-        std::array<STNode*,numLevels> startingPlaces;
+        std::array<STNode*,loglogU> startingPlaces;
         curr = searchToLevel(k, 0, next, startingPlaces);
         if(curr->key == k){
-            stDebra.endOp();
-            return false;
+            return nullptr;
         }
         STNode *newRoot = node_pool[threadID].node;
         STNode *newNode = newRoot;
         STNode *lastNode;
-        int height = 1;
+        height = 1;
         //Continue increasing height up to max level while flipping a fair coin
-        while(rng(2) == 0 && height < numLevels - 1){
+        while(rng(2) == 0 && height < loglogU - 1){
             ++height;
         }
         int level = 0;
@@ -339,80 +359,111 @@ struct SkipTrie : public DynamicSet {
             //If insertion of node has failed, and this is the first level, keep node for subsequent insertion...
             STNode *result = insertNode(newNode, curr, next);
             if(result == nullptr && level == 0){
-                //delete newNode; <-- instead of this, nodes are pooled.
-                stDebra.endOp();
-                return false;
+                return nullptr;
             }
             node_pool[threadID].node = new STNode(k);
-            if((newRoot->nextState & STATUS_MASK) == Marked){
-                //If newNode was inserted and this is not the bottom level, help remove newnode...
-                if(result == newNode && newNode != newRoot){
-                    //removeNode(curr, newNode);
-                }
-                stDebra.endOp();
-                return true;
+            if(newRoot->stop){
+                //Help remove newnode...
+                removeNode(curr, newNode);
+                return newNode;
             }
             ++level;
             if(level >= height){ //Stop building the tower if we've already reached the desired height...
-                stDebra.endOp();
-                return true;
+                return newNode;
             }
 
             curr = startingPlaces[level];
             next = searchRight(k,curr);
         }
-        stDebra.endOp();
-        return level > 0;
+        return newNode;
     }
-    // STNode *removeNode(STNode *prev, STNode *delNode){
-    //     bool inList;
-    //     bool result = tryFlag(prev, delNode, inList);
-    //     if(inList){
-    //         helpRemove(prev,delNode);
-    //     }
-    //     if(result)return delNode;
-    //     else return nullptr;
-    // }
-    // bool remove(int64_t k){
+    // bool insert(int64_t k){
     //     stDebra.startOp();
-    //     STNode *curr, *delNode;
-    //     std::array<STNode*,numLevels> startingPlaces;
-    //     curr = searchToLevel(k-1,0, delNode,startingPlaces);
-    //     if(delNode->key != k){ //delNode does not have key k so we will not remove it.
+    //     STNode *curr, *next;
+    //     std::array<STNode*,logU> startingPlaces;
+    //     curr = searchToLevel(k, 0, next, startingPlaces);
+    //     if(curr->key == k){
     //         stDebra.endOp();
     //         return false;
     //     }
-    //     removeNode(curr, delNode);
-    //     //Search for other levels....
-    //     for(int level = numLevels - 1; level >= 1;--level){
+    //     STNode *newRoot = node_pool[threadID].node;
+    //     STNode *newNode = newRoot;
+    //     STNode *lastNode;
+    //     int height = 1;
+    //     //Continue increasing height up to max level while flipping a fair coin
+    //     while(rng(2) == 0 && height < logU - 1){
+    //         ++height;
+    //     }
+    //     int level = 0;
+    //     while(true){
+    //         lastNode = newNode;
+    //         newNode = node_pool[threadID].node;
+    //         newNode->key = k;
+    //         newNode->down = lastNode;
+    //         newNode->root = newRoot;
+
+    //         //If insertion of node has failed, and this is the first level, keep node for subsequent insertion...
+    //         STNode *result = insertNode(newNode, curr, next);
+    //         if(result == nullptr && level == 0){
+    //             //delete newNode; <-- instead of this, nodes are pooled.
+    //             stDebra.endOp();
+    //             return false;
+    //         }
+    //         node_pool[threadID].node = new STNode(k);
+    //         if((newRoot->nextState & STATUS_MASK) == Marked){
+    //             //If newNode was inserted and this is not the bottom level, help remove newnode...
+    //             if(result == newNode && newNode != newRoot){
+    //                 //removeNode(curr, newNode);
+    //             }
+    //             stDebra.endOp();
+    //             return true;
+    //         }
+    //         ++level;
+    //         if(level >= height){ //Stop building the tower if we've already reached the desired height...
+    //             stDebra.endOp();
+    //             return true;
+    //         }
+
     //         curr = startingPlaces[level];
-    //         searchRight(k+1,curr);
+    //         next = searchRight(k,curr);
     //     }
     //     stDebra.endOp();
-    //     return true;
+    //     return level > 0;
     // }
+    STNode *removeNode(STNode *prev, STNode *delNode){
+        bool inList;
+        bool result = tryFlag(prev, delNode, inList);
+        if(inList){
+            helpRemove(prev,delNode);
+        }
+        if(result)return delNode;
+        else return nullptr;
+    }
+    bool remove(int64_t k){
+        stDebra.startOp();
+        STNode *curr, *delNode;
+        std::array<STNode*,loglogU> startingPlaces;
+        curr = searchToLevel(k-1,0, delNode,startingPlaces);
+        if(delNode->key != k){ //delNode does not have key k so we will not remove it.
+            stDebra.endOp();
+            return false;
+        }
+        bool result = !delNode->stop.exchange(true);
+        //removeNode(curr, delNode);
+        //Search for other levels....
+        for(int level = loglogU - 1; level >= 0;--level){
+            curr = startingPlaces[level];
+            searchRight(k+1,curr);
+        }
+        stDebra.endOp();
+        return result;
+    }
     int64_t predecessor(int64_t x){
         STNode *start = xFastTriePred(x);
         STNode *curr, *next;
         curr = searchToLevel(x-1,0,next,start);
         return curr->key;
     }
-    // int64_t predecessor(int64_t k){
-    //     stDebra.startOp();
-    //     STNode *curr, *next;
-    //     curr = searchToLevel(k-1, 0,next);
-    //     int64_t result = curr->key;
-    //     stDebra.endOp();
-    //     return result;
-    // }
-    // bool search(int64_t k){
-    //     stDebra.startOp();
-    //     STNode *curr, *next;
-    //     curr = searchToLevel(k, 0,next);
-    //     bool keyContained = curr->key == k;
-    //     stDebra.endOp();
-    //     return keyContained;
-    // }
     std::string name(){
         return "Shavit SkipTrie";
     }
