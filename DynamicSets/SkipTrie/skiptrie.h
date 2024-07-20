@@ -42,6 +42,38 @@ STNodePool node_pool[MAX_THREADS];
 
 Debra<STNode,5> stDebra;
 
+template <typename Value>
+struct HTNode{
+    uintptr_t nextState;
+    uint64_t key;
+    Value val;
+};
+
+struct TreeNode{
+    STNode *pointers[2];
+    // STNode *greatestZero;
+    // STNode *largestOne;
+    TreeNode(STNode *gt0 = nullptr, STNode *lg1 = nullptr): pointers{gt0,lg1}{
+
+    }
+};
+
+
+
+struct PrefixesTable{
+    TreeNode *lookup(int64_t prefix){
+
+    }
+    void compareAndDelete(int64_t prefix, TreeNode *tn){
+
+    }
+    bool insert(int64_t prefix, TreeNode *tn){
+        return false;
+    }
+};
+
+
+
 //logU - max number of levels in the skip list....
 template <int loglogU = 5>
 struct SkipTrie : public DynamicSet {
@@ -49,6 +81,7 @@ struct SkipTrie : public DynamicSet {
     STNode tail;
     int64_t universeSize;
     int64_t logU;
+    PrefixesTable prefixes;
     SkipTrie(int log_U): tail(INT64_MAX), universeSize(1 << log_U), logU(log_U){
         //Initialize the skip trie...
 
@@ -60,6 +93,10 @@ struct SkipTrie : public DynamicSet {
         }
     }
     STNode *lowestAncestor(int64_t key){
+        int64_t common_prefix = 0;
+        int64_t start = 0; //index of first bit
+        int64_t size = logU / 2;
+        //int64_t 
         return nullptr;
     }
     STNode *xFastTriePred(int64_t key){
@@ -323,13 +360,57 @@ struct SkipTrie : public DynamicSet {
         if(!node)return false; //node was already in list...
         if(height != loglogU)return true;
         
+        for(int len = logU - 1; len >= 0; --len)
+        {
+            int lenPlusOne = len + 1;
+            int64_t prefix = ((1 << len) - 1) + ((1 << lenPlusOne) - 1) & k);
+            int dir = (k >> lenPlusOne) & 1;
 
-        int64_t p = k;
-        while(true){
-            //TODO insert into prefixes....
-            if(p == 0)break;
-            p = p >> 1;
+            uint64_t nextState = node->nextState;
+            uint64_t state = (nextState & STATUS_MASK);
+            while(state != Marked){
+                //int64_t prefix = k;
+                TreeNode *tn = prefixes.lookup(prefix);
+                if(tn == nullptr){
+                    tn = new TreeNode(); //TODO reuse TreeNode...
+                    tn->pointers[dir] = node;
+                    if(prefixes.insert(prefix,tn))break;
+                }
+                else if(tn->pointers[0] == nullptr && tn->pointers[1] == nullptr){
+                    prefixes.compareAndDelete(prefix,tn);
+                }
+                else{
+                    STNode *curr = tn->pointers[dir];
+                    if(curr && ((dir == 0 && curr->key >= k) || (dir == 1 && curr->key <= k))){
+                        break;
+                    }
+                    //TODO finish this
+                    nextState = node->nextState;
+                    STNode *next = (STNode*)(nextState & NEXT_MASK);
+
+                    //DCSS tn->pointers[direction], curr, 
+                    atomic_noexcept{ //Use a transaction to perform a DCSS.
+                        TODO
+                        
+                        //if(tn->pointers[direction] == curr){ //left.succ = <node, 0>
+                           // if(){
+                              //  node->prev = left;
+                            //    break;
+                          //  }
+                        //}
+                    }
+                }
+
+                nextState = node->nextState;
+                state = (nextState & STATUS_MASK);
+            }
         }
+        // int64_t p = k;
+        // while(true){
+        //     //TODO insert into prefixes....
+        //     if(p == 0)break;
+        //     p = p >> 1;
+        // }
         return true;
         stDebra.endOp();
     }
@@ -468,3 +549,5 @@ struct SkipTrie : public DynamicSet {
         return "Shavit SkipTrie";
     }
 };
+#include <atomic>
+
