@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cstdio>
 #include <iostream>
 #include <string>
@@ -11,9 +12,6 @@
 #include <array>
 #include <cassert>
 #include <bit>
-
-
-using std::stack;
 
 
 struct alignas(64) DCSS_Desc{
@@ -103,9 +101,12 @@ struct DCSS_PTR{
     }
 };
 
+struct ReclaimableBase{
+
+};
 
 //Nodes of the skip trie.....
-struct alignas(64) STNode{
+struct alignas(64) STNode : public ReclaimableBase{
     int64_t key;
     std::atomic<uintptr_t> nextState; //Contains <next, mark>
     std::atomic<STNode*> back;
@@ -118,6 +119,15 @@ struct alignas(64) STNode{
     //int orig_height;
     //volatile char padding[64 - 4 * sizeof(STNode*) + sizeof(bool)];
     STNode(int64_t k=0, int height=0) : key(k), nextState(0), back(nullptr), prev(nullptr), down(nullptr), root(nullptr), stop(false), topLevelNode(nullptr){
+
+    }
+};
+
+struct TreeNode : public ReclaimableBase{
+    DCSS_PTR<STNode*> pointers[2];
+    // STNode *greatestZero;
+    // STNode *largestOne;
+    TreeNode(STNode *gt0 = nullptr, STNode *lg1 = nullptr): pointers{gt0,lg1}{
 
     }
 };
@@ -140,7 +150,7 @@ struct STNodePool{
 STNodePool node_pool[MAX_THREADS];
 
 
-Debra<STNode,5> stDebra;
+Debra<ReclaimableBase,5> stDebra;
 
 // template <typename Value>
 // struct HTNode{
@@ -149,21 +159,23 @@ Debra<STNode,5> stDebra;
 //     Value val;
 // };
 
-struct TreeNode{
-    DCSS_PTR<STNode*> pointers[2];
-    // STNode *greatestZero;
-    // STNode *largestOne;
-    TreeNode(STNode *gt0 = nullptr, STNode *lg1 = nullptr): pointers{gt0,lg1}{
 
-    }
-};
 
 
 //"Hashtable" for treenodes in array....
 struct PrefixesTable{
     std::atomic<TreeNode*> * const array;
-    PrefixesTable(int universeSize): array(new std::atomic<TreeNode*>[2 * universeSize]){
-
+    int64_t universeSize;
+    PrefixesTable(int64_t universeSize): array(new std::atomic<TreeNode*>[2 * universeSize]), universeSize(universeSize){
+        array[0] = nullptr;
+    }
+    ~PrefixesTable(){
+        for(int64_t i = 1; i < 2*universeSize;++i){
+            if(array[i]){
+                delete array[i];
+            }
+        }
+        delete[] array;
     }
     TreeNode *lookup(int64_t prefix){
         return array[prefix];
@@ -171,6 +183,7 @@ struct PrefixesTable{
     void compareAndDelete(int64_t prefix, TreeNode *tn){
         TreeNode *old = tn;
         array[prefix].compare_exchange_strong(old, nullptr);
+        stDebra.reclaimLater(tn);
     }
     bool insert(int64_t prefix, TreeNode *tn){
         TreeNode *old = nullptr;
@@ -199,6 +212,18 @@ struct SkipTrie : public DynamicSet {
         }
         assert(false);
         //TODO topLevelInsert
+    }
+
+    ~SkipTrie(){
+        for(int lv = loglogU; lv >= 0;--lv){
+            STNode *cur = (STNode *)(head[lv].succ & NEXT_MASK); 
+            STNode *next;
+            while(cur != &tail){
+                next = (STNode *)(cur->nextState & NEXT_MASK);
+                delete cur;
+                cur = next;
+            }
+        }
     }
 
 
@@ -693,8 +718,7 @@ struct SkipTrie : public DynamicSet {
         return pred;
     }
     std::string name(){
-        return "Shavit SkipTrie";
+        return "Oshman-Shavit SkipTrie";
     }
 };
-#include <atomic>
 
