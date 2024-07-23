@@ -76,19 +76,19 @@ int main(int argc, char **argv){
     int keyRange = 12;
     threadID = 0;
     int numProcs = 1;
-    Trie<NotifDescNotifyThreshold> trieSetNotifDesc(keyRange);
-    Trie<AtomicCopyNotifyThreshold> trieSetSwCopy(keyRange);
+    Trie trieSet(keyRange);
     LinkedListSet listSet;
     SkipListSet<25> skipList;
+    SkipTrie<5> skipTrie(keyRange);
     AS_Trie augmentedTrie(keyRange);
-    DynamicSet &set = trieSetSwCopy;
+    DynamicSet &set = trieSet;
     trieDebra.setActiveThreads(numProcs);
     keyNodeDebra.setActiveThreads(numProcs);
     skipDebra.setActiveThreads(numProcs);
     versionDebra.setActiveThreads(numProcs);
     if(argc != 2){
         std::cout << "Assuming use of Jeremy's trie." << std::endl;
-        set = trieSetSwCopy;
+        set = trieSet;
     }
     else{
         char *setType = &argv[1][2];
@@ -102,7 +102,7 @@ int main(int argc, char **argv){
             set = augmentedTrie;
         }
         else{
-            set = trieSetSwCopy;
+            set = trieSet;
         }
     }
     randTest(1 << keyRange, 5000000, set);

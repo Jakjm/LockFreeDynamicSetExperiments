@@ -479,7 +479,7 @@ int experimentProg(int argc, char **argv){
                 //If this is a supported dynamic set...
                 if(strcmp(currentParam, "--list") == 0 || strcmp(currentParam, "--skip") == 0 || 
 					strcmp(currentParam, "--trie") == 0 || strcmp(currentParam, "--trieSwCopy") == 0|| 
-					strcmp(currentParam, "--trieNotifDesc") == 0 || strcmp(currentParam, "--augTrie") == 0){
+					strcmp(currentParam, "--skipTrie") == 0 || strcmp(currentParam, "--augTrie") == 0){
                     setType = &currentParam[2]; //Remove two dashes...
                 }
                 else{
@@ -499,6 +499,7 @@ int experimentProg(int argc, char **argv){
     Trie trie(keyRange);
     LinkedListSet listSet;
     SkipListSet<22> skipList;
+    SkipTrie<5> skipTrie(20);
     AS_Trie augmentedTrie(keyRange);
     trieDebra.setActiveThreads(numProcs);
     keyNodeDebra.setActiveThreads(numProcs);
@@ -516,6 +517,9 @@ int experimentProg(int argc, char **argv){
     }
     else if(strcmp(setType, "augTrie") == 0){
         set = &augmentedTrie;
+    }
+    else if(strcmp(setType, "skipTrie") == 0){
+        set = &skipTrie;
     }
     else{
         assert(false);

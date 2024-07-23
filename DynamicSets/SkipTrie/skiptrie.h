@@ -6,6 +6,9 @@
 #include "../DynamicSet.h"
 #include "../../common.h"
 #include "../debra.h"
+#include "prefixes.h"
+#include <cassert>
+#include <bit>
 
 
 using std::stack;
@@ -18,9 +21,11 @@ struct alignas(64) STNode{
     STNode* down;
     STNode* root;
     std::atomic<bool> stop;
-    std::atomic<bool> ready;
+    std::atomic<STNode*> topLevelNode;
+    //std::atomic<bool> ready;
+    //int orig_height;
     //volatile char padding[64 - 4 * sizeof(STNode*) + sizeof(bool)];
-    STNode(int64_t k=0) : key(k), nextState(0), back(nullptr), down(nullptr), root(nullptr), stop(false), ready(false){
+    STNode(int64_t k=0, int height=0) : key(k), nextState(0), back(nullptr), down(nullptr), root(nullptr), stop(false), topLevelNode(nullptr){
 
     }
 };
@@ -42,15 +47,15 @@ STNodePool node_pool[MAX_THREADS];
 
 Debra<STNode,5> stDebra;
 
-template <typename Value>
-struct HTNode{
-    uintptr_t nextState;
-    uint64_t key;
-    Value val;
-};
+// template <typename Value>
+// struct HTNode{
+//     uintptr_t nextState;
+//     uint64_t key;
+//     Value val;
+// };
 
 struct TreeNode{
-    STNode *pointers[2];
+    std::atomic<STNode*> pointers[2];
     // STNode *greatestZero;
     // STNode *largestOne;
     TreeNode(STNode *gt0 = nullptr, STNode *lg1 = nullptr): pointers{gt0,lg1}{
@@ -59,16 +64,22 @@ struct TreeNode{
 };
 
 
-
+//"Hashtable" for treenodes in array....
 struct PrefixesTable{
-    TreeNode *lookup(int64_t prefix){
+    std::atomic<TreeNode*> * const array;
+    PrefixesTable(int universeSize): array(new std::atomic<TreeNode*>[2 * universeSize]){
 
+    }
+    TreeNode *lookup(int64_t prefix){
+        return array[prefix];
     }
     void compareAndDelete(int64_t prefix, TreeNode *tn){
-
+        TreeNode *old = tn;
+        array[prefix].compare_exchange_strong(old, nullptr);
     }
     bool insert(int64_t prefix, TreeNode *tn){
-        return false;
+        TreeNode *old = nullptr;
+        return array[prefix].compare_exchange_strong(old, tn);
     }
 };
 
@@ -82,22 +93,41 @@ struct SkipTrie : public DynamicSet {
     int64_t universeSize;
     int64_t logU;
     PrefixesTable prefixes;
-    SkipTrie(int log_U): tail(INT64_MAX), universeSize(1 << log_U), logU(log_U){
+    SkipTrie(int log_U): tail(INT64_MAX), universeSize(1 << log_U), logU(log_U), prefixes(universeSize){
         //Initialize the skip trie...
 
         for(int l = 0; l < loglogU; ++l){
-            head[l] = STNode(-1);
+            head[l].key = -1;
             head[l].nextState = (uintptr_t)&tail;
-            if(l > 0)head[l].down = head[l - 1];
-            else head[l].down = head[l];
+            if(l > 0)head[l].down = &head[l - 1];
+            else head[l].down = &head[l];
         }
+        assert(false);
+        //TODO topLevelInsert
     }
+
+
     STNode *lowestAncestor(int64_t key){
-        int64_t common_prefix = 0;
+        int64_t common_prefix = 1;
         int64_t start = 0; //index of first bit
         int64_t size = logU / 2;
+
+        STNode *ancestor = prefixes.lookup(0)->pointers[key >> (logU - 1)];
+        while(size > 0){
+            int64_t query = mergePrefix(common_prefix, key, start, size, logU);//TODO prefix + star....
+            int dir = key >> (logU - (start + 1));
+            TreeNode *query_node = prefixes.lookup(query);
+            if(query_node){
+                STNode *candidate = query_node->pointers[dir];
+                if(candidate && isPrefix(query, candidate->key, logU)){
+                    //TODO finish this
+                }
+            }
+            
+            size = size / 2;
+        }
         //int64_t 
-        return nullptr;
+        return ancestor;
     }
     STNode *xFastTriePred(int64_t key){
         STNode *curr = lowestAncestor(key);
@@ -131,14 +161,15 @@ struct SkipTrie : public DynamicSet {
             nextState = node->nextState;
             state = nextState & STATUS_MASK;
         }
-        node->ready = true;
+        node->root->topLevelNode = node;
     }
-    void topLevelDelete(STNode *pred, STNode *node){
+    bool topLevelDelete(STNode *pred, STNode *node){
         STNode *left, *right;
-        if(!node->ready){
+        if(!node->root->topLevelNode){
             fixPrev(pred, node);
         }
-        //TODO delete node from every level of skip list...
+        //assert(false);
+        bool result = skipListDelete(pred,node);
         //top to bottom
         left = pred;
         bool marked;
@@ -148,6 +179,7 @@ struct SkipTrie : public DynamicSet {
             uintptr_t nextState = left->nextState;
             marked = (nextState & STATUS_MASK) == Marked;
         }while(marked);
+        return result;
     }
     //Precondition: prev.successor was <delNode, DelFlag> at an earlier point, and delNode is Marked.
     uintptr_t helpMarked(STNode *prev, STNode *delNode){
@@ -278,12 +310,12 @@ struct SkipTrie : public DynamicSet {
 
     
     //Storing nodes with key <= k for each level on the stack
-    STNode* searchToLevel(int64_t k, int level, STNode *&next, std::array<STNode*,loglogU> &levelStart){
+    STNode* searchToLevel(int64_t k, int level, STNode *&next, STNode*start, std::array<STNode*,loglogU> &levelStart){
         int curLevel = loglogU - 1;
-        STNode *curr = &head[curLevel];
+        STNode *curr = start;
         while(curLevel > level){
             next = searchRight(k, curr);
-            levelStart[curLevel] = curr;;
+            levelStart[curLevel] = curr;
             curr = curr->down;
             --curLevel;
         }
@@ -302,17 +334,17 @@ struct SkipTrie : public DynamicSet {
         next = searchRight(k, curr);
         return curr;
     }
-    STNode* searchToLevel(int64_t k, int level, STNode *&next){
-        int curLevel = loglogU - 1;
-        STNode *curr = &head[curLevel];
-        while(curLevel > level){
-            next = searchRight(k, curr);
-            curr = curr->down;
-            --curLevel;
-        }
-        next = searchRight(k, curr);
-        return curr; //Return <curr, next>
-    }
+    // STNode* searchToLevel(int64_t k, int level, STNode *&next){
+    //     int curLevel = loglogU - 1;
+    //     STNode *curr = &head[curLevel];
+    //     while(curLevel > level){
+    //         next = searchRight(k, curr);
+    //         curr = curr->down;
+    //         --curLevel;
+    //     }
+    //     next = searchRight(k, curr);
+    //     return curr; //Return <curr, next>
+    // }
     STNode *insertNode(STNode *newNode, STNode *&prev, STNode *next){
         //assert(newNode->down);
         if(prev->key == newNode->key){
@@ -354,18 +386,25 @@ struct SkipTrie : public DynamicSet {
     bool insert(int64_t k){
         stDebra.startOp();
         STNode *pred = xFastTriePred(k);
-        if(pred->key == k)return false;
+        if(pred->key == k){
+            stDebra.endOp();
+            return false;
+        }
         int height;
         STNode *node = skipListInsert(k,height);
-        if(!node)return false; //node was already in list...
-        if(height != loglogU)return true;
+        if(!node){
+            stDebra.endOp();
+            return false; //node was already in list...
+        }
+        if(height != loglogU){
+            stDebra.endOp();
+            return true;
+        }
         
-        for(int len = logU - 1; len >= 0; --len)
+        for(int64_t len = logU - 1; len >= 0; --len)
         {
-            int lenPlusOne = len + 1;
-            int64_t prefix = ((1 << len) - 1) + ((1 << lenPlusOne) - 1) & k);
-            int dir = (k >> lenPlusOne) & 1;
-
+            int64_t prefix = getPrefix(k, len, logU);
+            int dir = (k >> (len + 1)) & 1;
             uint64_t nextState = node->nextState;
             uint64_t state = (nextState & STATUS_MASK);
             while(state != Marked){
@@ -388,16 +427,15 @@ struct SkipTrie : public DynamicSet {
                     nextState = node->nextState;
                     STNode *next = (STNode*)(nextState & NEXT_MASK);
 
-                    //DCSS tn->pointers[direction], curr, 
+                    //DCSS:
+                    // if tn->pointers[dir] == curr and node->nextState == <next, unmarked>, update 
+                    //      tn->pointers[dir] = node
                     atomic_noexcept{ //Use a transaction to perform a DCSS.
-                        TODO
-                        
-                        //if(tn->pointers[direction] == curr){ //left.succ = <node, 0>
-                           // if(){
-                              //  node->prev = left;
-                            //    break;
-                          //  }
-                        //}
+                        if(node->nextState == (uintptr_t)next){
+                            if(tn->pointers[dir] == curr){
+                                tn->pointers[dir] = node;
+                            }
+                        }
                     }
                 }
 
@@ -405,14 +443,8 @@ struct SkipTrie : public DynamicSet {
                 state = (nextState & STATUS_MASK);
             }
         }
-        // int64_t p = k;
-        // while(true){
-        //     //TODO insert into prefixes....
-        //     if(p == 0)break;
-        //     p = p >> 1;
-        // }
-        return true;
         stDebra.endOp();
+        return true;
     }
     STNode *skipListInsert(int64_t k, int &height){
         STNode *curr, *next;
@@ -458,59 +490,6 @@ struct SkipTrie : public DynamicSet {
         }
         return newNode;
     }
-    // bool insert(int64_t k){
-    //     stDebra.startOp();
-    //     STNode *curr, *next;
-    //     std::array<STNode*,logU> startingPlaces;
-    //     curr = searchToLevel(k, 0, next, startingPlaces);
-    //     if(curr->key == k){
-    //         stDebra.endOp();
-    //         return false;
-    //     }
-    //     STNode *newRoot = node_pool[threadID].node;
-    //     STNode *newNode = newRoot;
-    //     STNode *lastNode;
-    //     int height = 1;
-    //     //Continue increasing height up to max level while flipping a fair coin
-    //     while(rng(2) == 0 && height < logU - 1){
-    //         ++height;
-    //     }
-    //     int level = 0;
-    //     while(true){
-    //         lastNode = newNode;
-    //         newNode = node_pool[threadID].node;
-    //         newNode->key = k;
-    //         newNode->down = lastNode;
-    //         newNode->root = newRoot;
-
-    //         //If insertion of node has failed, and this is the first level, keep node for subsequent insertion...
-    //         STNode *result = insertNode(newNode, curr, next);
-    //         if(result == nullptr && level == 0){
-    //             //delete newNode; <-- instead of this, nodes are pooled.
-    //             stDebra.endOp();
-    //             return false;
-    //         }
-    //         node_pool[threadID].node = new STNode(k);
-    //         if((newRoot->nextState & STATUS_MASK) == Marked){
-    //             //If newNode was inserted and this is not the bottom level, help remove newnode...
-    //             if(result == newNode && newNode != newRoot){
-    //                 //removeNode(curr, newNode);
-    //             }
-    //             stDebra.endOp();
-    //             return true;
-    //         }
-    //         ++level;
-    //         if(level >= height){ //Stop building the tower if we've already reached the desired height...
-    //             stDebra.endOp();
-    //             return true;
-    //         }
-
-    //         curr = startingPlaces[level];
-    //         next = searchRight(k,curr);
-    //     }
-    //     stDebra.endOp();
-    //     return level > 0;
-    // }
     STNode *removeNode(STNode *prev, STNode *delNode){
         bool inList;
         bool result = tryFlag(prev, delNode, inList);
@@ -520,24 +499,107 @@ struct SkipTrie : public DynamicSet {
         if(result)return delNode;
         else return nullptr;
     }
+
+
+
+    //TODO
+
+
     bool remove(int64_t k){
         stDebra.startOp();
-        STNode *curr, *delNode;
-        std::array<STNode*,loglogU> startingPlaces;
-        curr = searchToLevel(k-1,0, delNode,startingPlaces);
-        if(delNode->key != k){ //delNode does not have key k so we will not remove it.
+
+        //pred = predecessor(k - 1)
+        STNode *pred = xFastTriePred(k-1);
+        STNode *left = pred;
+        STNode *node = searchRight(k-1, left);
+
+        if(node->key != k){
+            bool result = skipListDelete(left,k);
+            stDebra.endOp();
+            return result;
+        }
+        //delete node from skip list
+        else if(!topLevelDelete(left, node)){
             stDebra.endOp();
             return false;
         }
-        bool result = !delNode->stop.exchange(true);
-        //removeNode(curr, delNode);
-        //Search for other levels....
-        for(int level = loglogU - 1; level >= 0;--level){
-            curr = startingPlaces[level];
-            searchRight(k+1,curr);
+
+        for(int64_t len = 0;len < logU;++len){
+            int64_t prefix = getPrefix(k, len, logU);
+            int dir = (k >> (len + 1)) & 1;
+
+            TreeNode *tn = prefixes.lookup(prefix);
+            if(!tn)continue;
+            STNode *curr = tn->pointers[dir];
+            while(curr == node){
+                STNode *right = searchRight(k-1, left);
+
+                // dir = 0: DCSS(pointers[direction], curr, left, left.succ, (right, 0))
+                // dir = 1: DCSS(pointers[direction], curr, right, left.succ, (right, 0))
+                STNode *newNode;
+                if(dir == 0) newNode = left;
+                else newNode = right;
+                atomic_noexcept{
+                    if(left->nextState == (uintptr_t)right){
+                        if(tn->pointers[dir] == curr){
+                            tn->pointers[dir] = newNode;
+                        }
+                    }
+                }
+                curr = tn->pointers[dir];
+            }
+            if(!isPrefix(prefix,curr->key, logU)){
+                tn->pointers[dir].compare_exchange_strong(curr, nullptr);
+            }
+            if(tn->pointers[0] == nullptr && tn->pointers[1] == nullptr){
+                prefixes.compareAndDelete(prefix, tn);
+            }
         }
         stDebra.endOp();
+        return true;
+    } 
+    bool skipListDelete(STNode *prev, int64_t k){
+        //stDebra.startOp();
+        STNode *curr, *root;
+        std::array<STNode*,loglogU> startingPlaces;
+        curr = searchToLevel(k-1,0, root, prev, startingPlaces);
+        if(root->key != k){ //root is not the node we are trying to delete...
+            //stDebra.endOp();
+            //return false;
+            return false;
+        }
+        bool result = !root->stop.exchange(true);
+        //removeNode(curr, next);
+        //Search and delete delNode from other levels of the tree...
+        for(int level = loglogU - 1; level >= 0;--level){
+            curr = startingPlaces[level];
+            searchRight(k,curr);
+        }
         return result;
+        //stDebra.endOp();
+        //return result;
+    }
+    bool skipListDelete(STNode *prev, STNode *delNode){
+        //stDebra.startOp();
+        STNode *curr, *root;
+        int64_t k = delNode->key;
+        std::array<STNode*,loglogU> startingPlaces;
+        curr = searchToLevel(k-1,0, root, prev, startingPlaces);
+        if(root != delNode->root){ //root is not the node we are trying to delete...
+            return false;
+        }
+        bool result = !root->stop.exchange(true);
+        //removeNode(curr, next);
+        //Search and delete delNode from other levels of the tree...
+        for(int level = loglogU - 1; level >= 0;--level){
+            curr = startingPlaces[level];
+            searchRight(k,curr);
+        }
+        return result;
+    }
+    bool search(int64_t x){
+        assert(false);
+        return false;
     }
     int64_t predecessor(int64_t x){
         STNode *start = xFastTriePred(x);
