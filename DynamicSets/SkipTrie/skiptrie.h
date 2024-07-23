@@ -1,3 +1,4 @@
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <atomic>
@@ -7,17 +8,108 @@
 #include "../../common.h"
 #include "../debra.h"
 #include "prefixes.h"
+#include <array>
 #include <cassert>
 #include <bit>
 
 
 using std::stack;
+
+
+struct alignas(64) DCSS_Desc{
+    std::atomic<uintptr_t> *addr1;
+    uintptr_t val1;
+    uintptr_t val2;
+    uintptr_t new2;
+    uint64_t seqNum;
+    DCSS_Desc(std::atomic<uintptr_t> *a1 = 0, uint64_t e1 = 0, uint64_t e2 = 0, uint64_t n2 = 0): addr1(a1), val1(e1), val2(e2), new2(n2), seqNum(0){
+
+    }
+};
+
+
+DCSS_Desc descs[MAX_THREADS];
+
+
+template <typename TYPE>
+struct DCSS_PTR{
+    //std::atomic<DCSS_Desc*> curr;
+    std::atomic<uintptr_t> addr;
+    DCSS_PTR(TYPE initialValue){
+        addr = (uintptr_t)initialValue;
+    }
+    void write(TYPE n){
+        addr = (uintptr_t)n;
+    }
+    void cas(TYPE e2, TYPE n2){
+        uintptr_t old = (uintptr_t)e2;
+        addr.compare_exchange_strong(old,(uintptr_t)n2);
+    }
+    void dcss(std::atomic<uintptr_t> *a1, uint64_t e1, TYPE e2, TYPE n2){
+        DCSS_Desc *desc = &descs[threadID];
+        *desc = DCSS_Desc(a1,e1,(uintptr_t)e2,(uintptr_t)n2);
+        uint64_t seqNum = desc->seqNum;
+        uint64_t newVal = (seqNum << 12) + (threadID << 4) + InsFlag;
+        //uintptr_t fdes = ((uintptr_t)desc) + 1;
+        uintptr_t oldVal = (uintptr_t)e2;
+        while(true){
+            uintptr_t val = addr;
+            if(val == (uintptr_t)e2){
+                addr.compare_exchange_strong(oldVal, newVal);
+                if(oldVal & 1){
+                    uint64_t seq = (oldVal & SEQ_MASK) >> 12;
+                    uint64_t proc = (oldVal & PROC_MASK) >> 4;
+                    dcssHelp(seq, proc);
+                }
+                else{
+                    break;
+                }
+            }
+        }
+        if(oldVal == (uintptr_t)e2){
+            dcssHelp(seqNum,newVal);
+            desc->seqNum = seqNum + 1;
+        }
+    }
+    void dcssHelp(uint64_t seqNum, uint64_t procID){
+        DCSS_Desc *desc = &descs[procID];
+        std::atomic<uintptr_t> *a1 = desc->addr1;
+        uint64_t e1 = desc->val1;
+        uint64_t e2 = desc->val2;
+        uint64_t n2 = desc->new2;
+        if(seqNum != desc->seqNum){
+            return;
+        }
+
+        if(a1->load() == e1){
+            uintptr_t oldVal = (seqNum << 12) + (threadID << 4) + 1;
+            addr.compare_exchange_strong(oldVal, n2);
+        }
+        else{
+            uintptr_t oldVal = (seqNum << 12) + (threadID << 4) + 1;
+            addr.compare_exchange_strong(oldVal, e2);
+            //addr.compare_exchange_strong()
+        }
+    }
+    TYPE read(){
+        uintptr_t r = addr;
+        while((r & 1) == 1){
+            uint64_t seq = (r & SEQ_MASK) >> 12;
+            uint64_t proc = (r & PROC_MASK) >> 4;
+            dcssHelp(seq, proc);
+            r = addr;
+        }
+        return (TYPE)r;
+    }
+};
+
+
 //Nodes of the skip trie.....
 struct alignas(64) STNode{
     int64_t key;
     std::atomic<uintptr_t> nextState; //Contains <next, mark>
     std::atomic<STNode*> back;
-    std::atomic<STNode*> prev; 
+    DCSS_PTR<STNode*> prev; 
     STNode* down;
     STNode* root;
     std::atomic<bool> stop;
@@ -25,10 +117,13 @@ struct alignas(64) STNode{
     //std::atomic<bool> ready;
     //int orig_height;
     //volatile char padding[64 - 4 * sizeof(STNode*) + sizeof(bool)];
-    STNode(int64_t k=0, int height=0) : key(k), nextState(0), back(nullptr), down(nullptr), root(nullptr), stop(false), topLevelNode(nullptr){
+    STNode(int64_t k=0, int height=0) : key(k), nextState(0), back(nullptr), prev(nullptr), down(nullptr), root(nullptr), stop(false), topLevelNode(nullptr){
 
     }
 };
+
+
+
 
 //Type which is used to allow threads to reuse nodes they fail to insert...
 struct STNodePool{
@@ -55,7 +150,7 @@ Debra<STNode,5> stDebra;
 // };
 
 struct TreeNode{
-    std::atomic<STNode*> pointers[2];
+    DCSS_PTR<STNode*> pointers[2];
     // STNode *greatestZero;
     // STNode *largestOne;
     TreeNode(STNode *gt0 = nullptr, STNode *lg1 = nullptr): pointers{gt0,lg1}{
@@ -112,13 +207,13 @@ struct SkipTrie : public DynamicSet {
         int64_t start = 0; //index of first bit
         int64_t size = logU / 2;
 
-        STNode *ancestor = prefixes.lookup(0)->pointers[key >> (logU - 1)];
+        STNode *ancestor = prefixes.lookup(0)->pointers[key >> (logU - 1)].read();
         while(size > 0){
             int64_t query = mergePrefix(common_prefix, key, start, size, logU);//TODO prefix + star....
             int dir = key >> (logU - (start + 1));
             TreeNode *query_node = prefixes.lookup(query);
             if(query_node){
-                STNode *candidate = query_node->pointers[dir];
+                STNode *candidate = query_node->pointers[dir].read();
                 if(candidate && isPrefix(query, candidate->key, logU)){
                     //TODO finish this
                 }
@@ -134,29 +229,30 @@ struct SkipTrie : public DynamicSet {
         while(curr->key > key){
             uintptr_t state = curr->nextState & STATUS_MASK;
             if(state == Marked)curr = curr->back;
-            else curr = curr->prev;
+            else curr = curr->prev.read();
         }
         return curr;
     }
     void fixPrev(STNode *pred, STNode *node){
-        STNode *left, *right;
+        STNode *left;
         left = pred;
-        right = searchRight(node->key,left);
+        searchRight(node->key,left);
         uintptr_t nextState = node->nextState;
         uint64_t state = nextState & STATUS_MASK;
         while(state != Marked){
-            STNode *prev = node->prev;
-            atomic_noexcept{ //Use a transaction to perform a DCSS.
-                if(left->nextState == (uintptr_t)node){ //left.succ = <node, 0>
-                    if(node->prev == prev){
-                        node->prev = left;
-                        break;
-                    }
-                }
-            }
+            STNode *prev = node->prev.read();
+            node->prev.dcss(&left->nextState, (uintptr_t)node, prev, left);
+            // atomic_noexcept{ //Use a transaction to perform a DCSS.
+            //     if(left->nextState == (uintptr_t)node){ //left.succ = <node, 0>
+            //         if(node->prev == prev){
+            //             node->prev = left;
+            //             break;
+            //         }
+            //     }
+            // }
             //search
             left = pred;
-            right = searchRight(node->key, left);
+            searchRight(node->key, left);
 
             nextState = node->nextState;
             state = nextState & STATUS_MASK;
@@ -168,7 +264,6 @@ struct SkipTrie : public DynamicSet {
         if(!node->root->topLevelNode){
             fixPrev(pred, node);
         }
-        //assert(false);
         bool result = skipListDelete(pred,node);
         //top to bottom
         left = pred;
@@ -391,7 +486,7 @@ struct SkipTrie : public DynamicSet {
             return false;
         }
         int height;
-        STNode *node = skipListInsert(k,height);
+        STNode *node = skipListInsert(k,height, pred);
         if(!node){
             stDebra.endOp();
             return false; //node was already in list...
@@ -412,31 +507,24 @@ struct SkipTrie : public DynamicSet {
                 TreeNode *tn = prefixes.lookup(prefix);
                 if(tn == nullptr){
                     tn = new TreeNode(); //TODO reuse TreeNode...
-                    tn->pointers[dir] = node;
+                    tn->pointers[dir].write(node);
                     if(prefixes.insert(prefix,tn))break;
                 }
-                else if(tn->pointers[0] == nullptr && tn->pointers[1] == nullptr){
+                else if(tn->pointers[0].read() == nullptr && tn->pointers[1].read() == nullptr){
                     prefixes.compareAndDelete(prefix,tn);
                 }
                 else{
-                    STNode *curr = tn->pointers[dir];
+                    STNode *curr = tn->pointers[dir].read();
                     if(curr && ((dir == 0 && curr->key >= k) || (dir == 1 && curr->key <= k))){
                         break;
                     }
-                    //TODO finish this
                     nextState = node->nextState;
                     STNode *next = (STNode*)(nextState & NEXT_MASK);
 
                     //DCSS:
                     // if tn->pointers[dir] == curr and node->nextState == <next, unmarked>, update 
                     //      tn->pointers[dir] = node
-                    atomic_noexcept{ //Use a transaction to perform a DCSS.
-                        if(node->nextState == (uintptr_t)next){
-                            if(tn->pointers[dir] == curr){
-                                tn->pointers[dir] = node;
-                            }
-                        }
-                    }
+                    tn->pointers[dir].dcss(&node->nextState, (uintptr_t)next, curr, node);
                 }
 
                 nextState = node->nextState;
@@ -446,10 +534,10 @@ struct SkipTrie : public DynamicSet {
         stDebra.endOp();
         return true;
     }
-    STNode *skipListInsert(int64_t k, int &height){
-        STNode *curr, *next;
+    STNode *skipListInsert(int64_t k, int &height, STNode *curr){
+        STNode *next;
         std::array<STNode*,loglogU> startingPlaces;
-        curr = searchToLevel(k, 0, next, startingPlaces);
+        curr = searchToLevel(k, 0, next, curr, startingPlaces);
         if(curr->key == k){
             return nullptr;
         }
@@ -501,10 +589,6 @@ struct SkipTrie : public DynamicSet {
     }
 
 
-
-    //TODO
-
-
     bool remove(int64_t k){
         stDebra.startOp();
 
@@ -530,7 +614,7 @@ struct SkipTrie : public DynamicSet {
 
             TreeNode *tn = prefixes.lookup(prefix);
             if(!tn)continue;
-            STNode *curr = tn->pointers[dir];
+            STNode *curr = tn->pointers[dir].read();
             while(curr == node){
                 STNode *right = searchRight(k-1, left);
 
@@ -539,19 +623,14 @@ struct SkipTrie : public DynamicSet {
                 STNode *newNode;
                 if(dir == 0) newNode = left;
                 else newNode = right;
-                atomic_noexcept{
-                    if(left->nextState == (uintptr_t)right){
-                        if(tn->pointers[dir] == curr){
-                            tn->pointers[dir] = newNode;
-                        }
-                    }
-                }
-                curr = tn->pointers[dir];
+
+                tn->pointers[dir].dcss(&left->nextState, (uintptr_t)right, curr, newNode);
+                curr = tn->pointers[dir].read();
             }
             if(!isPrefix(prefix,curr->key, logU)){
-                tn->pointers[dir].compare_exchange_strong(curr, nullptr);
+                tn->pointers[dir].cas(curr, nullptr);
             }
-            if(tn->pointers[0] == nullptr && tn->pointers[1] == nullptr){
+            if(tn->pointers[0].read() == nullptr && tn->pointers[1].read() == nullptr){
                 prefixes.compareAndDelete(prefix, tn);
             }
         }
@@ -576,8 +655,6 @@ struct SkipTrie : public DynamicSet {
             searchRight(k,curr);
         }
         return result;
-        //stDebra.endOp();
-        //return result;
     }
     bool skipListDelete(STNode *prev, STNode *delNode){
         //stDebra.startOp();
@@ -598,14 +675,22 @@ struct SkipTrie : public DynamicSet {
         return result;
     }
     bool search(int64_t x){
-        assert(false);
-        return false;
+        stDebra.startOp();
+        STNode *start = xFastTriePred(x);
+        STNode *next;
+        searchToLevel(x-1,0,next,start);
+        bool result = (next->key == x);
+        stDebra.endOp();
+        return result;
     }
     int64_t predecessor(int64_t x){
+        stDebra.startOp();
         STNode *start = xFastTriePred(x);
         STNode *curr, *next;
         curr = searchToLevel(x-1,0,next,start);
-        return curr->key;
+        int64_t pred = curr->key;
+        stDebra.endOp();
+        return pred;
     }
     std::string name(){
         return "Shavit SkipTrie";

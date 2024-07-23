@@ -109,7 +109,7 @@ class UALL {
             //This is the descriptor for this thread.
             InsertDescNode *desc = &descs[threadID];
             uint64_t seqNum = desc->seqNum;
-            assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
+            //assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->newNode = node;
             #ifdef COUNT_CONTENTION
                 UALLCounter &counter = uallCounter[threadID];

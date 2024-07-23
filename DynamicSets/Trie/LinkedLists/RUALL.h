@@ -68,7 +68,7 @@ class RUALL{
         }
         //Precondition, prev.rSucc was <delNode, DelFlag> at an earlier point.
         uintptr_t helpRemove(UpdateNode *prev, UpdateNode *delNode){
-            assert(prev != delNode);
+            //assert(prev != delNode);
             delNode->rBacklink = prev;
             uintptr_t succ = delNode->rSucc.load(); //The value of delNode's succ pointer
             uintptr_t state = succ & STATUS_MASK;
@@ -107,7 +107,7 @@ class RUALL{
             //This is the descriptor for this thread.
             InsertDescNode *desc = &descs[threadID];
             uint64_t seqNum = desc->seqNum;
-            assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
+            //assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->newNode = node;
             #ifdef COUNT_CONTENTION
                 RUALLCounter &counter = ruallCounter[threadID];

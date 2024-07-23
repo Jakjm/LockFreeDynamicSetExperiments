@@ -1,7 +1,7 @@
 #include <cstdint>
 #include <bit>
 #include <iostream>
-
+#pragma once
 //Gets the integer representing the len-bit prefix of k within size bits
 int64_t getPrefix(const int64_t k, const int len, const int size){
     int64_t mask = (1 << len) - 1;

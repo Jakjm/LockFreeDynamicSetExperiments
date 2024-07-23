@@ -1,5 +1,6 @@
 #include "prefixes.h"
 #include <algorithm>
+#include "skiptrie.h"
 
 
 int main(){
@@ -13,4 +14,8 @@ int main(){
     std::cout << "Is 11 a len 2 prefix of 200 within 8 bits:" << isPrefix(7, 200, 8) << std::endl;
     std::cout << "Is empty a len 2 prefix of 200 within 8 bits:" << isPrefix(1, 200, 8) << std::endl;
     std::cout << "Is 111 a len 3 prefix of 200 within 8 bits:" << isPrefix(15, 200, 8) << std::endl;
+
+    SkipTrie<5> trie(20);
+    trie.insert(5);
+    trie.remove(5);
 }

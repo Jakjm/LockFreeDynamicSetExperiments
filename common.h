@@ -17,7 +17,7 @@ const uint64_t PROC_MASK = 0x0000000000000FF0; //Process ID contained within nex
 const uint64_t SEQ_MASK =  0xFFFFFFFFFFFFF000; //Sequence # contained within highest 52 bits
 
 thread_local int threadID = -1;
-const int MAX_THREADS = 512;
+const int MAX_THREADS = 256;
 //Returns the number of microiseconds since the Unix epoch, January 1st 1970 at 00:00:00 UTC.
 uint64_t micros(){
     return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::system_clock::now().time_since_epoch()).count();

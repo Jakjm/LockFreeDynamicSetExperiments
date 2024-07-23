@@ -1,2 +1,2 @@
 test: skiptrie.h
-	g++ skiptrie.h -O3 -o test
+	g++ prefixes.cpp -O3 -fgnu-tm -o test
