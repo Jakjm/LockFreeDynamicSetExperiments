@@ -16,7 +16,7 @@ dynamicSetTest : $(dataStructures) $(trie) $(common) dynamicSetTest.cpp  Makefil
 	g++ $(compileFlags) $(optimizationFlags) $(testingFlags) $(countersFlags) -o dynamicSetTest dynamicSetTest.cpp
 
 seqTest : $(dataStructures) $(trie) $(common) sequentialTest.cpp Makefile
-	g++ $(compileFlags) $(optimizationFlags) -g $(countersFlags) -o seqTest sequentialTest.cpp
+	g++ $(compileFlags) -g $(countersFlags) -o seqTest sequentialTest.cpp
 
 clean: 
 	rm dynamicSetTest

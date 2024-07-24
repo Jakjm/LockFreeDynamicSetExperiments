@@ -114,11 +114,10 @@ struct alignas(64) STNode : public ReclaimableBase{
     STNode* down;
     STNode* root;
     std::atomic<bool> stop;
-    std::atomic<STNode*> topLevelNode;
     //std::atomic<bool> ready;
     //int orig_height;
     //volatile char padding[64 - 4 * sizeof(STNode*) + sizeof(bool)];
-    STNode(int64_t k=0, int height=0) : key(k), nextState(0), back(nullptr), prev(nullptr), down(nullptr), root(nullptr), stop(false), topLevelNode(nullptr){
+    STNode(int64_t k=0, int height=0) : key(k), nextState(0), back(nullptr), prev(nullptr), down(nullptr), root(nullptr), stop(false){
 
     }
 };
@@ -167,7 +166,9 @@ struct PrefixesTable{
     std::atomic<TreeNode*> * const array;
     int64_t universeSize;
     PrefixesTable(int64_t universeSize): array(new std::atomic<TreeNode*>[2 * universeSize]), universeSize(universeSize){
-        array[0] = nullptr;
+        for(int64_t i = 0;i < 2*universeSize;++i){
+            array[i] = nullptr;
+        }
     }
     ~PrefixesTable(){
         for(int64_t i = 1; i < 2*universeSize;++i){
@@ -210,13 +211,12 @@ struct SkipTrie : public DynamicSet {
             if(l > 0)head[l].down = &head[l - 1];
             else head[l].down = &head[l];
         }
-        assert(false);
-        //TODO topLevelInsert
+        tail.prev = head[loglogU - 1];
     }
 
     ~SkipTrie(){
-        for(int lv = loglogU; lv >= 0;--lv){
-            STNode *cur = (STNode *)(head[lv].succ & NEXT_MASK); 
+        for(int lv = loglogU - 1; lv >= 0;--lv){
+            STNode *cur = (STNode *)(head[lv].nextState & NEXT_MASK); 
             STNode *next;
             while(cur != &tail){
                 next = (STNode *)(cur->nextState & NEXT_MASK);
@@ -241,6 +241,8 @@ struct SkipTrie : public DynamicSet {
                 STNode *candidate = query_node->pointers[dir].read();
                 if(candidate && isPrefix(query, candidate->key, logU)){
                     //TODO finish this
+
+                    assert(false);
                 }
             }
             
@@ -266,7 +268,11 @@ struct SkipTrie : public DynamicSet {
         uint64_t state = nextState & STATUS_MASK;
         while(state != Marked){
             STNode *prev = node->prev.read();
+            
             node->prev.dcss(&left->nextState, (uintptr_t)node, prev, left);
+            if(node->prev.read() == left){
+                break;
+            }
             // atomic_noexcept{ //Use a transaction to perform a DCSS.
             //     if(left->nextState == (uintptr_t)node){ //left.succ = <node, 0>
             //         if(node->prev == prev){
@@ -282,13 +288,13 @@ struct SkipTrie : public DynamicSet {
             nextState = node->nextState;
             state = nextState & STATUS_MASK;
         }
-        node->root->topLevelNode = node;
+        //node->ready = 1;
     }
     bool topLevelDelete(STNode *pred, STNode *node){
         STNode *left, *right;
-        if(!node->root->topLevelNode){
-            fixPrev(pred, node);
-        }
+        // if(!node->ready){
+        //     fixPrev(pred, node);
+        // }
         bool result = skipListDelete(pred,node);
         //top to bottom
         left = pred;
@@ -296,7 +302,7 @@ struct SkipTrie : public DynamicSet {
         do{
             right = searchRight(node->key-1, left);
             fixPrev(left, right);
-            uintptr_t nextState = left->nextState;
+            uintptr_t nextState = right->nextState;
             marked = (nextState & STATUS_MASK) == Marked;
         }while(marked);
         return result;
@@ -465,7 +471,7 @@ struct SkipTrie : public DynamicSet {
     //     next = searchRight(k, curr);
     //     return curr; //Return <curr, next>
     // }
-    STNode *insertNode(STNode *newNode, STNode *&prev, STNode *next){
+    STNode *insertNode(STNode *newNode, STNode *&prev, STNode *next, int height){
         //assert(newNode->down);
         if(prev->key == newNode->key){
             return nullptr;
@@ -478,11 +484,17 @@ struct SkipTrie : public DynamicSet {
             else{
                 newNode->nextState = (uintptr_t)next;
                 succ = (uintptr_t)next;
+                if(height == loglogU - 1){
+                    newNode->prev.write(prev);// = prev;
+                }
                 //assert(prev->key < newNode->key);
                 //assert(newNode->key < next->key);
                 prev->nextState.compare_exchange_strong(succ, (uintptr_t)newNode);
                 //assert((STNode*)(newNode->nextState & NEXT_MASK) != prev);
                 if(succ == (uintptr_t)next){
+                    if(height == loglogU - 1){
+                        fixPrev(newNode, next);
+                    }
                     return newNode; //CAS succeeded in inserting new node :)
                 }
                 else{
@@ -583,7 +595,7 @@ struct SkipTrie : public DynamicSet {
             newNode->root = newRoot;
 
             //If insertion of node has failed, and this is the first level, keep node for subsequent insertion...
-            STNode *result = insertNode(newNode, curr, next);
+            STNode *result = insertNode(newNode, curr, next, level);
             if(result == nullptr && level == 0){
                 return nullptr;
             }
@@ -595,6 +607,7 @@ struct SkipTrie : public DynamicSet {
             }
             ++level;
             if(level >= height){ //Stop building the tower if we've already reached the desired height...
+                //if(level == loglogU)fixPrev(newNode, newNode);
                 return newNode;
             }
 

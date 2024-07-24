@@ -87,7 +87,7 @@ int main(int argc, char **argv){
     skipDebra.setActiveThreads(numProcs);
     versionDebra.setActiveThreads(numProcs);
     if(argc != 2){
-        std::cout << "Assuming use of Jeremy's trie." << std::endl;
+        //std::cout << "Assuming use of Jeremy's trie." << std::endl;
         set = trieSet;
     }
     else{
@@ -101,10 +101,14 @@ int main(int argc, char **argv){
         else if(strcmp(setType, "augTrie") == 0){
             set = augmentedTrie;
         }
+        else if(strcmp(setType, "skipTrie") == 0){
+            set = skipTrie;
+        }
         else{
             set = trieSet;
         }
     }
+    std::cout << "Using " << set.name() << "." << std::endl;
     randTest(1 << keyRange, 5000000, set);
     std::cout << "Completed test without incident." << std::endl;
     return 0;
