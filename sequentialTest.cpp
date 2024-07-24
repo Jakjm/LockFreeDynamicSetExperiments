@@ -38,7 +38,7 @@ struct SeqSet : public DynamicSet{
 
 enum opType{ins,del,pred,search};
 
-void randTest(int64_t universeSize, int opCount, DynamicSet &set){
+void randTest(int64_t universeSize, int opCount, DynamicSet *set){
     SeqSet seq;
     for(int i = 0; i < opCount;++i){
         int64_t k = rng(universeSize);
@@ -48,23 +48,23 @@ void randTest(int64_t universeSize, int opCount, DynamicSet &set){
         int64_t ourPred, theirPred;
         if(opType == ins){
             //std::cout<< "Inserted " << k << std::endl;
-            ours = set.insert(k);
+            ours = set->insert(k);
             theirs = seq.insert(k);
             assert(ours == theirs);
         }
         else if(opType == del){
             //std::cout<< "Deleted " << k << std::endl;
-            ours = set.remove(k);
+            ours = set->remove(k);
             theirs = seq.remove(k);
             assert(ours == theirs);
         }
         else if(opType == pred){
-            ourPred = set.predecessor(k);
+            ourPred = set->predecessor(k);
             theirPred = seq.predecessor(k); 
             assert(ourPred == theirPred);
         }
         else{
-            ours = set.search(k);
+            ours = set->search(k);
             theirs = seq.search(k);
             assert(ours == theirs);
         }
@@ -81,34 +81,34 @@ int main(int argc, char **argv){
     SkipListSet<25> skipList;
     SkipTrie<5> skipTrie(keyRange);
     AS_Trie augmentedTrie(keyRange);
-    DynamicSet &set = trieSet;
+    DynamicSet *set = &trieSet;
     trieDebra.setActiveThreads(numProcs);
     keyNodeDebra.setActiveThreads(numProcs);
     skipDebra.setActiveThreads(numProcs);
     versionDebra.setActiveThreads(numProcs);
     if(argc != 2){
         //std::cout << "Assuming use of Jeremy's trie." << std::endl;
-        set = trieSet;
+        set = &trieSet;
     }
     else{
         char *setType = &argv[1][2];
         if(strcmp(setType, "skip") == 0){
-            set = skipList;
+            set = &skipList;
         }
         else if(strcmp(setType, "list") == 0){
-            set = listSet;
+            set = &listSet;
         }
         else if(strcmp(setType, "augTrie") == 0){
-            set = augmentedTrie;
+            set = &augmentedTrie;
         }
         else if(strcmp(setType, "skipTrie") == 0){
-            set = skipTrie;
+            set = &skipTrie;
         }
         else{
-            set = trieSet;
+            set = &trieSet;
         }
     }
-    std::cout << "Using " << set.name() << "." << std::endl;
+    std::cout << "Using " << set->name() << "." << std::endl;
     randTest(1 << keyRange, 5000000, set);
     std::cout << "Completed test without incident." << std::endl;
     return 0;

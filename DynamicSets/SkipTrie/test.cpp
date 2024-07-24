@@ -15,8 +15,19 @@ int main(){
     // std::cout << "Is empty a len 2 prefix of 200 within 8 bits:" << isPrefix(1, 200, 8) << std::endl;
     // std::cout << "Is 111 a len 3 prefix of 200 within 8 bits:" << isPrefix(15, 200, 8) << std::endl;
 
-    threadID = 0;
-    SkipTrie<5> trie(20);
-    trie.insert(5);
-    trie.remove(5);
+    // threadID = 0;
+
+    // SkipTrie<5> trie(20);
+    // trie.insert(5);
+    // trie.remove(5);
+    // DCSS_PTR<int64_t> ptr(0);
+    // std::cout << "Should be 0: " << ptr.read() << std::endl;
+    // ptr.cas(0, 256);
+    // std::cout << "Should be 256: " << ptr.read() << std::endl;
+
+    // std::atomic<uintptr_t> x;
+    // x = 0;
+    // bool result = ptr.dcss(&x,0, 256, 512);
+    // std::cout << "Should be 512: " << ptr.read() << std::endl;
+    // std::cout << "Shoudl be true: " << result << std::endl;
 }

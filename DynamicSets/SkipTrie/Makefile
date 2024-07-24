@@ -1,2 +1,2 @@
-test: skiptrie.h prefixes.cpp Makefile
-	g++ prefixes.cpp -g -fgnu-tm -o test
+test: skiptrie.h test.cpp Makefile
+	g++ test.cpp -g -fgnu-tm -o test

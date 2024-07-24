@@ -14,59 +14,188 @@
 #include <bit>
 
 
+
+
+#define SR_SEQ_MASK 0xFFFFFFFFFFFFFFFE
+#define SR_RES_MASK 0x1
 struct alignas(64) DCSS_Desc{
-    std::atomic<uintptr_t> *addr1;
-    uintptr_t val1;
-    uintptr_t val2;
-    uintptr_t new2;
-    uint64_t seqNum;
-    DCSS_Desc(std::atomic<uintptr_t> *a1 = 0, uint64_t e1 = 0, uint64_t e2 = 0, uint64_t n2 = 0): addr1(a1), val1(e1), val2(e2), new2(n2), seqNum(0){
+    std::atomic<std::atomic<uintptr_t>*> addr1;
+    std::atomic<uintptr_t> val1;
+    std::atomic<uintptr_t> val2;
+    std::atomic<uintptr_t> new2;
+    std::atomic<uint64_t> seqResult; //stores seq, result
+    DCSS_Desc(std::atomic<uintptr_t> *a1 = 0, uint64_t e1 = 0, uint64_t e2 = 0, uint64_t n2 = 0): addr1(a1), val1(e1), val2(e2), new2(n2), seqResult(0){
 
     }
 };
 
 
 DCSS_Desc descs[MAX_THREADS];
+enum {DCSS_FLAG = 1,SUCC_FLAG = 2};
+#define FLAG_MASK 3
 
-
+//Implementation of a DCSS object.
 template <typename TYPE>
 struct DCSS_PTR{
-    //std::atomic<DCSS_Desc*> curr;
     std::atomic<uintptr_t> addr;
     DCSS_PTR(TYPE initialValue){
         addr = (uintptr_t)initialValue;
     }
-    void write(TYPE n){
+    void init(TYPE n){
         addr = (uintptr_t)n;
     }
-    void cas(TYPE e2, TYPE n2){
-        uintptr_t old = (uintptr_t)e2;
-        addr.compare_exchange_strong(old,(uintptr_t)n2);
-    }
-    void dcss(std::atomic<uintptr_t> *a1, uint64_t e1, TYPE e2, TYPE n2){
-        DCSS_Desc *desc = &descs[threadID];
-        *desc = DCSS_Desc(a1,e1,(uintptr_t)e2,(uintptr_t)n2);
-        uint64_t seqNum = desc->seqNum;
-        uint64_t newVal = (seqNum << 12) + (threadID << 4) + InsFlag;
-        //uintptr_t fdes = ((uintptr_t)desc) + 1;
-        uintptr_t oldVal = (uintptr_t)e2;
+    bool cas(TYPE exp, TYPE newVal){
         while(true){
             uintptr_t val = addr;
-            if(val == (uintptr_t)e2){
-                addr.compare_exchange_strong(oldVal, newVal);
-                if(oldVal & 1){
-                    uint64_t seq = (oldVal & SEQ_MASK) >> 12;
-                    uint64_t proc = (oldVal & PROC_MASK) >> 4;
-                    dcssHelp(seq, proc);
+            if(val == (uintptr_t)exp){
+                uintptr_t oldVal = (uintptr_t)exp;
+                addr.compare_exchange_strong(oldVal, (uintptr_t)newVal);
+                if(oldVal == (uintptr_t)exp){ //CAS succeeded.
+                    return true;
                 }
-                else{
-                    break;
+            }
+            else if((val & FLAG_MASK) == 0){ //CAS failed since DCSS object pointed to a different value.
+                return false;
+            }
+            else{
+                uint64_t seq = (val & SEQ_MASK) >> 12;
+                uint64_t proc = (val & PROC_MASK) >> 4;
+                DCSS_Desc *otherDesc = &descs[proc];
+                if((val & FLAG_MASK) == DCSS_FLAG){
+                    uintptr_t actualVal = otherDesc->val2;
+                    if(((otherDesc->seqResult & SR_SEQ_MASK) >> 1) == seq){
+                        if(actualVal == (uintptr_t)exp){
+                            //perform helping
+                            dcssHelp(seq, proc);
+                        }
+                        else{ //CAS failed since actual value was not exp
+                            return false;
+                        }
+                    }
+                }
+                else{//SUCC_FLAG
+                    uintptr_t actualVal = otherDesc->new2;
+                    if(((otherDesc->seqResult & SR_SEQ_MASK) >> 1) == seq){
+                        if(actualVal == (uintptr_t)exp){
+                            //perform helping
+                            dcssCongrats(seq, proc);
+                        }
+                        else{ //CAS failed since actual value was not exp.
+                            return false;
+                        }
+                    }
                 }
             }
         }
-        if(oldVal == (uintptr_t)e2){
-            dcssHelp(seqNum,newVal);
-            desc->seqNum = seqNum + 1;
+    }
+
+    bool dcss(std::atomic<uintptr_t> *a1, uint64_t e1, TYPE e2, TYPE n2){
+        DCSS_Desc *desc = &descs[threadID];
+        desc->addr1 = a1;
+        desc->val1 = e1;
+        desc->val2 = (uintptr_t)e2;
+        desc->new2 = (uintptr_t)n2;
+        uint64_t seqNum = (desc->seqResult & SR_SEQ_MASK) >> 1;
+        uint64_t flagVal = (seqNum << 12) + (threadID << 4) + DCSS_FLAG;
+
+        while(true){
+            uintptr_t val = addr;
+            if(val == (uintptr_t)e2){
+                uintptr_t oldVal = (uintptr_t)e2;
+                addr.compare_exchange_strong(oldVal, flagVal);
+                if(oldVal == (uintptr_t)e2){ //CAS succeeded.
+                    break;
+                }
+            }
+            else if((val & FLAG_MASK) == 0){ //DCSS failed since DCSS object pointed to a different value.
+                return false;
+            }
+            else{
+                uint64_t seq = (val & SEQ_MASK) >> 12;
+                uint64_t proc = (val & PROC_MASK) >> 4;
+                DCSS_Desc *otherDesc = &descs[proc];
+                if((val & FLAG_MASK) == DCSS_FLAG){
+                    uintptr_t actualVal = otherDesc->val2;
+                    if(((otherDesc->seqResult & SR_SEQ_MASK) >> 1) == seq){
+                        if(actualVal == (uintptr_t)e2){
+                            //perform helping
+                            dcssHelp(seq, proc);
+                        }
+                        else{
+                            return false;
+                        }
+                    }
+                }
+                else{//SUCC_FLAG
+                    uintptr_t actualVal = otherDesc->new2;
+                    if(((otherDesc->seqResult & SR_SEQ_MASK) >> 1) == seq){
+                        if(actualVal == (uintptr_t)e2){
+                            //perform helping
+                            dcssCongrats(seq, proc);
+                        }
+                        else{
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        //A CAS has successfully inserted our DCSS_DESC.
+        uintptr_t oldVal = flagVal;
+        if(a1->load() == e1){
+            addr.compare_exchange_strong(oldVal, (uintptr_t)n2); //Try to CAS to complete successful DCSS
+            if(oldVal == flagVal){ //CAS succeeded; DCSS was successful.
+                desc->seqResult = (seqNum + 1) << 1;
+                return true; 
+            }
+        }
+        else{
+            addr.compare_exchange_strong(oldVal, (uintptr_t)e2); //Try to CAS to complete successful DCSS
+            if(oldVal == flagVal){ //CAS succeseded; DCSS was not successful.
+                desc->seqResult = (seqNum + 1) << 1;
+                return false;
+            }
+        }
+
+        //When CAS was performed, DCSS_DESC was no longer pointed to by addr.
+        //There are three possibilities: 
+        //The DCSS succeeded, and addr contains <seqNum, threadID, succFlag>.
+        //The DCSS succeeded, and seqResult contains <seqNum, result>.
+        //The DCSS failed.
+        uint64_t succVal = (seqNum << 12) + (threadID << 4) + SUCC_FLAG;
+        if(oldVal == succVal){
+            addr.compare_exchange_strong(succVal, (uintptr_t)n2);
+            desc->seqResult = (seqNum + 1) << 1;
+            return true;
+        }
+
+        //If some process said that the DCSS succeeded, return true.
+        if((desc->seqResult & SR_RES_MASK) == 1){
+            desc->seqResult = (seqNum + 1) << 1;
+            return true;
+        }
+        //The DCSS did not succeed.
+        else{
+            return false;
+        }
+    }
+    //Congratulate a DCSS descriptor on a sucessful DCSS.
+    //addr was equal to <seqNum, procID, succFlag>
+    void dcssCongrats(uint64_t seqNum, uint64_t procID){
+        DCSS_Desc *desc = &descs[procID];
+        uintptr_t oldVal = seqNum << 1;
+        uint64_t newVal = desc->new2;
+        uint64_t seq = desc->seqResult;
+        if(seq <= oldVal + 1){ //If newVal is valid and addr possibly still pointing to desc...
+            if(seq == oldVal){
+                desc->seqResult.compare_exchange_strong(oldVal, oldVal + 1);
+            }
+            //Regardless of success, try to put addr back to normal.
+            uintptr_t val = addr;
+            oldVal = (seqNum << 12) + (threadID << 4) + SUCC_FLAG;
+            if(oldVal == val){
+                addr.compare_exchange_strong(oldVal, newVal);
+            }
         }
     }
     void dcssHelp(uint64_t seqNum, uint64_t procID){
@@ -74,36 +203,53 @@ struct DCSS_PTR{
         std::atomic<uintptr_t> *a1 = desc->addr1;
         uint64_t e1 = desc->val1;
         uint64_t e2 = desc->val2;
-        uint64_t n2 = desc->new2;
-        if(seqNum != desc->seqNum){
+        //uint64_t n2 = desc->new2;
+
+        if(((desc->seqResult & SR_SEQ_MASK) >> 1) != seqNum){
             return;
         }
-
-        if(a1->load() == e1){
-            uintptr_t oldVal = (seqNum << 12) + (threadID << 4) + 1;
-            addr.compare_exchange_strong(oldVal, n2);
-        }
-        else{
-            uintptr_t oldVal = (seqNum << 12) + (threadID << 4) + 1;
+        uintptr_t flagVal = (seqNum << 12) + (threadID << 4) + DCSS_FLAG;
+        uintptr_t oldVal = flagVal;
+        if(a1->load() != e1){
             addr.compare_exchange_strong(oldVal, e2);
-            //addr.compare_exchange_strong()
+        }
+        else{ //e1 was stored at a1.
+            uintptr_t succVal = (seqNum << 12) + (threadID << 4) + SUCC_FLAG;
+            addr.compare_exchange_strong(oldVal, succVal);
+            if(oldVal == flagVal){ //CAS succeeded....
+                //help congrats
+                dcssCongrats(seqNum, procID);
+            }
         }
     }
     TYPE read(){
-        uintptr_t r = addr;
-        while((r & 1) == 1){
-            uint64_t seq = (r & SEQ_MASK) >> 12;
-            uint64_t proc = (r & PROC_MASK) >> 4;
-            dcssHelp(seq, proc);
-            r = addr;
+        while(true){
+            uintptr_t val = addr;
+            if((val & FLAG_MASK) == 0){
+                return (TYPE)val;
+            }
+            else{
+                uint64_t seq = (val & SEQ_MASK) >> 12;
+                uint64_t proc = (val & PROC_MASK) >> 4;
+                DCSS_Desc *otherDesc = &descs[proc];
+                TYPE actualVal;
+                if((val & FLAG_MASK) == DCSS_FLAG){ //val had DCSS_FLAG set; actual value was val2.
+                    actualVal = (TYPE)(uintptr_t)otherDesc->val2;
+                }
+                else{ //val had SUCC_FLAG set; actual value of DCSS_PTR was new2.
+                    actualVal = (TYPE)(uintptr_t)otherDesc->new2;
+                }
+
+                if(((otherDesc->seqResult & SR_SEQ_MASK) >> 1) == seq){
+                    //If seqNumber of otherDesc had not changed, return the value of the object.
+                    return actualVal;
+                }
+            }
         }
-        return (TYPE)r;
     }
 };
 
-struct ReclaimableBase{
-
-};
+struct ReclaimableBase{};
 
 //Nodes of the skip trie.....
 struct alignas(64) STNode : public ReclaimableBase{
@@ -138,7 +284,7 @@ struct TreeNode : public ReclaimableBase{
 struct STNodePool{
     STNode *node;
     volatile char padding[64 - 8];
-    STNodePool(){
+    STNodePool(): node(new STNode()){
 
     }
     ~STNodePool(){
@@ -211,7 +357,9 @@ struct SkipTrie : public DynamicSet {
             if(l > 0)head[l].down = &head[l - 1];
             else head[l].down = &head[l];
         }
-        tail.prev = head[loglogU - 1];
+        tail.prev.init(&head[loglogU - 1]);
+        tail.root = &tail;
+        tail.down = &tail;
     }
 
     ~SkipTrie(){
@@ -226,13 +374,12 @@ struct SkipTrie : public DynamicSet {
         }
     }
 
-
     STNode *lowestAncestor(int64_t key){
         int64_t common_prefix = 1;
         int64_t start = 0; //index of first bit
         int64_t size = logU / 2;
 
-        STNode *ancestor = prefixes.lookup(0)->pointers[key >> (logU - 1)].read();
+        STNode *ancestor = &tail;
         while(size > 0){
             int64_t query = mergePrefix(common_prefix, key, start, size, logU);//TODO prefix + star....
             int dir = key >> (logU - (start + 1));
@@ -269,18 +416,9 @@ struct SkipTrie : public DynamicSet {
         while(state != Marked){
             STNode *prev = node->prev.read();
             
-            node->prev.dcss(&left->nextState, (uintptr_t)node, prev, left);
-            if(node->prev.read() == left){
+            if(node->prev.dcss(&left->nextState, (uintptr_t)node, prev, left)){
                 break;
             }
-            // atomic_noexcept{ //Use a transaction to perform a DCSS.
-            //     if(left->nextState == (uintptr_t)node){ //left.succ = <node, 0>
-            //         if(node->prev == prev){
-            //             node->prev = left;
-            //             break;
-            //         }
-            //     }
-            // }
             //search
             left = pred;
             searchRight(node->key, left);
@@ -485,7 +623,7 @@ struct SkipTrie : public DynamicSet {
                 newNode->nextState = (uintptr_t)next;
                 succ = (uintptr_t)next;
                 if(height == loglogU - 1){
-                    newNode->prev.write(prev);// = prev;
+                    newNode->prev.init(prev);// = prev;
                 }
                 //assert(prev->key < newNode->key);
                 //assert(newNode->key < next->key);
@@ -544,7 +682,7 @@ struct SkipTrie : public DynamicSet {
                 TreeNode *tn = prefixes.lookup(prefix);
                 if(tn == nullptr){
                     tn = new TreeNode(); //TODO reuse TreeNode...
-                    tn->pointers[dir].write(node);
+                    tn->pointers[dir].init(node);
                     if(prefixes.insert(prefix,tn))break;
                 }
                 else if(tn->pointers[0].read() == nullptr && tn->pointers[1].read() == nullptr){
@@ -561,7 +699,9 @@ struct SkipTrie : public DynamicSet {
                     //DCSS:
                     // if tn->pointers[dir] == curr and node->nextState == <next, unmarked>, update 
                     //      tn->pointers[dir] = node
-                    tn->pointers[dir].dcss(&node->nextState, (uintptr_t)next, curr, node);
+                    if(tn->pointers[dir].dcss(&node->nextState, (uintptr_t)next, curr, node)){
+                        break;
+                    }
                 }
 
                 nextState = node->nextState;
