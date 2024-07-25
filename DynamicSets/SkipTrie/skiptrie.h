@@ -250,7 +250,11 @@ struct DCSS_PTR{
     }
 };
 
-struct ReclaimableBase{};
+struct ReclaimableBase{
+    virtual ~ReclaimableBase(){
+        
+    }
+};
 
 //Nodes of the skip trie.....
 struct alignas(64) STNode : public ReclaimableBase{
@@ -269,7 +273,7 @@ struct alignas(64) STNode : public ReclaimableBase{
     }
 };
 
-struct TreeNode : public ReclaimableBase{
+struct alignas(64) TreeNode : public ReclaimableBase{
     DCSS_PTR<STNode*> pointers[2];
     // STNode *greatestZero;
     // STNode *largestOne;
