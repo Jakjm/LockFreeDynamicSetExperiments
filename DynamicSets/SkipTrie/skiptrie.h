@@ -288,12 +288,14 @@ struct alignas(64) TreeNode : public ReclaimableBase{
 //Type which is used to allow threads to reuse nodes they fail to insert...
 struct STNodePool{
     STNode *node;
+    TreeNode *tn;
     volatile char padding[64 - 8];
-    STNodePool(): node(new STNode()){
+    STNodePool(): node(new STNode()), tn(new TreeNode()){
 
     }
     ~STNodePool(){
         delete node;
+        delete tn;
     }
 };
 
@@ -686,9 +688,13 @@ struct SkipTrie : public DynamicSet {
                 //int64_t prefix = k;
                 TreeNode *tn = prefixes.lookup(prefix);
                 if(tn == nullptr){
-                    tn = new TreeNode(); //TODO reuse TreeNode...
+                    STNodePool &pool = node_pool[threadID];
+                    TreeNode *tn = pool.tn;
                     tn->pointers[dir].init(node);
-                    if(prefixes.insert(prefix,tn))break;
+                    if(prefixes.insert(prefix,tn)){
+                        pool.tn = new TreeNode();
+                        break;
+                    }
                 }
                 else if(tn->pointers[0].read() == nullptr && tn->pointers[1].read() == nullptr){
                     prefixes.compareAndDelete(prefix,tn);
