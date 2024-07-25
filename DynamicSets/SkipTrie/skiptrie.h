@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cstdio>
+#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <atomic>
@@ -382,14 +383,16 @@ struct SkipTrie : public DynamicSet {
         STNode *ancestor = &tail;
         while(size > 0){
             int64_t query = mergePrefix(common_prefix, key, start, size, logU);//TODO prefix + star....
-            int dir = key >> (logU - (start + 1));
+            int dir = key >> (logU - (start + 1)) & 1;
             TreeNode *query_node = prefixes.lookup(query);
             if(query_node){
                 STNode *candidate = query_node->pointers[dir].read();
                 if(candidate && isPrefix(query, candidate->key, logU)){
-                    //TODO finish this
-
-                    assert(false);
+                    if(std::abs(key - candidate->key) <= std::abs(key - ancestor->key)){
+                        ancestor = candidate;
+                    }
+                    common_prefix = query;
+                    start = start + size;
                 }
             }
             
@@ -410,7 +413,7 @@ struct SkipTrie : public DynamicSet {
     void fixPrev(STNode *pred, STNode *node){
         STNode *left;
         left = pred;
-        searchRight(node->key,left);
+        searchRight(node->key - 1,left);
         uintptr_t nextState = node->nextState;
         uint64_t state = nextState & STATUS_MASK;
         while(state != Marked){
@@ -421,7 +424,7 @@ struct SkipTrie : public DynamicSet {
             }
             //search
             left = pred;
-            searchRight(node->key, left);
+            searchRight(node->key - 1, left);
 
             nextState = node->nextState;
             state = nextState & STATUS_MASK;
@@ -623,6 +626,7 @@ struct SkipTrie : public DynamicSet {
                 newNode->nextState = (uintptr_t)next;
                 succ = (uintptr_t)next;
                 if(height == loglogU - 1){
+                    //assert(false);
                     newNode->prev.init(prev);// = prev;
                 }
                 //assert(prev->key < newNode->key);
@@ -631,6 +635,7 @@ struct SkipTrie : public DynamicSet {
                 //assert((STNode*)(newNode->nextState & NEXT_MASK) != prev);
                 if(succ == (uintptr_t)next){
                     if(height == loglogU - 1){
+                        //assert(false);
                         fixPrev(newNode, next);
                     }
                     return newNode; //CAS succeeded in inserting new node :)
@@ -670,7 +675,7 @@ struct SkipTrie : public DynamicSet {
             stDebra.endOp();
             return true;
         }
-        
+        //assert(false);
         for(int64_t len = logU - 1; len >= 0; --len)
         {
             int64_t prefix = getPrefix(k, len, logU);
@@ -723,7 +728,7 @@ struct SkipTrie : public DynamicSet {
         STNode *lastNode;
         height = 1;
         //Continue increasing height up to max level while flipping a fair coin
-        while(rng(2) == 0 && height < loglogU - 1){
+        while(rng(2) == 0 && height < loglogU){
             ++height;
         }
         int level = 0;
@@ -854,7 +859,7 @@ struct SkipTrie : public DynamicSet {
     }
     bool search(int64_t x){
         stDebra.startOp();
-        STNode *start = xFastTriePred(x);
+        STNode *start = xFastTriePred(x-1);
         STNode *next;
         searchToLevel(x-1,0,next,start);
         bool result = (next->key == x);
@@ -863,7 +868,7 @@ struct SkipTrie : public DynamicSet {
     }
     int64_t predecessor(int64_t x){
         stDebra.startOp();
-        STNode *start = xFastTriePred(x);
+        STNode *start = xFastTriePred(x-1);
         STNode *curr, *next;
         curr = searchToLevel(x-1,0,next,start);
         int64_t pred = curr->key;

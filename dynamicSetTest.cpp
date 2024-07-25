@@ -499,7 +499,7 @@ int experimentProg(int argc, char **argv){
     Trie trie(keyRange);
     LinkedListSet listSet;
     SkipListSet<22> skipList;
-    SkipTrie<5> skipTrie(20);
+    SkipTrie<7> skipTrie(20);
     AS_Trie augmentedTrie(keyRange);
     trieDebra.setActiveThreads(numProcs);
     keyNodeDebra.setActiveThreads(numProcs);
