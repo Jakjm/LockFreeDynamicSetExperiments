@@ -47,13 +47,13 @@ void randTest(int64_t universeSize, int opCount, DynamicSet *set){
         bool ours, theirs;
         int64_t ourPred, theirPred;
         if(opType == ins){
-            //std::cout<< "Inserted " << k << std::endl;
+            std::cout<< "Inserted " << k << std::endl;
             ours = set->insert(k);
             theirs = seq.insert(k);
             assert(ours == theirs);
         }
         else if(opType == del){
-            //std::cout<< "Deleted " << k << std::endl;
+            std::cout<< "Deleted " << k << std::endl;
             ours = set->remove(k);
             theirs = seq.remove(k);
             assert(ours == theirs);

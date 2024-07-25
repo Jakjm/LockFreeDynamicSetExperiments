@@ -660,11 +660,7 @@ struct SkipTrie : public DynamicSet {
     }
     bool insert(int64_t k){
         stDebra.startOp();
-        STNode *pred = xFastTriePred(k);
-        if(pred->key == k){
-            stDebra.endOp();
-            return false;
-        }
+        STNode *pred = xFastTriePred(k - 1);
         int height;
         STNode *node = skipListInsert(k,height, pred);
         if(!node){
