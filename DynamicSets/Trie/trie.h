@@ -660,9 +660,6 @@ class Trie : public DynamicSet{
         set<InsNode*> I_ruall;
         set<DelNode*> D_ruall;
 
-        // ++predCounter;
-
-
         //Insert pNode into the PALL
         pall.insert(pNode);
         
