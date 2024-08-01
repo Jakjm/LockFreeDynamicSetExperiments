@@ -3,7 +3,7 @@
 #include <iterator>
 #include <sstream>
 #include <stdint.h>
-#include <unordered_map>
+#include <map>
 #include <vector>
 #include "LinkedLists/PALL.h"
 #include "LinkedLists/RUALL.h"
@@ -28,7 +28,7 @@ using std::vector;
 using std::unordered_set;
 using std::set;
 using std::string;
-
+using std::map;
 
 
 
@@ -66,6 +66,9 @@ struct UpdateNodeLesser{
     }
 };
 
+// thread_local int64_t predCounter = 0;
+// thread_local int64_t longPredCounter = 0;
+
 class Trie : public DynamicSet{
     private:
     const int trieHeight; //The height of the trie.
@@ -85,15 +88,6 @@ class Trie : public DynamicSet{
             nodePool[i].delNode = new DelNode(trieHeight);
             nodePool[i].notifNode = new NotifyNode();
         }
-
-
-        //Initialize the binary trie nodes for each level of the trie.
-        // for(int i = 0; i < trieHeight;++i){
-        //     int64_t rowSize = (1 << i); //Row size = 2^i
-        //     TrieNode *trieNodeRow = new TrieNode[rowSize];
-        //     trieNodes[i] = trieNodeRow;
-        // }
-
 
         //Initialize the latest lists for each key in the universe.
         //Initialize row b of binary trie nodes.
@@ -638,57 +632,6 @@ class Trie : public DynamicSet{
     }
     
 
-
-    // void traverseAndInsertPALL(PredecessorNode *newNode, deque<PredecessorNode*> &q){
-    //     set<PredecessorNode*> qSet;
-
-    //     PredecessorNode *first = (PredecessorNode*)(pall.head.succ.load() & NEXT_MASK);
-    //     PredecessorNode *pNode = (PredecessorNode*)first;
-    //     //Traverse pall from start to end
-    //     while(pNode){
-    //         q.push_back(pNode);
-    //         qSet.insert(pNode);
-    //         pNode = (PredecessorNode*)pall.next(pNode);
-    //     }
-
-    //     //Insert newNode into pall
-    //     while(1){
-    //         //Set newNode's next to first.
-    //         newNode->succ = (uintptr_t)first;
-    //         uintptr_t expected = (uintptr_t)first;
-
-    //         pall.head.succ.compare_exchange_strong(expected, (uintptr_t)newNode);
-    //         if(expected == (uintptr_t)first){
-    //             q.push_front(newNode); //Put newNode at the front of q.
-    //             return; //newNode was successfully inserted
-    //         }
-    //         int64_t state = (int64_t)(expected & STATUS_MASK);
-    //         PredecessorNode *next = (PredecessorNode*)(expected & NEXT_MASK);
-    //         if(state == DelFlag){
-    //             first = (PredecessorNode*)(pall.helpRemove(&pall.head, next) & NEXT_MASK);
-    //         }
-
-    //         vector<PredecessorNode*> qPrime;
-    //         first = (PredecessorNode*)(pall.head.succ.load() & NEXT_MASK);
-    //         pNode = (PredecessorNode*)first;
-    //         //Traverse pall from start to end, add any nodes not in Q to qPrime
-    //         while(pNode && qSet.count(pNode) == 0){
-    //             qPrime.push_back(pNode);
-    //             //Note the cast to a ListNode is important!
-    //             pNode = (PredecessorNode*)pall.next(pNode);
-    //         }
-
-    //         //Go through qPrime in reverse order, and put each element at the front of q.
-    //         //This way q is sorted from the most recently inserted PNode to the least recently inserted PNode.
-    //         for(auto iter = qPrime.rbegin(); iter != qPrime.rend(); ++iter){
-    //             PredecessorNode *p = *iter;
-                
-    //             q.push_front(p);
-    //             qSet.insert(p);
-    //         }
-    //     }
-    // }
-
     //Traverse the reverse update announcement linked list.
     void traverseRUALL(PredecessorNode *pNode, set<InsNode *> &I, set<DelNode*> &D){
         UpdateNode *uNode = (UpdateNode*)ruall.first(pNode); //Atomically set pNode.notifyThreshold....
@@ -703,6 +646,8 @@ class Trie : public DynamicSet{
         }
     }
 
+
+
     int64_t predHelper(PredecessorNode *pNode){
         int64_t y = pNode->key;
         int64_t max_I_Notify = -1;
@@ -714,6 +659,8 @@ class Trie : public DynamicSet{
         //vector<DelNode*> D_notify;
         set<InsNode*> I_ruall;
         set<DelNode*> D_ruall;
+
+        // ++predCounter;
 
 
         //Insert pNode into the PALL
@@ -766,38 +713,14 @@ class Trie : public DynamicSet{
         if(max_I_uall > r1)r1 = max_I_uall;
         if(max_D_uall > r1)r1 = max_D_uall;
         if(max_D_notify > r1)r1 = max_D_notify;
-        // auto max_uall = I_uall.begin(); 
-        // if(max_uall != I_uall.end()){
-        //     InsNode *i = *max_uall;
-        //     int64_t maxUALLKey = i->key;
-        //     if(maxUALLKey > r1)r1 = maxUALLKey;
-        // }
-
-        //Let d be the DelNode of maximum key which is in D_uall and not in D_ruall, if one exists.
-        //if d->key > r1, r1 = d->key
-        // for(auto it = D_uall.begin(); it != D_uall.end();++it){
-        //     DelNode *d = *it;
-        //     if(d->key > r1 && D_ruall.find(d) == D_ruall.end()){
-        //         r1 = d->key;
-        //     }
-        // }
-
-        //Let d be the DelNode of maximum key which is in D_notify and not in D_ruall, if one exists.
-        //if d->key > r1, r1 = d->key
-        // for(auto it = D_notify.begin(); it != D_notify.end();++it){
-        //     DelNode *d = *it;
-        //     if(d->key > r1 && D_ruall.find(d) == D_ruall.end()){
-        //         r1 = d->key;
-        //     }
-        // }
 
         //Traversal of the binary trie stopped while traversing back down.....
         if(r0 == -2 && !D_ruall.empty()){
             set<PredecessorNode*> predNodes; //Set containing the delPredNodes of DeleteNodes encountered in the RUALL.
-            set<int64_t> R; //Set containing the delPreds of DeleteNodes encountered in the RUALL.
+            //set<int64_t> R; //Set containing the delPreds of DeleteNodes encountered in the RUALL.
             for(DelNode *d : D_ruall){
                 predNodes.insert(d->delPredNode);
-                R.insert(d->delPred);
+                //R.insert(d->delPred);
             }
 
             //pNodePrime is the predecessor node in predNodes that is the latest in Q.
@@ -812,15 +735,24 @@ class Trie : public DynamicSet{
             
             vector<UpdateNode*> L1;
             if(pNodePrime){
+                set<UpdateNode*> alreadyIn; //Set of UpdateNodes already in L1....
                 //Insert all updateNodes of the notify nodes of pNodePrime to LPrime.
                 NotifyNode *nNode = pNodePrime->notifyListHead;
                 while(nNode){
-                    if(nNode->key < y)L1.push_back(nNode->updateNode);
+                    if(nNode->key < y){
+                        UpdateNode *uNode = nNode->updateNode;
+                        //Put uNode in L1 if it was not already in L1.
+                        if(alreadyIn.find(uNode) == alreadyIn.end()){
+                            L1.push_back(uNode);
+                            alreadyIn.insert(uNode);
+                        }
+                    }
                     nNode = nNode->next;
                 }
             }
 
-            set<UpdateNode*> LPrime;
+            set<UpdateNode*> LPrime; //Set of UpdateNodes that should be removed from L1
+            set<UpdateNode*> alreadyIn; //Set of UpdateNodes already in L2....
             vector<UpdateNode*> L2; //L2 is a stack. The top of the stack is at the end of the vector.
             //For every notifyNode in pNode's notifyList with key < y
             nNode = pNode->notifyListHead;
@@ -829,73 +761,99 @@ class Trie : public DynamicSet{
                     UpdateNode *uNode = nNode->updateNode;
                     LPrime.insert(uNode);
                     if(nNode->key <= nNode->notifyThreshold){
-                        L2.push_back(uNode);
+                        if(alreadyIn.find(uNode) == alreadyIn.end()){
+                            L2.push_back(uNode);
+                            alreadyIn.insert(uNode);
+                        }
                     }
                 }
                 nNode = nNode->next;
             }
 
-            //Go through L1 then L2 and do stuff to R
-            //For elements of L1, skip elements that are in L Prime.
+            //sequence of UpdateNodes in L1 then in L2; 
+            vector<UpdateNode*> L3;
+
+            //lastDelKey maps keys of UpdateNodes in L3 to the last UpdateNode of that key in L3.
+            map<int64_t, UpdateNode*> lastDelKey;
+            //Add update nodes from L1 to L3
             for(auto rit = L1.rbegin(); rit != L1.rend(); ++rit){
                 UpdateNode *uNode = *rit;
+                //Skip this UpdateNode
                 if(LPrime.find(uNode) != LPrime.end())continue;
-                if(uNode->type == INS)R.insert(uNode->key);
-                else{  //If uNode->key in R, delete uNode->key and uNode->delPred2 from R
-                    auto it = R.find(uNode->key);
-                    if(it != R.end()){
-                        R.erase(it);
-                        R.erase(((DelNode*)uNode)->delPred2);
-                    }
-                }
+                L3.push_back(uNode);
+                lastDelKey.insert_or_assign(uNode->key, uNode);
             }
+            //Add update nodes from L2 to L3
             for(auto rit = L2.rbegin(); rit != L2.rend(); ++rit){
                 UpdateNode *uNode = *rit;
-                if(uNode->type == INS)R.insert(uNode->key);
-                else{  //If uNode->key in R, delete uNode->key and uNode->delPred2 from R
-                    auto it = R.find(uNode->key);
-                    if(it != R.end()){
-                        R.erase(it);
-                        R.erase(((DelNode*)uNode)->delPred2);
-                    }
+                L3.push_back(uNode);
+                lastDelKey.insert_or_assign(uNode->key, uNode);
+            }
+
+            //L = L3 - {dNode | dNode is a DelNode in L3 which is not the last update node of that key}
+            vector<UpdateNode*> L;
+            for(auto it = L3.begin();it != L3.end();++it){
+                UpdateNode *uNode = *it;
+                if(uNode->type == INS || lastDelKey[uNode->key] == uNode){
+                    L.push_back(uNode);
                 }
             }
-            //Set of keys in R, such that for every key x in goodKeys, 
-            //there is an UpdateNode with key x in L'' and the last one in L'' has type INS.
-            //set<int64_t> goodKeys;
+            //DelNodes in L all have unique keys...
 
-            //For any key x, if x is in R and there is an UpdateNode with key x in D_ruall, remove x from R.
-            for(UpdateNode *d : D_ruall){
-                auto it = R.find(d->key);
-                if(it != R.end())R.erase(it);
+            //V = {uNode.key | uNode in L} union {dNode.delPred2 | dNode in L} union {dNode.delPred | dNode in Druall}
+            //Let E be the set of directed edges <u, v> where dNode.key = u and dNode.delPred2 = v, where dNode in L
+            //Let T_L = <V, E>
+            //For every edge <u,v> in edges, u > v since v is the return value of an embedded predecessor operation with key u.
+            vector<int64_t> X;
+            //set<int64_t> vertices;
+            map<int64_t, int64_t> edges;
+            for(UpdateNode *uNode : L){
+                int64_t uKey = uNode->key;
+                //vertices.insert(uKey);
+                if(uNode->type == DEL){
+                    DelNode *dNode = (DelNode*)uNode;
+                    int64_t delPred2 = dNode->delPred2;
+                    //vertices.insert(delPred2);
+                    edges.insert_or_assign(uKey, delPred2);
+                }
+                else{
+                    X.push_back(uKey);
+                }
+            }
+            for(DelNode *dNode : D_ruall){
+                //int64_t dKey = dNode->key;
+                int64_t delPred = dNode->delPred;
+                X.push_back(delPred);
+                //vertices.insert(dNode->key);
             }
 
-            //Remove every key x from R such that the last UpdateNode with key x in L'' is an UpdateNode of type DEL.
-            //Go through LDouble prime in reverse...
-            // for(auto it = L.begin(); it != L.end(); ++it){
-            //     UpdateNode *uNode = *it;
-            //     int64_t key = uNode->key;
-            //     //If uNode->key is not in goodKeys and uNode->key is in R, then remove uNode->key from R.
-            //     if(goodKeys.count(key) == 0 && R.count(key) > 0){
-            //         if(uNode->type == DEL){
-            //             //If uNode is a delete node, then remove key from R as the furthest node in L'' with key uNode->key has type DEL
-            //             R.erase(key); 
-            //         }
-            //         else{
-            //             //Otherwise add uNode->key to goodKeys, since uNode is the furthest node with key uNode->key in L'' and it has type INS
-            //             goodKeys.insert(key);
-            //         }
-            //     }
-            // }
+            //Let R be the set of sinks reachable from keys in X
+            set<int64_t> R;
+            //We could optimize this by keeping track of nodes we've already seen,
+            //but this case occurs pretty rarely and that optimization would have some cost.
+            //For every vertex n in X, traverse from v until you get to a sink.
+            for(int64_t n : X){
+                auto edgeIt = edges.find(n);
+                while(edgeIt != edges.end()){
+                    auto pair = *edgeIt;
+                    n = pair.second;
+                    edgeIt = edges.find(n);
+                }
+                //n is now a sink.
+                R.insert(n);
+            }
 
-            //r0 = maximum value -1 and among keys in R
-            r0 = -1;
+            //R = R - {x | x in R and exists dNode in D_ruall such that dNode.key = x}
+            for(DelNode *dNode : D_ruall){
+                auto it = R.find(dNode->key);
+                if(it != R.end()){
+                    R.erase(it);
+                }
+            }
+
+            //r0 = maximum among keys in R
             auto maxIter = R.rbegin();
-            if(maxIter != R.rend())r0 = *maxIter;
-            // for(UpdateNode* i : I_ruall){
-            //     if(i->key > pred0)pred0 = i->key;
-            // }
-
+            r0 = *maxIter;
         }
 
         //Return the max among r0 and r1.
@@ -942,8 +900,8 @@ class Trie : public DynamicSet{
                 stream << ' ';
             }
             //For every trie node at the given depth, print interpreted bit.
-            uint64_t numNodes = (1 << depth);
-            for(uint64_t n = 0; n < numNodes; ++n){
+            int64_t numNodes = (1 << depth);
+            for(int64_t n = 0; n < numNodes; ++n){
                 stream << std::to_string(interpretedBit(n, depth)) << ' ';
             } 
             stream << "\n"; 

@@ -288,6 +288,8 @@ void randomExperiment(DynamicSet *set, int id, ExperimentData *data, ExperimentT
     uint64_t actualEndTime = micros();
     ProcessData &pData = data->pData[threadID];
 
+    // cout << "Num preds: " << predCounter << " num long preds: " << longPredCounter << std::endl;
+
     pData.opCount = opCount;
     pData.insCount = insCount;
     pData.succIns = succIns;
