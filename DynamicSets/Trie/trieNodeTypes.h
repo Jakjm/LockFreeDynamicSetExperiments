@@ -14,10 +14,10 @@ enum STATUS {INACTIVE, ACTIVE, STALE};
 class InsNode;
 class DelNode;
 class NotifyNode;
-class BaseType{
+struct BaseType{
     public:
     virtual ~BaseType(){
-        
+       
     }
 };
 
@@ -250,18 +250,16 @@ const uintptr_t COPY_BIT = 0x1;
 const uintptr_t ANTI_COPY_BIT_MASK = 0xFFFFFFFFFFFFFFFE;
 
 class RUALL;
-
+InsertDescNode insert_descs[MAX_THREADS]; //descriptors used for the UALL and RUALL
 
 //NotifyThreshold atomic copy implementation from CAS.
 struct alignas(64) AtomicCopyNotifyThreshold{
     std::atomic<uintptr_t> threshold;
-    InsertDescNode *descNodes;
     volatile char padding [64 - 2*sizeof(uintptr_t)];
     AtomicCopyNotifyThreshold(UpdateNode *initialValue) : threshold((uintptr_t)initialValue){
 
     }
-    UpdateNode *copyNext(UpdateNode *prev, InsertDescNode *descs){
-        descNodes = descs;
+    UpdateNode *copyNext(UpdateNode *prev){
         uintptr_t result = (((uintptr_t)prev) + COPY_BIT);
         threshold = result;
 
@@ -279,7 +277,7 @@ struct alignas(64) AtomicCopyNotifyThreshold{
             #endif
             uint64_t seq = (next & SEQ_MASK) >> 12;
             uint64_t proc = (next & PROC_MASK) >> 4;
-            InsertDescNode *desc = &descs[proc];
+            InsertDescNode *desc = &insert_descs[proc];
             next = (uintptr_t)(UpdateNode*)desc->next;
             if(desc->seqNum == seq)break; //desc was still a valid insert descriptor node following node...
             
@@ -320,7 +318,7 @@ struct alignas(64) AtomicCopyNotifyThreshold{
                 #endif
                 uint64_t seq = (next & SEQ_MASK) >> 12;
                 uint64_t proc = (next & PROC_MASK) >> 4;
-                InsertDescNode *desc = &descNodes[proc];
+                InsertDescNode *desc = &insert_descs[proc];
                 next = (uintptr_t)(UpdateNode*)desc->next;
                 if(desc->seqNum == seq)break; //desc was still a valid insert descriptor node following node...
                 
@@ -373,6 +371,9 @@ class alignas(64)NotifyNode: public BaseType {
     volatile char padding[64 - 5*sizeof(int64_t)];
     NotifyNode(){
     }
+    ~NotifyNode(){
+        
+    }
 };
 
 /*
@@ -402,6 +403,7 @@ class alignas(128)PredecessorNode:  public BaseType{
             //delete curNode;
             curNode = next;
         }
+        
     }
 };
 
@@ -422,7 +424,7 @@ class alignas(128) InsNode : public UpdateNode, public BaseType{
             
         }
         ~InsNode(){
-
+             
         }
     
 };
@@ -445,6 +447,7 @@ class alignas(128) DelNode : public UpdateNode, public BaseType{
               delPred2(-1), upper0Boundary(0), dNodeCount(2), stop(false){
         }
         ~DelNode(){
+             
         }
 };
 

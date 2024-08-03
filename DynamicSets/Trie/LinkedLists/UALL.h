@@ -18,7 +18,7 @@ class UALL {
     public:
         UpdateNode  head, tail; //Head, tail of the linked list. 
     public:
-        InsertDescNode descs[MAX_THREADS]; //Insert descriptor nodes for each process
+        //InsertDescNode insert_descs[MAX_THREADS]; //Insert descriptor nodes for each process
         UALL(): head(INT64_MIN, INS), tail(INT64_MAX,INS){
             head.succ.store((uintptr_t)&tail);
         }
@@ -27,7 +27,7 @@ class UALL {
         }
 
         uintptr_t helpInsert(UpdateNode *prev, uint64_t seqNum,  uint64_t procID){
-            InsertDescNode *desc = &descs[procID];
+            InsertDescNode *desc = &insert_descs[procID];
             UpdateNode *newNode = desc->newNode;
             UpdateNode *next = desc->next;
             if(seqNum != desc->seqNum){
@@ -107,7 +107,7 @@ class UALL {
             uint64_t state = succ & STATUS_MASK;
 
             //This is the descriptor for this thread.
-            InsertDescNode *desc = &descs[threadID];
+            InsertDescNode *desc = &insert_descs[threadID];
             uint64_t seqNum = desc->seqNum;
             //assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->newNode = node;
@@ -284,7 +284,7 @@ class UALL {
                 [[unlikely]];
                 uint64_t seq = (next & SEQ_MASK) >> 12;
                 uint64_t proc = (next & PROC_MASK) >> 4;
-                InsertDescNode *desc = &descs[proc];
+                InsertDescNode *desc = &insert_descs[proc];
                 next = (uintptr_t)(UpdateNode*)desc->next;
                 if(desc->seqNum == seq){
                     [[likely]];
@@ -320,7 +320,7 @@ class UALL {
                 #endif
                 uint64_t seq = (next & SEQ_MASK) >> 12;
                 uint64_t proc = (next & PROC_MASK) >> 4;
-                InsertDescNode *desc = &descs[proc];
+                InsertDescNode *desc = &insert_descs[proc];
                 next = (uintptr_t)(UpdateNode*)desc->next;
                 if(desc->seqNum == seq)break; //desc was still a valid insert descriptor node following node...
                 

@@ -20,7 +20,7 @@ class RUALL{
     public:
         UpdateNode head, tail; //Head, tail of the linked list. 
     public:
-        InsertDescNode descs[MAX_THREADS]; //Insert descriptor nodes for each process
+        //InsertDescNode insert_descs[MAX_THREADS]; //Insert descriptor nodes for each process
         RUALL() : head(INT64_MAX,INS), tail(-1,INS) {
             head.rSucc.store((uintptr_t)&tail);
         }
@@ -29,7 +29,7 @@ class RUALL{
         }
 
         uintptr_t helpInsert(UpdateNode *prev, uint64_t seqNum,  uint64_t procID){
-            InsertDescNode *desc = &descs[procID];
+            InsertDescNode *desc = &insert_descs[procID];
             UpdateNode *newNode = desc->newNode;
             UpdateNode *next = desc->next;
             if(seqNum != desc->seqNum){
@@ -105,7 +105,7 @@ class RUALL{
             uint64_t state = succ & STATUS_MASK;
             
             //This is the descriptor for this thread.
-            InsertDescNode *desc = &descs[threadID];
+            InsertDescNode *desc = &insert_descs[threadID];
             uint64_t seqNum = desc->seqNum;
             //assert(seqNum < ((int64_t)1 << 50)); //Ensure the sequence number is less than 2^50
             desc->newNode = node;
@@ -261,7 +261,7 @@ class RUALL{
 
         //Returns the node following node, or null if bottom was following node.
         UpdateNode *next(PredecessorNode *pNode, UpdateNode *node){
-            UpdateNode *next = pNode->ruallPosition.copyNext(node, descs);
+            UpdateNode *next = pNode->ruallPosition.copyNext(node);
             if(next == &tail)return nullptr;
             else return next;
         }
