@@ -69,8 +69,14 @@ class Debra{
             threadData.limboBag[newBag].pop();
         }
     }
+    //Adds the given pointer to the freelist, to be reclaimed whenever the algorithm wants.
+    void reclaimAtWill(Type *ptr){
+        ThreadData<Type, numBags> &threadData = data[threadID];
+        threadData.freelist.push(ptr);
+    }
     //Free up to two elements in the freelist, if the freelist has any elements to free.
-    void amortizedFree(ThreadData<Type, numBags> &data){
+    void amortizedFree(){
+        ThreadData<Type, numBags> &data = data[threadID];
         if(!data.freelist.empty()){
             Type *ptr = data.freelist.top();
             delete ptr;
@@ -84,7 +90,7 @@ class Debra{
     }
     void startOp(){
         ThreadData<Type, numBags> &threadData = data[threadID];
-        amortizedFree(threadData);
+        amortizedFree();
         int64_t e = epoch;
         if(threadData.currentEpoch != e){
             rotateAndReclaim();

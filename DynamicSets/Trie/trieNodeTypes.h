@@ -363,7 +363,7 @@ struct alignas(64) AtomicCopyNotifyThreshold{
 
 
 
-class alignas(64)NotifyNode {
+class alignas(64)NotifyNode: public BaseType {
     public:
     int64_t key;
     UpdateNode *updateNode;
@@ -374,6 +374,12 @@ class alignas(64)NotifyNode {
     NotifyNode(){
     }
 };
+
+/*
+*Using 5 bags, since if an instance I puts a node N into a limbo bag, N will not be accessed once every instance at
+* distance 3 from I has terminated. 
+*/
+Debra<BaseType, 5> trieDebra; 
 
 
 class alignas(128)PredecessorNode:  public BaseType{
@@ -392,17 +398,14 @@ class alignas(128)PredecessorNode:  public BaseType{
         NotifyNode *curNode = notifyListHead;
         while(curNode){
             NotifyNode *next = curNode->next;
-            delete curNode;
+            trieDebra.reclaimAtWill(curNode);
+            //delete curNode;
             curNode = next;
         }
     }
 };
 
-/*
-*Using 5 bags, since if an instance I puts a node N into a limbo bag, N will not be accessed once every instance at
-* distance 3 from I has terminated. 
-*/
-Debra<BaseType, 5> trieDebra; 
+
 
 //record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
 
