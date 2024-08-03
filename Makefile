@@ -7,10 +7,10 @@ triePath=DynamicSets/Trie
 linkedLists = $(triePath)/LinkedLists/PALL.h $(triePath)/LinkedLists/RUALL.h $(triePath)/LinkedLists/UALL.h
 trie = $(triePath)/BoundedMinReg/minreg.h $(triePath)/trieNodeTypes.h $(linkedLists) $(triePath)/trie.h 
 
-compileFlags = -Wall -pedantic -pthread -Werror -fgnu-tm
+compileFlags = -Wall -pedantic -pthread -Werror
 testingFlags = -fdump-lang-class -fno-omit-frame-pointer -g
 #countersFlags = -D COUNT_CONTENTION
-#optimizationFlags  = -O3
+optimizationFlags  = -O3
 
 dynamicSetTest : $(dataStructures) $(trie) $(common) dynamicSetTest.cpp  Makefile 
 	g++ $(compileFlags) $(optimizationFlags) $(testingFlags) $(countersFlags) -o dynamicSetTest dynamicSetTest.cpp

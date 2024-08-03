@@ -64,8 +64,8 @@ class Debra{
         while(!threadData.limboBag[newBag].empty()){
             //Put the record into the freelist
             Type *ptr = threadData.limboBag[newBag].back();
-            threadData.freelist.push_back(ptr);
             threadData.limboBag[newBag].pop_back();
+            threadData.freelist.push_back(ptr);
         }
     }
     //Adds the given pointer to the freelist, to be reclaimed whenever the algorithm wants.
@@ -78,12 +78,12 @@ class Debra{
         ThreadData<Type, numBags> &threadData = data[threadID];
         if(!threadData.freelist.empty()){
             Type *ptr = threadData.freelist.back();
-            delete ptr;
             threadData.freelist.pop_back();
+            delete ptr;
             if(!threadData.freelist.empty()){
                 ptr = threadData.freelist.back();
-                delete ptr;
                 threadData.freelist.pop_back();
+                delete ptr;
             }
         }
     }
