@@ -20,11 +20,14 @@ int64_t mergePrefix(const int64_t prefix, const int64_t k, const int64_t start, 
     return newPrefix + suffix;
 }
 
+constexpr int bit_width(const int64_t p){
+	return 64 - std::__countl_zero(p);
+}
 //100001111  len = 9
 //    11111  len = 4
 
 bool isPrefix(const int64_t p, const int64_t x, const int size){
-    int len = std::__bit_width(p) - 1;
+    int len = bit_width(p) - 1;
     int64_t mask = (1 << len) - 1;
     return (p & mask) == ((x >> (size - len)) & mask); 
 }
