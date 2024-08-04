@@ -76,15 +76,12 @@ class Debra{
     //Free up to two elements in the freelist, if the freelist has any elements to free.
     void amortizedFree(){
         ThreadData<Type, numBags> &threadData = data[threadID];
-        if(!threadData.freelist.empty()){
+        int numToFree = threadData.freelist.size();
+        if(numToFree > 4)numToFree = 4;
+        for(int i = 0; i < numToFree;++i){
             Type *ptr = threadData.freelist.back();
             threadData.freelist.pop_back();
             delete ptr;
-            if(!threadData.freelist.empty()){
-                ptr = threadData.freelist.back();
-                threadData.freelist.pop_back();
-                delete ptr;
-            }
         }
     }
     void startOp(){
