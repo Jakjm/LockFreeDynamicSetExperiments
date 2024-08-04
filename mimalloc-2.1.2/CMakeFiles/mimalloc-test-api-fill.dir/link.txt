@@ -1,1 +1,0 @@
-/usr/bin/cc -O3 -DNDEBUG "CMakeFiles/mimalloc-test-api-fill.dir/test/test-api-fill.c.o" -o mimalloc-test-api-fill  -Wl,-rpath,/home/jakjm/Downloads/mimalloc-2.1.2 libmimalloc.so.2.1 /usr/lib/libpthread.a /usr/lib/librt.a /usr/lib/libatomic.so 
