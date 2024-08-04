@@ -256,6 +256,8 @@ struct ReclaimableBase{
     }
 };
 
+int64_t backsteps = 0;
+
 //Nodes of the skip trie.....
 struct alignas(64) STNode : public ReclaimableBase{
     int64_t key;
@@ -410,6 +412,7 @@ struct SkipTrie : public DynamicSet {
     STNode *xFastTriePred(int64_t key){
         STNode *curr = lowestAncestor(key);
         while(curr->key > key){
+            ++backsteps;
             uintptr_t state = curr->nextState & STATUS_MASK;
             if(state == Marked)curr = curr->back;
             else curr = curr->prev.read();

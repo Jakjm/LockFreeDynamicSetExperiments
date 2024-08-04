@@ -3,7 +3,7 @@
 #include <iostream>
 #pragma once
 //Gets the integer representing the len-bit prefix of k within size bits
-int64_t getPrefix(const int64_t k, const int len, const int size){
+int64_t getPrefix(const uint64_t k, const int len, const int size){
     int64_t mask = (1 << len) - 1;
     int64_t prefix = (1 << len) + ((k >> (size - len)) & mask);
     return prefix;
@@ -20,10 +20,11 @@ int64_t mergePrefix(const int64_t prefix, const int64_t k, const int64_t start, 
     return newPrefix + suffix;
 }
 
-constexpr int bit_width(const int64_t p){
-	return 64 - std::__countl_zero(p);
+constexpr int bit_width(const uint64_t p){
+    int l_zero = std::__countl_zero(p);
+    return 64 - l_zero;
 }
-//100001111  len = 9
+//100001111  len = 8
 //    11111  len = 4
 
 bool isPrefix(const int64_t p, const int64_t x, const int size){
