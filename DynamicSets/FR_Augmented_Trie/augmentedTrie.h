@@ -9,15 +9,17 @@ using std::cout;
 //An Implementation of Fatourou and Ruppert's Augmented Static Trie
 //Version objects which are pointed to by nodes of Augmented Static Trie
 //A Version only becomes immutable once inserted.
-struct Version{
+struct Version : public ReclaimableBase{
     int sum;
     Version *left, *right;
     Version(int s = 0, Version *l = nullptr, Version *r = nullptr) : sum(s), left(l), right(r){
 
     }
+    ~Version(){
+
+    }
 };
 
-Debra<Version, 5> versionDebra;
 
 #define space_nodes 5
 
@@ -136,7 +138,7 @@ struct AS_Trie : public DynamicSet{
         node.version.compare_exchange_strong(result, v);
         //If the CAS was successful
         if(result == old){
-            versionDebra.reclaimLater(old);
+            debra.reclaimLater(old);
             pool.v = new Version(); //Allocate new version to be used...
             return true;
         }
@@ -156,7 +158,7 @@ struct AS_Trie : public DynamicSet{
     }
     bool insert(int64_t x){
         bool success = false;
-        versionDebra.startOp();
+        debra.startOp();
         Version *old = leaf[x].version;
 
         //If old->sum == 1, key was already in set 
@@ -171,7 +173,7 @@ struct AS_Trie : public DynamicSet{
             if(result == old){
                 success = true;
                 //Will try to reclaim the version that was removed later....
-                versionDebra.reclaimLater(old);
+                debra.reclaimLater(old);
                 //Allocate a new version for the pool
                 pool.v = new Version();
             }
@@ -181,12 +183,12 @@ struct AS_Trie : public DynamicSet{
         int64_t arrayIndex = (x + universeSize  - 1); //Array index of x
         int64_t parent = (arrayIndex - 1) / 2; 
         propogate(parent);
-        versionDebra.endOp();
+        debra.endOp();
         return success;
     }
     bool remove(int64_t x){
         bool success = false;
-        versionDebra.startOp();
+        debra.startOp();
         Version *old = leaf[x].version;
 
         //If old->sum == 1, key was already in set 
@@ -201,7 +203,7 @@ struct AS_Trie : public DynamicSet{
             if(result == old){
                 success = true;
                 //Will try to reclaim the version that was removed later....
-                versionDebra.reclaimLater(old);
+                debra.reclaimLater(old);
                 //Allocate a new version for the pool
                 pool.v = new Version();
             }
@@ -212,11 +214,11 @@ struct AS_Trie : public DynamicSet{
         int64_t parent = (arrayIndex - 1) / 2; 
         propogate(parent);
 
-        versionDebra.endOp();
+        debra.endOp();
         return success;
     }
     int64_t predecessor(int64_t x){
-        versionDebra.startOp();
+        debra.startOp();
 
         Version *v = array[0].version; //Read the root version
         std::vector<Version*> levels; //Internal nodes while traversing downwards.
@@ -243,7 +245,7 @@ struct AS_Trie : public DynamicSet{
             x = x >> 1;
             --depth;
             if(depth == 0){
-                versionDebra.endOp();
+                debra.endOp();
                 return -1;
             }
             v = levels[depth];
@@ -263,15 +265,15 @@ struct AS_Trie : public DynamicSet{
                 v = v->left;
             }
             else{
-                versionDebra.endOp();
+                debra.endOp();
                 return -1;
             }
         }
-        versionDebra.endOp();
+        debra.endOp();
         return x;
     }
     bool search(int64_t x){
-        versionDebra.startOp();
+        debra.startOp();
         Version *v = array[0].version; //Read the root version
         int height = trieHeight; //Height of v
         while(height > 0){
@@ -282,7 +284,7 @@ struct AS_Trie : public DynamicSet{
             --height;
         }
         bool result = (v->sum == 1);
-        versionDebra.endOp();
+        debra.endOp();
         return result;
     }
     std::string name(){

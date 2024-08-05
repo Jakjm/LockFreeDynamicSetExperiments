@@ -14,12 +14,7 @@ enum STATUS {INACTIVE, ACTIVE, STALE};
 class InsNode;
 class DelNode;
 class NotifyNode;
-struct BaseType{
-    public:
-    virtual ~BaseType(){
-       
-    }
-};
+
 
 #ifdef COUNT_CONTENTION
     struct UALLCounter{
@@ -361,7 +356,7 @@ struct alignas(64) AtomicCopyNotifyThreshold{
 
 
 
-class alignas(64)NotifyNode: public BaseType {
+class alignas(64)NotifyNode: public ReclaimableBase {
     public:
     int64_t key;
     UpdateNode *updateNode;
@@ -376,14 +371,8 @@ class alignas(64)NotifyNode: public BaseType {
     }
 };
 
-/*
-*Using 5 bags, since if an instance I puts a node N into a limbo bag, N will not be accessed once every instance at
-* distance 3 from I has terminated. 
-*/
-Debra<BaseType, 5> trieDebra; 
 
-
-class alignas(128)PredecessorNode:  public BaseType{
+class alignas(128)PredecessorNode:  public ReclaimableBase{
     public:
     const int64_t key;
     std::atomic<uintptr_t> succ;
@@ -399,7 +388,7 @@ class alignas(128)PredecessorNode:  public BaseType{
         NotifyNode *curNode = notifyListHead;
         while(curNode){
             NotifyNode *next = curNode->next;
-            trieDebra.reclaimAtWill(curNode);
+            debra.reclaimAtWill(curNode);
             //delete curNode;
             curNode = next;
         }
@@ -412,11 +401,11 @@ class alignas(128)PredecessorNode:  public BaseType{
 //record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
 
 
-class alignas(128) InsNode : public UpdateNode, public BaseType{
+class alignas(128) InsNode : public UpdateNode, public ReclaimableBase{
     public:
         std::atomic<DelNode *> target;
         std::atomic<int64_t> target_key;
-        //char padding[128 - 2*sizeof(uintptr_t) - sizeof(UpdateNode) - sizeof(BaseType)];
+        //char padding[128 - 2*sizeof(uintptr_t) - sizeof(UpdateNode) - sizeof(ReclaimableBase)];
         InsNode(int64_t key): UpdateNode(key, INS),  target(nullptr), target_key(-1){
             
         }
@@ -430,7 +419,7 @@ class alignas(128) InsNode : public UpdateNode, public BaseType{
 };
 
 
-class alignas(128) DelNode : public UpdateNode, public BaseType{
+class alignas(128) DelNode : public UpdateNode, public ReclaimableBase{
     public:
         PredecessorNode *delPredNode;
         int64_t delPred;

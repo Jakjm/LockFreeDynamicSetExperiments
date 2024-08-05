@@ -3,7 +3,18 @@
 #include <string>
 #include <set>
 #include "../common.h"
+#include "debra.h"
 #pragma once
+
+struct ReclaimableBase{
+    public:
+    virtual ~ReclaimableBase(){
+       
+    }
+};
+
+Debra<ReclaimableBase,5> debra;
+
 //Base class for a Dynamic Set which supports the predecessor operation.
 struct DynamicSet{
     virtual bool insert(int64_t x) = 0;

@@ -41,11 +41,12 @@ struct ProcessData{
 //Data type that holds data shared by threads performing the experiment.
 struct ExperimentData{
     std::atomic<int32_t> numReady;
-    volatile char padding[64 - sizeof(int32_t)];
+    std::atomic<int32_t> numFinished;
+    volatile char padding[64 - 2*sizeof(int32_t)];
     std::atomic<bool> done;
     volatile char padding2[64 - sizeof(bool)];
     ProcessData pData[MAX_THREADS];
-    ExperimentData() : numReady(0), done(false){
+    ExperimentData() : numReady(0), numFinished(0), done(false){
 
     }
 };
@@ -299,6 +300,11 @@ void randomExperiment(DynamicSet *set, int id, ExperimentData *data, ExperimentT
     pData.startTime = startTime;
     pData.endTime = actualEndTime;
     pData.checkSum = checkSum;
+
+    ++data->numFinished;
+    while(data->numFinished != type.numProcs){ //Continue iterating while not all threads are finished...
+    }
+    debra.data[threadID].cleanup(); //Complete reclaiming memory...
 }
 //Converts current time in milliseconds millis into the current hour, minute and second in Eastern Time.
 //millis is the current time in milliseconds.
@@ -379,8 +385,8 @@ void multithreadTest(DynamicSet *set, ExperimentType exp, bool verbose){
         assert(strcmp(ack,"ack\n") == 0);
     }
     else{
-        //Put the thread to sleep for time seconds plus 50 millis to ensure thread is not used in the place of others.
-        int64_t sleep_duration = exp.time * 1000 + 50;
+        //Put the thread to sleep for time seconds plus 200 millis to ensure thread is not used in the place of others.
+        int64_t sleep_duration = exp.time * 1000 + 200;
         std::this_thread::sleep_for(std::chrono::milliseconds(sleep_duration));
     }
 
@@ -503,10 +509,7 @@ int experimentProg(int argc, char **argv){
     SkipListSet<22> skipList;
     SkipTrie<6> skipTrie(20);
     AS_Trie augmentedTrie(keyRange);
-    trieDebra.setActiveThreads(numProcs);
-    keyNodeDebra.setActiveThreads(numProcs);
-    skipDebra.setActiveThreads(numProcs);
-    versionDebra.setActiveThreads(numProcs);
+    debra.setActiveThreads(numProcs);
 
     if(!setType || strcmp(setType,"trie") == 0){
         set = &trie;

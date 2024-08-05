@@ -18,7 +18,7 @@ struct alignas(64) ThreadData{
     ThreadData(): checkNext(-1), currentBag(0), currentEpoch(-1), announcement(0) {
 
     }
-    ~ThreadData(){
+    void cleanup(){
         for(int b = 0;b < numBags;++b){
             while(!limboBag[b].empty()){
                 Type *ptr = limboBag[b].back();
@@ -32,13 +32,16 @@ struct alignas(64) ThreadData{
             delete ptr;
         }
     }
+    ~ThreadData(){
+        cleanup();
+    }
 };
 
 uint64_t QUIESCENT_BIT_FLAG = 0x1;
 uint64_t ANNOUNCEMENT_FLAG = 0xFFFFFFFFFFFFFFFE;
 int progressAmount = 1;
 template <typename Type, int numBags>
-class Debra{
+struct alignas(64) Debra{
     std::atomic<int64_t> epoch;
     volatile char padding[64 - sizeof(std::atomic<uint64_t>)];
     ThreadData<Type, numBags> data[MAX_THREADS]; //Data used for each thread
@@ -76,12 +79,21 @@ class Debra{
     //Free up to two elements in the freelist, if the freelist has any elements to free.
     void amortizedFree(){
         ThreadData<Type, numBags> &threadData = data[threadID];
-        int numToFree = threadData.freelist.size();
-        if(numToFree > 4)numToFree = 4;
-        for(int i = 0; i < numToFree;++i){
+
+        if(!threadData.freelist.empty()){
             Type *ptr = threadData.freelist.back();
             threadData.freelist.pop_back();
             delete ptr;
+            if(!threadData.freelist.empty()){
+                Type *ptr = threadData.freelist.back();
+                threadData.freelist.pop_back();
+                delete ptr;
+                if(!threadData.freelist.empty()){
+                    Type *ptr = threadData.freelist.back();
+                    threadData.freelist.pop_back();
+                    delete ptr;
+                }
+            }
         }
     }
     void startOp(){

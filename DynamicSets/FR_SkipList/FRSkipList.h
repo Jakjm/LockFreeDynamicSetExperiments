@@ -16,7 +16,7 @@
 using std::string;
 using std::vector;
 
-struct SkipNode{
+struct SkipNode: public ReclaimableBase{
     int64_t key;
     std::atomic<uintptr_t> succ;
     std::atomic<SkipNode*> backlink;
@@ -41,7 +41,6 @@ struct SkipListPool{
 
 
 SkipListPool pool[MAX_THREADS];
-Debra<SkipNode, 5> skipDebra;
 
 template <int numLevels> 
 class SkipListSet : public DynamicSet{
@@ -85,7 +84,7 @@ class SkipListSet : public DynamicSet{
 
         
         if(result == expected){
-            skipDebra.reclaimLater(delNode);
+            debra.reclaimLater(delNode);
             return (uintptr_t)next;
         }
         else return result;
@@ -258,12 +257,12 @@ class SkipListSet : public DynamicSet{
         }
     }
     bool insert(int64_t k){
-        skipDebra.startOp();
+        debra.startOp();
         SkipNode *curr, *next;
         std::array<SkipNode*,numLevels> startingPlaces;
         curr = searchToLevel(k, 0, next, startingPlaces);
         if(curr->key == k){
-            skipDebra.endOp();
+            debra.endOp();
             return false;
         }
         SkipNode *newRoot = pool[threadID].node;
@@ -286,7 +285,7 @@ class SkipListSet : public DynamicSet{
             SkipNode *result = insertNode(newNode, curr, next);
             if(result == nullptr && level == 0){
                 //delete newNode; <-- instead of this, nodes are pooled.
-                skipDebra.endOp();
+                debra.endOp();
                 return false;
             }
             pool[threadID].node = new SkipNode(k);
@@ -295,19 +294,19 @@ class SkipListSet : public DynamicSet{
                 if(result == newNode && newNode != newRoot){
                     removeNode(curr, newNode);
                 }
-                skipDebra.endOp();
+                debra.endOp();
                 return true;
             }
             ++level;
             if(level >= height){ //Stop building the tower if we've already reached the desired height...
-                skipDebra.endOp();
+                debra.endOp();
                 return true;
             }
 
             curr = startingPlaces[level];
             next = searchRight(k,curr);
         }
-        skipDebra.endOp();
+        debra.endOp();
         return level > 0;
     }
     bool removeNode(SkipNode *prev, SkipNode *delNode){
@@ -319,12 +318,12 @@ class SkipListSet : public DynamicSet{
         return result;
     }
     bool remove(int64_t k){
-        skipDebra.startOp();
+        debra.startOp();
         SkipNode *curr, *delNode;
         std::array<SkipNode*,numLevels> startingPlaces;
         curr = searchToLevel(k-1,0, delNode,startingPlaces);
         if(delNode->key != k){ //delNode does not have key k so we will not remove it.
-            skipDebra.endOp();
+            debra.endOp();
             return false;
         }
         bool removed = removeNode(curr, delNode);
@@ -335,23 +334,23 @@ class SkipListSet : public DynamicSet{
                 searchRight(k,curr);
             }
         }
-        skipDebra.endOp();
+        debra.endOp();
         return removed;
     }
     int64_t predecessor(int64_t k){
-        skipDebra.startOp();
+        debra.startOp();
         SkipNode *curr, *next;
         curr = searchToLevel(k-1, 0,next);
         int64_t result = curr->key;
-        skipDebra.endOp();
+        debra.endOp();
         return result;
     }
     bool search(int64_t k){
-        skipDebra.startOp();
+        debra.startOp();
         SkipNode *curr, *next;
         curr = searchToLevel(k, 0,next);
         bool keyContained = curr->key == k;
-        skipDebra.endOp();
+        debra.endOp();
         return keyContained;
     }
     string name(){

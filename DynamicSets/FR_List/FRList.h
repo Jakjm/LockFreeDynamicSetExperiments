@@ -16,7 +16,7 @@ using std::string;
 
 
 
-struct KeyNode {
+struct KeyNode : public ReclaimableBase{
     int64_t key;
     std::atomic<uintptr_t> successor; //Contains <next, state>. The state is contained within the lowest 3 bits of the pointer.
     std::atomic<KeyNode*> backlink;  //A pointer to the ListNode preceeding this node before it is removed.
@@ -24,8 +24,6 @@ struct KeyNode {
 
     }
 };
-
-Debra<KeyNode, 5> keyNodeDebra;
 
 //Structure used to store pointers to KeyNodes that go unused after allocations.
 //On subsequent insert/delete operations by the same thread, the previouslly allocated KeyNode can be used again.
@@ -123,7 +121,7 @@ class LinkedListSet : public DynamicSet {
         }
 
         bool insert(int64_t key){
-            keyNodeDebra.startOp();
+            debra.startOp();
             KeyNode *curr = &head;
             uintptr_t succ = curr->successor;
             uintptr_t next = succ & NEXT_MASK;
@@ -142,7 +140,7 @@ class LinkedListSet : public DynamicSet {
                         curr->successor.compare_exchange_strong(succ, (uintptr_t)newNode);
                         if(succ == (uintptr_t)next){ //If the CAS succeeded, node has been successfully inserted and the operation can stop.
                             keyNodePool[threadID].keyNode = new KeyNode(); //Need a new node for pool...
-                            keyNodeDebra.endOp();
+                            debra.endOp();
                             return true;
                         }
                     }
@@ -164,11 +162,11 @@ class LinkedListSet : public DynamicSet {
                 next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;
             }
-            keyNodeDebra.endOp();
+            debra.endOp();
             return false;
         }
         bool remove(int64_t key){
-            keyNodeDebra.startOp();
+            debra.startOp();
             KeyNode *curr = &head;
             uintptr_t succ = curr->successor;
             uintptr_t next = succ & NEXT_MASK;
@@ -185,9 +183,9 @@ class LinkedListSet : public DynamicSet {
                         curr->successor.compare_exchange_strong(succ, ((uintptr_t)next) + DelFlag);
                         if(succ == (uintptr_t)next){
                             helpRemove(curr, (KeyNode*)next);
-                            keyNodeDebra.reclaimLater((KeyNode*)next);
+                            debra.reclaimLater((KeyNode*)next);
                             //listRecordMgr.retire(threadID, next); //Retire a node upon successfully giving its predecessor del flag.
-                            keyNodeDebra.endOp();
+                            debra.endOp();
                             return true;
                         }
                     }
@@ -208,12 +206,12 @@ class LinkedListSet : public DynamicSet {
                 next = succ & NEXT_MASK;
                 state = succ & STATUS_MASK;
             }
-            keyNodeDebra.endOp();
+            debra.endOp();
             return false;
         }
         bool search(int64_t key){
             bool result;
-            keyNodeDebra.startOp();
+            debra.startOp();
             KeyNode *curr = &head;
             uintptr_t succ = curr->successor;
             KeyNode *next = (KeyNode*)(succ & NEXT_MASK);
@@ -226,12 +224,12 @@ class LinkedListSet : public DynamicSet {
             }
             //next->key >= key
             result = (next->key == key);
-            keyNodeDebra.endOp();
+            debra.endOp();
             return result;
         }
         int64_t predecessor(int64_t key){
             int64_t pred = -1;
-            keyNodeDebra.startOp();
+            debra.startOp();
 
             KeyNode *curr = &head;
             uintptr_t succ = curr->successor;
@@ -245,7 +243,7 @@ class LinkedListSet : public DynamicSet {
             }
             //next->key >= key
             pred = curr->key;
-            keyNodeDebra.endOp();
+            debra.endOp();
             return pred;
         }
         string name(){

@@ -202,11 +202,11 @@ class Trie : public DynamicSet{
     bool search(int64_t x){
         //trieRecordManager.startOp(threadID);
         bool containsX;
-        trieDebra.startOp();
+        debra.startOp();
         UpdateNode *l = findLatest(x);
         containsX = (l->type == INS);
         //trieRecordManager.endOp(threadID);
-        trieDebra.endOp();
+        debra.endOp();
         return containsX; //Return whether the root of the latest was an insert node.
     }
     char interpretedBit(int index, int depth){
@@ -247,13 +247,13 @@ class Trie : public DynamicSet{
             UpdateNode *latestNext = uNode->latestNext.exchange(nullptr); 
             if(latestNext != nullptr){ //This operation unlinked latestNext from the latest list.
                 if(latestNext->type == INS){
-                    trieDebra.reclaimLater((InsNode*)latestNext); //Put latestNext into a limbo bagif it's an insert node.
+                    debra.reclaimLater((InsNode*)latestNext); //Put latestNext into a limbo bagif it's an insert node.
                 }
                 else{
                     //Otherwise, decrement latestNext's dNodeCount, and put latestNext into a limbo bag if dNodeCount was reduced to 0.
                     int retire = ((DelNode*)latestNext)->dNodeCount.fetch_add(-1); 
                     if(retire == 1){
-                        trieDebra.reclaimLater((DelNode*)latestNext);
+                        debra.reclaimLater((DelNode*)latestNext);
                     }
                 }
             }
@@ -425,7 +425,7 @@ class Trie : public DynamicSet{
             //Put d in a limbo bag if it is no longer in shared memory.
             int count = d->dNodeCount.fetch_add(-1);
             if(count == 1){
-                trieDebra.reclaimLater(d);
+                debra.reclaimLater(d);
             }
                 //trieRecordManager.reclaimLater(threadID, d);
 
@@ -438,11 +438,11 @@ class Trie : public DynamicSet{
     Insert operation on the binary trie.
     */
     bool insert(int64_t x){
-        trieDebra.startOp();
+        debra.startOp();
         //trieRecordManager.startOp(threadID);
         UpdateNode *dNode = findLatest(x);
         if (dNode->type == INS){
-            trieDebra.endOp();
+            debra.endOp();
             //trieRecordManager.endOp(threadID); //x already in S, nothing to do!
             return false;
         } 
@@ -454,7 +454,7 @@ class Trie : public DynamicSet{
         UpdateNode *latestNext = dNode->latestNext.exchange(nullptr); 
         //If latestNext was removed by this exchange operation....
         if(latestNext != nullptr){
-            trieDebra.reclaimLater((InsNode*)latestNext);
+            debra.reclaimLater((InsNode*)latestNext);
             //trieRecordManager.reclaimLater(threadID, (InsNode*)latestNext); //Retire the InsertNode following dNode in latest list.
         }
         UpdateNode *expected = dNode;
@@ -462,7 +462,7 @@ class Trie : public DynamicSet{
         if (expected != dNode){
             helpActivate(expected);
             //trieRecordManager.endOp(threadID);
-            trieDebra.endOp();
+            debra.endOp();
             return false;
         }
         nodePool[threadID].insNode = new InsNode(); //Ensure that iNode has been removed from the pool...
@@ -476,7 +476,7 @@ class Trie : public DynamicSet{
         if(result == dNode){ //If this exchange removed dNode from the latest list....
             //Retire the delete node if it is no longer in the latest list or stored as a dNodePtr
             int retire = ((DelNode*)dNode)->dNodeCount.fetch_add(-1);
-            if(retire == 1)trieDebra.reclaimLater((DelNode*)dNode);
+            if(retire == 1)debra.reclaimLater((DelNode*)dNode);
             //trieRecordManager.reclaimLater(threadID, (DelNode*)dNode);
         }
         
@@ -487,18 +487,18 @@ class Trie : public DynamicSet{
 
         uall.remove(iNode);
         ruall.remove(iNode);
-        trieDebra.endOp();
+        debra.endOp();
         return true;
         //trieRecordManager.endOp(threadID);
     }
     
 
     bool remove(int64_t x){
-        trieDebra.startOp();
+        debra.startOp();
         //trieRecordManager.startOp(threadID);
         UpdateNode *iNode = findLatest(x);
         if(iNode->type == DEL){ //Already a delNode with key x at head of latestList...
-            trieDebra.endOp();
+            debra.endOp();
             //trieRecordManager.endOp(threadID);
             return false; //x is not in S, nothing to do!
         }
@@ -520,7 +520,7 @@ class Trie : public DynamicSet{
             //Swap iNode's latestNext with nullptr.
         if(latestNext != nullptr){ //If this operation removed latestNext, decrement its dNodeCount.
             int retire = ((DelNode*)latestNext)->dNodeCount.fetch_add(-1);
-            if(retire == 1)trieDebra.reclaimLater((DelNode*)latestNext);
+            if(retire == 1)debra.reclaimLater((DelNode*)latestNext);
             //trieRecordManager.reclaimLater(threadID, (DelNode*)latestNext); //Retire if dNodeCount was lowered to 0.
         }   
         
@@ -541,9 +541,9 @@ class Trie : public DynamicSet{
             pall.remove(pNode);
 
             //Retire pNode as it is no longer in shared memory.
-            trieDebra.reclaimLater(pNode);
+            debra.reclaimLater(pNode);
             //trieRecordManager.reclaimLater(threadID, pNode);
-            trieDebra.endOp();
+            debra.endOp();
             //trieRecordManager.endOp(threadID);
             return false;
         }
@@ -560,7 +560,7 @@ class Trie : public DynamicSet{
         UpdateNode *result = dNode->latestNext.exchange(nullptr);
         if(result == iNode){  
             //If this CAS unlinked iNode from the latest list, retire iNode.
-            trieDebra.reclaimLater((InsNode*)iNode);
+            debra.reclaimLater((InsNode*)iNode);
             //trieRecordManager.reclaimLater(threadID, (InsNode*)iNode);
         }
         PredecessorNode *pNode2 = new PredecessorNode(x, &ruall.head);
@@ -576,8 +576,8 @@ class Trie : public DynamicSet{
         pall.remove(pNode2);
 
         //Retire both pNode and pNode2.
-        trieDebra.reclaimLater(pNode);
-        trieDebra.reclaimLater(pNode2);
+        debra.reclaimLater(pNode);
+        debra.reclaimLater(pNode2);
         //trieRecordManager.reclaimLater(threadID, pNode);
         //trieRecordManager.reclaimLater(threadID, pNode2);
 
@@ -585,9 +585,9 @@ class Trie : public DynamicSet{
         ruall.remove(dNode);
 
         int retire = dNode->dNodeCount.fetch_add(-1);
-        if(retire == 1)trieDebra.reclaimLater(dNode);
+        if(retire == 1)debra.reclaimLater(dNode);
         //trieRecordManager.reclaimLater(threadID, dNode);
-        trieDebra.endOp();
+        debra.endOp();
         //trieRecordManager.endOp(threadID);
         return true;
     }
@@ -858,17 +858,17 @@ class Trie : public DynamicSet{
         else return r1;
     }
     int64_t predecessor(int64_t y){
-        trieDebra.startOp();
+        debra.startOp();
         //trieRecordManager.startOp(threadID);
         
         PredecessorNode *p = new PredecessorNode(y, &ruall.head);
         //trieRecordManager.allocate<PredecessorNode>(threadID, y);
         int64_t pred = predHelper(p);
         pall.remove(p);
-        trieDebra.reclaimLater(p);
+        debra.reclaimLater(p);
         //trieRecordManager.reclaimLater(threadID, p); //PredNode p can be retired, since it is no longer in shared memory.
 
-        trieDebra.endOp();
+        debra.endOp();
         //trieRecordManager.endOp(threadID);
         return pred;
     }
