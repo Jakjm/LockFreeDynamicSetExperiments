@@ -250,8 +250,6 @@ struct DCSS_PTR{
     }
 };
 
-int64_t backsteps = 0;
-
 //Nodes of the skip trie.....
 struct alignas(64) STNode : public ReclaimableBase{
     int64_t key;
@@ -443,11 +441,7 @@ struct SkipTrie : public DynamicSet {
     STNode *xFastTriePred(int64_t key){
         STNode *curr = lowestAncestor(key);
         uintptr_t state = curr->nextState & STATUS_MASK;
-        STNode *previous = nullptr;
         while(curr->key > key || state == Marked){
-            previous = curr;
-            assert(previous != nullptr);
-            ++backsteps;
             //uintptr_t state = curr->nextState & STATUS_MASK;
             if(state == Marked)curr = curr->back;
             else curr = curr->prev.read();
@@ -767,6 +761,7 @@ struct SkipTrie : public DynamicSet {
                     STNodePool &pool = node_pool[threadID];
                     TreeNode *tn = pool.tn;
                     tn->pointers[dir].init(node);
+                    tn->pointers[1-dir].init(nullptr);
                     ++node->prefCount;
                     if(prefixes.insert(prefix,tn)){
                         pool.tn = new TreeNode();
