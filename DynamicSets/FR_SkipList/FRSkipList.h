@@ -283,10 +283,10 @@ class SkipListSet : public DynamicSet{
 
             //If insertion of node has failed, and this is the first level, keep node for subsequent insertion...
             SkipNode *result = insertNode(newNode, curr, next);
-            if(result == nullptr && level == 0){
+            if(result == nullptr){
                 //delete newNode; <-- instead of this, nodes are pooled.
                 debra.endOp();
-                return false;
+                return (level != 0);
             }
             pool[threadID].node = new SkipNode(k);
             if((newRoot->succ & STATUS_MASK) == Marked){
