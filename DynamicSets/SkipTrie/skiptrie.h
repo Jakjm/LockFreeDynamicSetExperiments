@@ -265,7 +265,7 @@ struct alignas(64) STNode : public ReclaimableBase{
     //std::atomic<bool> ready;
     //int orig_height;
     //volatile char padding[64 - 4 * sizeof(STNode*) + sizeof(bool)];
-    STNode(int64_t k=0, int height=0) : key(k), nextState(0), back(nullptr), prev(nullptr), down(nullptr), root(nullptr), stop(false), prefCount(0){
+    STNode(int64_t k=0, int height=0) : key(k), nextState(0), back(nullptr), prev(nullptr), down(nullptr), root(nullptr), stop(false), prefCount(1){
 
     }
 };
@@ -321,7 +321,22 @@ struct PrefixesTable{
     }
     ~PrefixesTable(){
         for(int64_t i = 1; i < 2*universeSize;++i){
-            if(array[i]){
+            TreeNode *tn = array[i];
+            if(tn){
+                STNode *node = tn->pointers[0].read();
+                if(node){
+                    int res = node->prefCount.fetch_add(-1);
+                    if(res == 1){
+                        delete node;
+                    }
+                }
+                node = tn->pointers[1].read();
+                if(node){
+                    int res = node->prefCount.fetch_add(-1);
+                    if(res == 1){
+                        delete node;
+                    }
+                }
                 delete array[i];
             }
         }
@@ -333,7 +348,7 @@ struct PrefixesTable{
     void compareAndDelete(int64_t prefix, TreeNode *tn){
         TreeNode *old = tn;
         if(array[prefix].compare_exchange_strong(old, nullptr)){
-            debra.reclaimLater(tn);
+            //debra.reclaimLater(tn);
         }
     }
     bool insert(int64_t prefix, TreeNode *tn){
@@ -372,7 +387,11 @@ struct SkipTrie : public DynamicSet {
             STNode *next;
             while(cur != &tail){
                 next = (STNode *)(cur->nextState & NEXT_MASK);
-                delete cur;
+
+                int res = cur->prefCount.fetch_add(-1);
+                if(res == 1){
+                    delete cur;
+                }
                 cur = next;
             }
         }
@@ -417,7 +436,7 @@ struct SkipTrie : public DynamicSet {
     void fixPrev(STNode *pred, STNode *node){
         STNode *left;
         left = pred;
-        searchRight(node->key - 1,left);
+        searchRight(node->key - 1, left);
         uintptr_t nextState = node->nextState;
         uint64_t state = nextState & STATUS_MASK;
         while(state != Marked){
@@ -435,14 +454,8 @@ struct SkipTrie : public DynamicSet {
         }
         //node->ready = 1;
     }
-    bool topLevelDelete(STNode *pred, STNode *node){
-        STNode *left, *right;
-        // if(!node->ready){
-        //     fixPrev(pred, node);
-        // }
-        bool result = skipListDelete(pred,node);
-        //top to bottom
-        left = pred;
+    void topLevelBackwardsRemove(STNode *left, STNode *node){
+        STNode *right;
         bool marked;
         do{
             right = searchRight(node->key-1, left);
@@ -450,8 +463,14 @@ struct SkipTrie : public DynamicSet {
             uintptr_t nextState = right->nextState;
             marked = (nextState & STATUS_MASK) == Marked;
         }while(marked);
-        return result;
+        return;
     }
+    // bool topLevelDelete(STNode *pred, STNode *node){
+    //     //top to bottom
+    //     bool result = skipListDelete(pred,node);
+    //     topLevelBackwardsRemove(pred, node);
+    //     return result;
+    // }
     //Precondition: prev.successor was <delNode, DelFlag> at an earlier point, and delNode is Marked.
     uintptr_t helpMarked(STNode *prev, STNode *delNode){
         STNode *next = (STNode*)(delNode->nextState & NEXT_MASK);
@@ -462,7 +481,15 @@ struct SkipTrie : public DynamicSet {
         //assert((STNode*)(next->nextState & NEXT_MASK) != prev);
         
         if(result == expected){
-            debra.reclaimLater(delNode);
+            //int res = delNode->prefCount.fetch_add(-1);
+            //if(res == 1){
+                //debra.reclaimLater(delNode);
+
+            //}
+            // if(level == loglogU - 1){
+            //     topLevelBackwardsRemove(prev, delNode);
+            // }
+            // debra.reclaimLater(delNode);
             return (uintptr_t)next;
         }
         else return result;
@@ -517,7 +544,7 @@ struct SkipTrie : public DynamicSet {
                 succ = prev->nextState;
             }
 
-            STNode *delNode = searchRight(targetNode->key - 1,prev);
+            STNode *delNode = searchRight(targetNode->key - 1, prev);
             if(targetNode != delNode){
                 inList = false;
                 return false;
@@ -543,10 +570,10 @@ struct SkipTrie : public DynamicSet {
                 }
                 curr = prev;
             }
-            else if(next->root->stop){ //If next is superfluous, try to flag the node preceding it.
-                succ = (uintptr_t)next;
-                curr->nextState.compare_exchange_strong(succ, (uintptr_t)next + DelFlag);
-            }
+            // else if(next->root->stop){ //If next is superfluous, try to flag the node preceding it.
+            //     succ = (uintptr_t)next;
+            //     curr->nextState.compare_exchange_strong(succ, (uintptr_t)next + DelFlag);
+            // }
             else{
                 if(next->key <= k){
                     curr = next;
@@ -666,7 +693,6 @@ struct SkipTrie : public DynamicSet {
         debra.startOp();
         STNode *pred = xFastTriePred(k - 1);
         int height;
-        STNode *left = pred;
         STNode *node = skipListInsert(k, height, pred);
         if(!node){
             debra.endOp();
@@ -676,6 +702,17 @@ struct SkipTrie : public DynamicSet {
             debra.endOp();
             return true;
         }
+
+        // STNode *d1 = node->down;
+        // STNode *d2 = d1->down;
+        // STNode *d3 = d2->down;
+        // STNode *d4 = d3->down;
+        // STNode *d5 = d4->down;
+        // assert(node != d1 && node != d2 && node != d3 && node != d4 && node != d5);
+        // assert(d1 != d2 && d1 != d3 && d1 != d4 && d1 != d5);
+        // assert(d2 != d3 && d2 != d4 && d2 != d5);
+        // assert(d3 != d4 && d3 != d5);
+        // assert(d4 != d5);
 
         //assert(false);
         for(int64_t len = logU - 1; len >= 0; --len)
@@ -691,10 +728,13 @@ struct SkipTrie : public DynamicSet {
                     STNodePool &pool = node_pool[threadID];
                     TreeNode *tn = pool.tn;
                     tn->pointers[dir].init(node);
+                    ++node->prefCount;
                     if(prefixes.insert(prefix,tn)){
-                        node->prefCount++;
                         pool.tn = new TreeNode();
                         break;
+                    }
+                    else{
+                        --node->prefCount;
                     }
                 }
                 else if(tn->pointers[0].read() == nullptr && tn->pointers[1].read() == nullptr){
@@ -711,10 +751,18 @@ struct SkipTrie : public DynamicSet {
                     //DCSS:
                     // if tn->pointers[dir] == curr and node->nextState == <next, unmarked>, update 
                     //      tn->pointers[dir] = node
+                    node->prefCount++;
                     if(tn->pointers[dir].dcss(&node->nextState, (uintptr_t)next, curr, node)){
-                        if(curr)curr->prefCount--;
-                        node->prefCount++;
+                        if(curr){
+                            //int res = curr->prefCount.fetch_add(-1);
+                            // if(res == 1){
+                            //     debra.reclaimLater(curr);
+                            // }
+                        }
                         break;
+                    }
+                    else{
+                        --node->prefCount;
                     }
                 }
 
@@ -722,6 +770,11 @@ struct SkipTrie : public DynamicSet {
                 state = (nextState & STATUS_MASK);
             }while(state != Marked);
         }
+
+        //int res = node->prefCount.fetch_add(-1);
+        // if(res == 1){
+        //     debra.reclaimLater(node);
+        // }
         debra.endOp();
         return true;
     }
@@ -747,6 +800,12 @@ struct SkipTrie : public DynamicSet {
             newNode->key = k;
             newNode->down = lastNode;
             newNode->root = newRoot;
+            if(level == loglogU - 1){
+                newNode->prefCount = 2;
+            }
+            else{
+                newNode->prefCount = 1;
+            }
 
             //If insertion of node has failed, and this is the first level, keep node for subsequent insertion...
             STNode *result = insertNode(newNode, curr, next, level);
@@ -773,7 +832,7 @@ struct SkipTrie : public DynamicSet {
             }
 
             curr = startingPlaces[level];
-            next = searchRight(k,curr);
+            next = searchRight(k, curr);
         }
         return newNode;
     }
@@ -811,15 +870,30 @@ struct SkipTrie : public DynamicSet {
 
         //Did not find node at the top level of the skip list....
         if(node->key != k){
-            bool result = skipListDelete(left,k);
-            debra.endOp();
-            return result;
+            STNode *topLevelNode = nullptr;
+            bool result = skipListDelete(left,k, topLevelNode);
+            if(!topLevelNode){
+                debra.endOp();
+                return result;
+            }
+            node = topLevelNode; 
         }
         //delete node from skip list
-        else if(!topLevelDelete(left, node)){
+        else if(!skipListDelete(left, node)){
             debra.endOp();
             return false;
         }
+
+        // STNode *d1 = node->down;
+        // STNode *d2 = d1->down;
+        // STNode *d3 = d2->down;
+        // STNode *d4 = d3->down;
+        // STNode *d5 = d4->down;
+        // assert(node != d1 && node != d2 && node != d3 && node != d4 && node != d5);
+        // assert(d1 != d2 && d1 != d3 && d1 != d4 && d1 != d5);
+        // assert(d2 != d3 && d2 != d4 && d2 != d5);
+        // assert(d3 != d4 && d3 != d5);
+        // assert(d4 != d5);
 
         for(int64_t len = 0;len < logU;++len){
             int64_t prefix = getPrefix(k, len, logU);
@@ -837,15 +911,27 @@ struct SkipTrie : public DynamicSet {
                 if(dir == 0) newNode = left;
                 else newNode = right;
 
+                ++newNode->prefCount;
                 if(tn->pointers[dir].dcss(&left->nextState, (uintptr_t)right, curr, newNode)){
-                    ++newNode->prefCount;
-                    --curr->prefCount;
+                    //int res = curr->prefCount.fetch_add(-1);
+                    // if(res == 1){
+                    //     debra.reclaimLater(curr);
+                    // }
+                }
+                else{
+                    //int res = newNode->prefCount.fetch_add(-1);
+                    // if(res == 1){
+                    //     debra.reclaimLater(newNode);
+                    // }
                 }
                 curr = tn->pointers[dir].read();
             }
             if(!isPrefix(prefix,curr->key, logU)){
                 if(tn->pointers[dir].cas(curr, nullptr)){
-                    curr->prefCount--;
+                    //int res = curr->prefCount.fetch_add(-1);
+                    // if(res == 1){
+                    //     debra.reclaimLater(curr);
+                    // }
                 };
             }
             if(tn->pointers[0].read() == nullptr && tn->pointers[1].read() == nullptr){
@@ -856,7 +942,7 @@ struct SkipTrie : public DynamicSet {
         debra.endOp();
         return true;
     } 
-    bool skipListDelete(STNode *prev, int64_t k){
+    bool skipListDelete(STNode *prev, int64_t k, STNode *&topLevelNode){
         //debra.startOp();
         STNode *curr, *root;
         std::array<STNode*,loglogU> startingPlaces;
@@ -866,14 +952,22 @@ struct SkipTrie : public DynamicSet {
             //return false;
             return false;
         }
-        bool result = !root->stop.exchange(true);
-        //removeNode(curr, next);
+        if(root->stop.exchange(true)){
+            return false;
+        }
         //Search and delete delNode from other levels of the tree...
         for(int level = loglogU - 1; level >= 0;--level){
             curr = startingPlaces[level];
-            searchRight(k,curr);
+            STNode *next = searchRight(k-1, curr);
+            if(next->root == root){
+                removeNode(curr, next);
+                if(level == loglogU - 1){
+                    topLevelNode = next;
+                    topLevelBackwardsRemove(curr, next);
+                }
+            }
         }
-        return result;
+        return true;
     }
     bool skipListDelete(STNode *prev, STNode *delNode){
         //debra.startOp();
@@ -884,18 +978,36 @@ struct SkipTrie : public DynamicSet {
         if(root != delNode->root){ //root is not the node we are trying to delete...
             return false;
         }
-        bool result = !root->stop.exchange(true);
-        //removeNode(curr, next);
+        if(root->stop.exchange(true)){
+            return false;
+        }
         //Search and delete delNode from other levels of the tree...
         for(int level = loglogU - 1; level >= 0;--level){
             curr = startingPlaces[level];
-            searchRight(k,curr);
+            STNode *next = searchRight(k-1,curr);
+            if(next->root == root){ 
+                removeNode(curr, next);
+                if(level == loglogU - 1){ //next = delNode.
+                    topLevelBackwardsRemove(curr, next);
+                }
+            }
         }
-        return result;
+        return true;
     }
     bool search(int64_t x){
         debra.startOp();
         STNode *start = xFastTriePred(x-1);
+
+        // STNode *d1 = start->down;
+        // STNode *d2 = d1->down;
+        // STNode *d3 = d2->down;
+        // STNode *d4 = d3->down;
+        // STNode *d5 = d4->down;
+        // assert(start != d1 && start != d2 && start != d3 && start != d4 && start != d5);
+        // assert(d1 != d2 && d1 != d3 && d1 != d4 && d1 != d5);
+        // assert(d2 != d3 && d2 != d4 && d2 != d5);
+        // assert(d3 != d4 && d3 != d5);
+        // assert(d4 != d5);
         STNode *next;
         searchToLevel(x-1,0,next,start);
         bool result = (next->key == x);
@@ -905,6 +1017,16 @@ struct SkipTrie : public DynamicSet {
     int64_t predecessor(int64_t x){
         debra.startOp();
         STNode *start = xFastTriePred(x-1);
+        // STNode *d1 = start->down;
+        // STNode *d2 = d1->down;
+        // STNode *d3 = d2->down;
+        // STNode *d4 = d3->down;
+        // STNode *d5 = d4->down;
+        // assert(start != d1 && start != d2 && start != d3 && start != d4 && start != d5);
+        // assert(d1 != d2 && d1 != d3 && d1 != d4 && d1 != d5);
+        // assert(d2 != d3 && d2 != d4 && d2 != d5);
+        // assert(d3 != d4 && d3 != d5);
+        // assert(d4 != d5);
         STNode *curr, *next;
         curr = searchToLevel(x-1,0,next,start);
         int64_t pred = curr->key;
