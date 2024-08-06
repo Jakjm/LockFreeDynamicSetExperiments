@@ -1,18 +1,18 @@
 #pragma once
 #include "../common.h"
 #include <atomic>
-#include <vector>
+#include <stack>
 //#include <iostream>
-using std::vector;
+using std::stack;
 
 template <typename Type, int numBags>
 struct alignas(64) ThreadData{
-    vector<Type*> freelist; //Stack storing elements that should be (gracefully) freed.
-    vector<Type*> limboBag[numBags];
+    stack<Type*> freelist; //Stack storing elements that should be (gracefully) freed.
+    stack<Type*> limboBag[numBags];
     int checkNext;
     int currentBag;
     int64_t currentEpoch;
-    volatile char padding[1024 - (2*sizeof(int) + sizeof(std::atomic<uint64_t>) + (numBags + 1) * sizeof(vector<Type*>))];
+    volatile char padding[512 - (2*sizeof(int) + sizeof(std::atomic<uint64_t>) + (numBags + 1) * sizeof(stack<Type*>))];
     std::atomic<int64_t> announcement;
     volatile char padding2[64 - sizeof(int64_t)];
     ThreadData(): checkNext(-1), currentBag(0), currentEpoch(-1), announcement(0) {
@@ -21,16 +21,19 @@ struct alignas(64) ThreadData{
     void cleanup(){
         for(int b = 0;b < numBags;++b){
             while(!limboBag[b].empty()){
-                Type *ptr = limboBag[b].back();
-                limboBag[b].pop_back();
+                Type *ptr = limboBag[b].top();
+                limboBag[b].pop();
                 delete ptr;
             }
+            stack<Type*>().swap(limboBag[b]);   
         }
         while(!freelist.empty()){
-            Type *ptr = freelist.back();
-            freelist.pop_back();
+            Type *ptr = freelist.top();
+            freelist.pop();
             delete ptr;
         }
+        //Force freelist memory to be reclaimed
+        stack<Type*>().swap(freelist);
     }
     ~ThreadData(){
         cleanup();
@@ -58,7 +61,7 @@ struct alignas(64) Debra{
     }
     void reclaimLater(Type* ptr){
         ThreadData<Type, numBags> &threadData = data[threadID];
-        threadData.limboBag[threadData.currentBag].push_back(ptr);
+        threadData.limboBag[threadData.currentBag].push(ptr);
     }
     void rotateAndReclaim(){
         ThreadData<Type, numBags> &threadData = data[threadID];
@@ -66,31 +69,31 @@ struct alignas(64) Debra{
         threadData.currentBag = newBag;
         while(!threadData.limboBag[newBag].empty()){
             //Put the record into the freelist
-            Type *ptr = threadData.limboBag[newBag].back();
-            threadData.limboBag[newBag].pop_back();
-            threadData.freelist.push_back(ptr);
+            Type *ptr = threadData.limboBag[newBag].top();
+            threadData.limboBag[newBag].pop();
+            threadData.freelist.push(ptr);
         }
     }
     //Adds the given pointer to the freelist, to be reclaimed whenever the algorithm wants.
     void reclaimAtWill(Type *ptr){
         ThreadData<Type, numBags> &threadData = data[threadID];
-        threadData.freelist.push_back(ptr);
+        threadData.freelist.push(ptr);
     }
     //Free up to two elements in the freelist, if the freelist has any elements to free.
     void amortizedFree(){
         ThreadData<Type, numBags> &threadData = data[threadID];
 
         if(!threadData.freelist.empty()){
-            Type *ptr = threadData.freelist.back();
-            threadData.freelist.pop_back();
+            Type *ptr = threadData.freelist.top();
+            threadData.freelist.pop();
             delete ptr;
             if(!threadData.freelist.empty()){
-                Type *ptr = threadData.freelist.back();
-                threadData.freelist.pop_back();
+                Type *ptr = threadData.freelist.top();
+                threadData.freelist.pop();
                 delete ptr;
                 if(!threadData.freelist.empty()){
-                    Type *ptr = threadData.freelist.back();
-                    threadData.freelist.pop_back();
+                    Type *ptr = threadData.freelist.top();
+                    threadData.freelist.pop();
                     delete ptr;
                 }
             }
