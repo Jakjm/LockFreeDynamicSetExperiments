@@ -262,11 +262,11 @@ struct alignas(64) STNode : public ReclaimableBase{
     STNode* root;
     std::atomic<bool> stop;
     std::atomic<int64_t> prefCount;
-    std::atomic<bool> isSentinel;
+    std::atomic<bool> inLimboBag;
     //std::atomic<bool> ready;
     //int orig_height;
     //volatile char padding[64 - 4 * sizeof(STNode*) + sizeof(bool)];
-    STNode(int64_t k=0, int height=0) : key(k), nextState(0), back(nullptr), prev(nullptr), down(nullptr), root(nullptr), stop(false), prefCount(-1){
+    STNode(int64_t k=0, int height=0) : key(k), nextState(0), back(nullptr), prev(nullptr), down(nullptr), root(nullptr), stop(false), prefCount(-1), inLimboBag(false){
 
     }
 };
@@ -328,14 +328,20 @@ struct PrefixesTable{
                 if(node){
                     int64_t reclaim = node->prefCount.fetch_add(-1);
                     if(reclaim == 1){
-                        delete node;
+                        bool result = node->inLimboBag.exchange(true);
+                        if(result == false){
+                            delete node;
+                        }
                     }
                 }
                 node = tn->pointers[1].read();
                 if(node){
                     int64_t reclaim = node->prefCount.fetch_add(-1);
                     if(reclaim == 1){
-                        delete node;
+                        bool result = node->inLimboBag.exchange(true);
+                        if(result == false){
+                            delete node;
+                        }
                     }
                 }
                 delete tn;
@@ -394,7 +400,10 @@ struct SkipTrie : public DynamicSet {
                 if(lv == loglogU - 1){
                     int64_t reclaim = cur->prefCount.fetch_add(-1);
                     if(reclaim == 1){
-                        delete cur;
+                        bool result = cur->inLimboBag.exchange(true);
+                        if(result == false){
+                            delete cur;
+                        }
                     }
                    
                 }
@@ -501,7 +510,10 @@ struct SkipTrie : public DynamicSet {
             else{
                 int64_t reclaim = delNode->prefCount.fetch_add(-1);
                 if(reclaim == 1){
-                    debra.reclaimLater(delNode);
+                    bool result = delNode->inLimboBag.exchange(true);
+                    if(result == false){
+                        debra.reclaimLater(delNode);
+                    }
                 }
             }
             return (uintptr_t)next;
@@ -721,7 +733,10 @@ struct SkipTrie : public DynamicSet {
         else if(root->stop){
             int64_t reclaim = node->prefCount.fetch_add(-1);
             if(reclaim == 1){
-                debra.reclaimLater(node);
+                bool result = node->inLimboBag.exchange(true);
+                if(result == false){
+                    debra.reclaimLater(node);
+                }
             }
             debra.endOp();
             return true;
@@ -779,7 +794,10 @@ struct SkipTrie : public DynamicSet {
                         if(curr){
                             int64_t reclaim = curr->prefCount.fetch_add(-1);
                             if(reclaim == 1){
-                                debra.reclaimLater(curr);
+                                bool result = curr->inLimboBag.exchange(true);
+                                if(result == false){
+                                    debra.reclaimLater(curr);
+                                }
                             }
                         }
                         break;
@@ -937,12 +955,22 @@ struct SkipTrie : public DynamicSet {
                 if(tn->pointers[dir].dcss(&left->nextState, (uintptr_t)right, node, newNode)){
                     int64_t reclaim = node->prefCount.fetch_add(-1);
                     if(reclaim == 1){
-                        debra.reclaimLater(node);
+                        bool result = node->inLimboBag.exchange(true);
+                        if(result == false){
+                            debra.reclaimLater(node);
+                        }
                     }
                     break;
                 }
                 else{
                     --newNode->prefCount;
+                    int64_t reclaim = newNode->prefCount.fetch_add(-1);
+                    if(reclaim == 1){
+                        bool result = newNode->inLimboBag.exchange(true);
+                        if(result == false){
+                            debra.reclaimLater(newNode);
+                        }
+                    }
                 }
                 curr = tn->pointers[dir].read();
             }
@@ -950,7 +978,10 @@ struct SkipTrie : public DynamicSet {
                 if(tn->pointers[dir].cas(curr, nullptr)){
                     int64_t reclaim = curr->prefCount.fetch_add(-1);
                     if(reclaim == 1){
-                        debra.reclaimLater(curr);
+                        bool result = curr->inLimboBag.exchange(true);
+                        if(result == false){
+                            debra.reclaimLater(curr);
+                        }
                     }
                 }
             }
