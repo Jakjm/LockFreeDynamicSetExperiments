@@ -405,7 +405,6 @@ struct SkipTrie : public DynamicSet {
                             delete cur;
                         }
                     }
-                   
                 }
                 else{
                     delete cur;
@@ -812,7 +811,10 @@ struct SkipTrie : public DynamicSet {
 
         int64_t reclaim = node->prefCount.fetch_add(-1);
         if(reclaim == 1){
-            debra.reclaimLater(node);
+            bool result = node->inLimboBag.exchange(true);
+            if(result == false){
+                debra.reclaimLater(node);
+            }
         }
         debra.endOp();
         return true;
@@ -963,7 +965,6 @@ struct SkipTrie : public DynamicSet {
                     break;
                 }
                 else{
-                    --newNode->prefCount;
                     int64_t reclaim = newNode->prefCount.fetch_add(-1);
                     if(reclaim == 1){
                         bool result = newNode->inLimboBag.exchange(true);
