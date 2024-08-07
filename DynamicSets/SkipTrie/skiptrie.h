@@ -39,7 +39,7 @@ enum {DCSS_FLAG = 1,SUCC_FLAG = 2};
 template <typename TYPE>
 struct DCSS_PTR{
     std::atomic<uintptr_t> addr;
-    DCSS_PTR(TYPE initialValue){
+    DCSS_PTR(TYPE initialValue) {
         addr = (uintptr_t)initialValue;
     }
     void init(TYPE n){
@@ -419,7 +419,7 @@ struct SkipTrie : public DynamicSet {
 
         STNode *ancestor = &tail;
         while(size > 0){
-            int64_t query = mergePrefix(common_prefix, key, start, size, logU);//TODO prefix + star....
+            int64_t query = mergePrefix(common_prefix, key, start, size, logU);
             int dir = key >> (logU - (start + 1)) & 1;
             TreeNode *query_node = prefixes.lookup(query);
             if(query_node){
@@ -439,10 +439,10 @@ struct SkipTrie : public DynamicSet {
         return ancestor;
     }
     STNode *xFastTriePred(int64_t key){
-        STNode *curr = lowestAncestor(key);
+        STNode *ancestor = lowestAncestor(key);
+        STNode *curr = ancestor;
         uintptr_t state = curr->nextState & STATUS_MASK;
-        while(curr->key > key || state == Marked){
-            //uintptr_t state = curr->nextState & STATUS_MASK;
+        while(curr->key > key){
             if(state == Marked)curr = curr->back;
             else curr = curr->prev.read();
             state = curr->nextState & STATUS_MASK;
@@ -450,19 +450,17 @@ struct SkipTrie : public DynamicSet {
         return curr;
     }
     void fixPrev(STNode *pred, STNode *node){
-        STNode *left;
-        left = pred;
+        STNode *left = pred;
         searchRight(node->key - 1, left);
         uintptr_t nextState = node->nextState;
         uint64_t state = nextState & STATUS_MASK;
         while(state != Marked){
             STNode *prev = node->prev.read();
-            
             if(node->prev.dcss(&left->nextState, (uintptr_t)node, prev, left)){
                 break;
             }
             //search
-            left = pred;
+            // left = pred;
             searchRight(node->key - 1, left);
 
             nextState = node->nextState;
@@ -477,7 +475,7 @@ struct SkipTrie : public DynamicSet {
             right = searchRight(node->key-1, left);
             fixPrev(left, right);
             uintptr_t nextState = right->nextState;
-            marked = (nextState & STATUS_MASK) == Marked;
+            marked = ((nextState & STATUS_MASK) == Marked);
         }while(marked);
         return;
     }
@@ -811,6 +809,8 @@ struct SkipTrie : public DynamicSet {
                 debra.reclaimLater(node);
             }
         }
+
+
         debra.endOp();
         return true;
     }
@@ -945,8 +945,13 @@ struct SkipTrie : public DynamicSet {
                 // dir = 0: DCSS(pointers[direction], curr, left, left.succ, (right, 0))
                 // dir = 1: DCSS(pointers[direction], curr, right, left.succ, (right, 0))
                 STNode *newNode;
-                if(dir == 0) newNode = left;
-                else newNode = right;
+                if(dir == 0){
+                    newNode = left;
+                } 
+                else{
+                    newNode = right;
+                    fixPrev(left, right);
+                } 
 
                 ++newNode->prefCount;
                 if(tn->pointers[dir].dcss(&left->nextState, (uintptr_t)right, node, newNode)){
