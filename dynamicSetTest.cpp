@@ -27,12 +27,13 @@ struct ProcessData{
     volatile uint64_t remCount;
     volatile uint64_t succRem;
     volatile uint64_t predCount;
+    volatile uint64_t searchCount;
     volatile uint64_t opCount;
     volatile uint64_t startTime;
     volatile uint64_t endTime;
     volatile int64_t checkSum;
     volatile char padding[56];
-    ProcessData(): insCount(0),remCount(0), predCount(0), opCount(0), startTime(0), endTime(0), checkSum(0){
+    ProcessData(): insCount(0),remCount(0), predCount(0), searchCount(0), opCount(0), startTime(0), endTime(0), checkSum(0){
 
     }
 };
@@ -60,9 +61,10 @@ struct ExperimentType{
     int64_t insertRate; 
     int64_t removeRate;
     int64_t predRate;
+    int64_t searchRate;
     string dynamicSetType; //Name of dynamic set used during experiment.
-    ExperimentType(double runtime, int threadCount, int64_t universe, int64_t inserts, int64_t removes, int64_t preds, string setType) : 
-    time(runtime), numProcs(threadCount), universeSize(universe), insertRate(inserts), removeRate(removes), predRate(preds), dynamicSetType(setType){
+    ExperimentType(double runtime, int threadCount, int64_t universe, int64_t inserts, int64_t removes, int64_t preds, int64_t searches, string setType) : 
+    time(runtime), numProcs(threadCount), universeSize(universe), insertRate(inserts), removeRate(removes), predRate(preds), searchRate(searches), dynamicSetType(setType){
 
     }
 
@@ -80,7 +82,8 @@ struct ResultData{
     uint64_t minRemoves, maxRemoves, totalRemoves;
     uint64_t minSuccRem, maxSuccRem, totalSuccRem;
     uint64_t minPreds, maxPreds, totalPreds;
-    double avgInserts, avgSuccIns, avgRemoves, avgSuccRem, avgPreds;
+    uint64_t minSearches, maxSearches, totalSearches;
+    double avgInserts, avgSuccIns, avgRemoves, avgSuccRem, avgPreds, avgSearches;
 
     uint64_t minStartTime, maxStartTime;
     uint64_t minEndTime, maxEndTime;
@@ -107,6 +110,7 @@ struct ResultData{
         stream << "Max Proc Throughput,Max Throughput Per Second,Max Exceeds Average by x%,";
         stream << "Min Proc Throughput,Min Throughput Per Second,Min Below Average by x%,";
         stream << "Total Preds,Average Preds,Min Preds,Max Preds,";
+        stream << "Total Searches,Average Searches,Min Searches,Max Searches,";
         stream << "Total Inserts,Total Successful Inserts,Average Inserts,Average Successful Inserts,Min Inserts,Max Inserts,Min Successful Inserts,Max Successful Inserts,";
         stream << "Total Removes,Total Successful Removes,Average Removes,Average Successful Removes,Min Removes,Max Removes,Min Successful Removes,Max Successful Removes";
         stream << std::endl;
@@ -120,6 +124,7 @@ struct ResultData{
         stream << maxOps << "," << maxOpsPerSecond << "," << maxPercentageDiff << ",";
         stream << minOps << "," << minOpsPerSecond << "," << minPercentageDiff << ",";
         stream << totalPreds << "," << avgPreds << "," << minPreds << "," << maxPreds << ",";
+        stream << totalSearches << "," << avgSearches << "," << minSearches << "," << maxSearches << ",";
         stream << totalInserts << "," << totalSuccIns << "," << avgInserts << "," << avgSuccIns << "," << minInserts << "," << maxInserts << "," << minSuccIns << "," << maxSuccIns <<",";
         stream << totalRemoves << "," << totalSuccRem << "," << avgRemoves << "," << avgSuccRem << "," << minRemoves << "," << maxRemoves << "," << minSuccRem << "," << maxSuccRem;
         stream << std::endl;
@@ -139,6 +144,7 @@ struct ResultData{
         minRemoves = maxRemoves = totalRemoves = pData.remCount;
         minSuccRem = maxSuccRem = totalSuccRem = pData.succRem;
         minPreds = maxPreds = totalPreds = pData.predCount;
+        minSearches = maxSearches = totalSearches = pData.searchCount;
 
         for(int i = 1;i < type.numProcs;++i){
             pData = data.pData[i];
@@ -164,6 +170,10 @@ struct ResultData{
             if(pData.predCount < minPreds)minPreds = pData.predCount;
             else if(pData.predCount > maxPreds)maxPreds = pData.predCount;
 
+            totalSearches += pData.searchCount;
+            if(pData.searchCount < minSearches)minSearches = pData.searchCount;
+            else if(pData.searchCount > maxSearches)maxSearches = pData.searchCount;
+
             totalSuccIns += pData.succIns;
             if(pData.succIns < minSuccIns)minSuccIns = pData.succIns;
             else if(pData.succIns > maxSuccIns)maxSuccIns = pData.succIns;
@@ -184,6 +194,7 @@ struct ResultData{
         avgInserts = (double)totalInserts / type.numProcs;
         avgRemoves = (double)totalRemoves / type.numProcs;
         avgPreds = (double)totalPreds / type.numProcs;
+        avgSearches = (double)totalSearches / type.numProcs;
         avgSuccIns = (double)totalSuccIns / type.numProcs;
         avgSuccRem = (double)totalSuccRem / type.numProcs;
         averageThroughputPerSecond = averageThroughput / averageTime;
@@ -254,9 +265,9 @@ void randomExperiment(DynamicSet *set, int id, ExperimentData *data, ExperimentT
     uint64_t startTime = micros();
     uint64_t currentTime = startTime;
     uint64_t endTime = startTime + (type.time * 1000000);
-    uint64_t insCount = 0, remCount = 0, predCount = 0;
+    uint64_t insCount = 0, remCount = 0, predCount = 0, searchCount = 0;
     uint64_t succIns = 0, succRem = 0;
-    int ratioTotal = type.insertRate + type.removeRate + type.predRate;
+    int ratioTotal = type.insertRate + type.removeRate + type.predRate + type.searchRate;
     int64_t checkSum = 0;
     while(currentTime < endTime && !(data->done)){
         //Perform a series of operations....
@@ -277,9 +288,13 @@ void randomExperiment(DynamicSet *set, int id, ExperimentData *data, ExperimentT
                 }
                 ++remCount;
             }
-            else{ //Perform a predecessor operation at predRate / ratioTotal percent chance.
+            else if(coinFlip < (type.insertRate + type.removeRate + type.predRate)){ //Perform a predecessor operation at predRate / ratioTotal percent chance.
                 set->predecessor(key);
                 ++predCount;
+            }
+            else{
+                set->search(key);
+                ++searchCount;
             }
         }
         opCount += NUM_OPS_BEFORE_TIME_CHECK;
@@ -297,6 +312,7 @@ void randomExperiment(DynamicSet *set, int id, ExperimentData *data, ExperimentT
     pData.succRem = succRem;
     pData.remCount = remCount;
     pData.predCount = predCount;
+    pData.searchCount = searchCount;
     pData.startTime = startTime;
     pData.endTime = actualEndTime;
     pData.checkSum = checkSum;
@@ -335,7 +351,7 @@ void multithreadTest(DynamicSet *set, ExperimentType exp, bool verbose){
     
     ExperimentData data;
     cout << "Performing an experiment in which " << exp.numProcs << " threads will perform ops on "  << set->name() << " during " << exp.time << " seconds." << std::endl;
-    cout << "Ratio of " << exp.insertRate << " insert ops to " << exp.removeRate << " remove ops to " << exp.predRate << " predecessor ops." << std::endl;
+    cout << "Ratio of " << exp.insertRate << " insert ops to " << exp.removeRate << " remove ops to " << exp.predRate << " predecessor ops to " << exp.searchRate << " search ops." << std::endl;
     cout << "Keys drawn uniformly from universe of " << exp.universeSize << " keys" << std::endl;
     cout << "Prior to start, the structure was filled with exactly " << prefillAmount << " keys." << std::endl;
     
@@ -421,7 +437,7 @@ int experimentProg(int argc, char **argv){
     int keyRange = 20;
     bool verbose = false;
     char *setType = NULL;
-    int insertRatio = 1, removeRatio = 1, predRatio = 2;
+    int insertRatio = 1, removeRatio = 1, predRatio = 1, searchRatio = 1;
 
     if(argc == 2 && ((strcmp(argv[1], "-h") == 0) || (strcmp(argv[1], "--help") == 0))){
         cout << "Usage: ./dynamicSetTest [options]" << std::endl;
@@ -430,7 +446,7 @@ int experimentProg(int argc, char **argv){
         cout << "\t-t, --time <T>\t\t\t\tRun the experiment for <T> seconds."<< std::endl;
         cout << "\t-n, --numProcs <N>\t\t\tRun the experiment with <N> processes (threads)."<< std::endl;
         cout << "\t-k, --keyRange <K>\t\t\tRun the experiment with a universe of 2^K keys." << std::endl;
-        cout << "\t-O, --opDist <I> <R> <P>\t\tRun the experiment with ratio of <I> Inserts to <R> Removes to <P> Predecessors." << std::endl;
+        cout << "\t-O, --opDist <I> <R> <P> <S>\t\tRun the experiment with ratio of <I> Inserts to <R> Removes to <P> Predecessors to <S> Searches." << std::endl;
         cout << "\t--skip\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert skip list." << std::endl;
         cout << "\t--list\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert linked list." << std::endl;
         cout << "\t--aug\t\t\t\t\tPerform the experiment on the Fatourou-Ruppert augmented static trie." << std::endl;
@@ -466,17 +482,20 @@ int experimentProg(int argc, char **argv){
                 }
                 curArg += 2;
             }
-            else if(curArg + 3 < argc && (strcmp(currentParam, "-O") == 0 || strcmp(currentParam, "--opDist") == 0)){
+            else if(curArg + 4 < argc && (strcmp(currentParam, "-O") == 0 || strcmp(currentParam, "--opDist") == 0)){
                 insertRatio = strtol(paramSetting, nullptr, 10);
                 paramSetting = argv[curArg + 2];
                 removeRatio = strtol(paramSetting, nullptr, 10);
                 paramSetting = argv[curArg + 3];
                 predRatio = strtol(paramSetting, nullptr, 10);
-                if(insertRatio <= 0 || removeRatio <= 0 || predRatio <= 0){
-                    cout << "Invalid proportions for insert/remove/predecessor operations." << std::endl;
+                paramSetting = argv[curArg + 4];
+                searchRatio = strtol(paramSetting, nullptr, 10);
+                int sum = insertRatio + removeRatio + predRatio + searchRatio;
+                if(insertRatio < 0 || removeRatio < 0 || predRatio < 0 || searchRatio < 0 || sum <= 0){
+                    cout << "Invalid proportions for insert/remove/predecessor/search operations." << std::endl;
                     exit(1);
                 }
-                curArg += 4;
+                curArg += 5;
             }
             else if(!verbose && (strcmp(currentParam, "-v") == 0 || strcmp(currentParam, "--verbose") == 0)){
                 verbose = true;
@@ -486,8 +505,7 @@ int experimentProg(int argc, char **argv){
             else if(!setType){
                 //If this is a supported dynamic set...
                 if(strcmp(currentParam, "--list") == 0 || strcmp(currentParam, "--skip") == 0 || 
-					strcmp(currentParam, "--trie") == 0 || strcmp(currentParam, "--trieSwCopy") == 0||
-                    strcmp(currentParam, "--augTrie") == 0){
+					strcmp(currentParam, "--trie") == 0 || strcmp(currentParam, "--augTrie") == 0){
                     setType = &currentParam[2]; //Remove two dashes...
                 }
                 else{
@@ -527,7 +545,7 @@ int experimentProg(int argc, char **argv){
     }
 
 
-    ExperimentType experimentType(runtime, numProcs, (1 << keyRange), insertRatio, removeRatio, predRatio, set->name());
+    ExperimentType experimentType(runtime, numProcs, (1 << keyRange), insertRatio, removeRatio, predRatio, searchRatio, set->name());
     multithreadTest(set, experimentType, verbose);
     return 0;
 }
