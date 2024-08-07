@@ -39,7 +39,7 @@ enum {DCSS_FLAG = 1,SUCC_FLAG = 2};
 template <typename TYPE>
 struct DCSS_PTR{
     std::atomic<uintptr_t> addr;
-    DCSS_PTR(TYPE initialValue) {
+    DCSS_PTR(TYPE initialValue = nullptr) {
         addr = (uintptr_t)initialValue;
     }
     void init(TYPE n){
@@ -311,16 +311,13 @@ STNodePool node_pool[MAX_THREADS];
 
 //"Hashtable" for treenodes in array....
 struct PrefixesTable{
-    std::atomic<TreeNode*> * const array;
+    DCSS_PTR<TreeNode*> * const array;
     int64_t universeSize;
-    PrefixesTable(int64_t universeSize): array(new std::atomic<TreeNode*>[2 * universeSize]), universeSize(universeSize){
-        for(int64_t i = 0;i < 2*universeSize;++i){
-            array[i] = nullptr;
-        }
+    PrefixesTable(int64_t universeSize): array(new DCSS_PTR<TreeNode*>[2 * universeSize]), universeSize(universeSize){
     }
     ~PrefixesTable(){
         for(int64_t i = 1; i < 2*universeSize;++i){
-            TreeNode *tn = array[i];
+            TreeNode *tn = array[i].read();
             if(tn){
                 STNode *node = tn->pointers[0].read();
                 if(node){
@@ -348,17 +345,20 @@ struct PrefixesTable{
         delete[] array;
     }
     TreeNode *lookup(int64_t prefix){
-        return array[prefix];
+        return array[prefix].read();
     }
     void compareAndDelete(int64_t prefix, TreeNode *tn){
         TreeNode *old = tn;
-        if(array[prefix].compare_exchange_strong(old, nullptr)){
+        if(array[prefix].cas(old, nullptr)){
             debra.reclaimLater(tn);
         }
     }
-    bool insert(int64_t prefix, TreeNode *tn){
+    //Insert the treenode into the hashtable if node remains unmarked.
+    bool insertIfUnmarked(int64_t prefix, TreeNode *tn, STNode *node){
         TreeNode *old = nullptr;
-        return array[prefix].compare_exchange_strong(old, tn);
+        uintptr_t nextState = node->nextState;
+        STNode *next = (STNode*)(nextState & NEXT_MASK);
+        return array[prefix].dcss(&node->nextState, (uintptr_t)next, old, tn);
     }
 };
 
@@ -761,7 +761,7 @@ struct SkipTrie : public DynamicSet {
                     tn->pointers[dir].init(node);
                     tn->pointers[1-dir].init(nullptr);
                     ++node->prefCount;
-                    if(prefixes.insert(prefix,tn)){
+                    if(prefixes.insertIfUnmarked(prefix,tn, node)){
                         pool.tn = new TreeNode();
                         break;
                     }
