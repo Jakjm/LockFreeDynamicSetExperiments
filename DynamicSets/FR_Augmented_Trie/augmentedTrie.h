@@ -138,6 +138,7 @@ struct AS_Trie : public DynamicSet{
         node.version.compare_exchange_strong(result, v);
         //If the CAS was successful
         if(result == old){
+            debra.amortizedFree(); 
             debra.reclaimLater(old);
             pool.v = new Version(); //Allocate new version to be used...
             return true;
@@ -173,6 +174,7 @@ struct AS_Trie : public DynamicSet{
             if(result == old){
                 success = true;
                 //Will try to reclaim the version that was removed later....
+                debra.amortizedFree();
                 debra.reclaimLater(old);
                 //Allocate a new version for the pool
                 pool.v = new Version();
@@ -203,6 +205,7 @@ struct AS_Trie : public DynamicSet{
             if(result == old){
                 success = true;
                 //Will try to reclaim the version that was removed later....
+                debra.amortizedFree();
                 debra.reclaimLater(old);
                 //Allocate a new version for the pool
                 pool.v = new Version();

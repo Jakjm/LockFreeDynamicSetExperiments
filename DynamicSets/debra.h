@@ -79,7 +79,7 @@ struct alignas(64) Debra{
         ThreadData<Type, numBags> &threadData = data[threadID];
         threadData.freelist.push(ptr);
     }
-    //Free up to two elements in the freelist, if the freelist has any elements to free.
+    //If the freelist is not empty, free an element.
     void amortizedFree(){
         ThreadData<Type, numBags> &threadData = data[threadID];
 
@@ -87,21 +87,10 @@ struct alignas(64) Debra{
             Type *ptr = threadData.freelist.top();
             threadData.freelist.pop();
             delete ptr;
-            if(!threadData.freelist.empty()){
-                Type *ptr = threadData.freelist.top();
-                threadData.freelist.pop();
-                delete ptr;
-                if(!threadData.freelist.empty()){
-                    Type *ptr = threadData.freelist.top();
-                    threadData.freelist.pop();
-                    delete ptr;
-                }
-            }
         }
     }
     void startOp(){
         ThreadData<Type, numBags> &threadData = data[threadID];
-        amortizedFree();
         int64_t e = epoch;
         if(threadData.currentEpoch != e){
             rotateAndReclaim();
@@ -125,6 +114,8 @@ struct alignas(64) Debra{
                 break;
             }
         }
+        amortizedFree();
+        amortizedFree();
         threadData.announcement = (e << 1); //Turn off quiescent bit.
     }
 

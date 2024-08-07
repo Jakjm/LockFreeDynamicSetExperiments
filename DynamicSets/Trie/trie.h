@@ -347,6 +347,7 @@ class Trie : public DynamicSet{
             if(!sendNotification(nNode, pNode)){
                 return;
             }
+            debra.amortizedFree();
             nodePool[threadID].notifNode = new NotifyNode();
             pNode = (PredecessorNode*)pall.next(pNode);
         }
@@ -465,6 +466,7 @@ class Trie : public DynamicSet{
             debra.endOp();
             return false;
         }
+        debra.amortizedFree();
         nodePool[threadID].insNode = new InsNode(); //Ensure that iNode has been removed from the pool...
         uall.insert(iNode);
         ruall.insert(iNode);
@@ -503,7 +505,7 @@ class Trie : public DynamicSet{
             return false; //x is not in S, nothing to do!
         }
         //iNode has type INS. If it has a child, its child has type DEL.
-
+        debra.amortizedFree();
         PredecessorNode *pNode = new PredecessorNode(x, &ruall.head);
         //trieRecordManager.allocate<PredecessorNode>(threadID, x);
         int64_t delPred = predHelper(pNode);
@@ -547,6 +549,7 @@ class Trie : public DynamicSet{
             //trieRecordManager.endOp(threadID);
             return false;
         }
+        debra.amortizedFree();
         nodePool[threadID].delNode = new DelNode(trieHeight); //Remove dNode from the pool; it should not be reused for the next deletion
         uall.insert(dNode);
         ruall.insert(dNode);
@@ -563,6 +566,7 @@ class Trie : public DynamicSet{
             debra.reclaimLater((InsNode*)iNode);
             //trieRecordManager.reclaimLater(threadID, (InsNode*)iNode);
         }
+        debra.amortizedFree();
         PredecessorNode *pNode2 = new PredecessorNode(x, &ruall.head);
         //trieRecordManager.allocate<PredecessorNode>(threadID, x);
         int64_t delPred2 = predHelper(pNode2);
@@ -860,7 +864,7 @@ class Trie : public DynamicSet{
     int64_t predecessor(int64_t y){
         debra.startOp();
         //trieRecordManager.startOp(threadID);
-        
+        debra.amortizedFree();
         PredecessorNode *p = new PredecessorNode(y, &ruall.head);
         //trieRecordManager.allocate<PredecessorNode>(threadID, y);
         int64_t pred = predHelper(p);
