@@ -2,7 +2,7 @@
 #include "DynamicSets/Trie/trie.h"
 #include "DynamicSets/FR_SkipList/FRSkipList.h"
 #include "DynamicSets/FR_List/FRList.h"
-#include "DynamicSets/SkipTrie/skiptrie.h"
+// #include "DynamicSets/SkipTrie/skiptrie.h"
 #include "DynamicSets/FR_Augmented_Trie/augmentedTrie.h"
 #include "common.h"
 #include "DynamicSets/Trie/trieNodeTypes.h"
@@ -486,8 +486,8 @@ int experimentProg(int argc, char **argv){
             else if(!setType){
                 //If this is a supported dynamic set...
                 if(strcmp(currentParam, "--list") == 0 || strcmp(currentParam, "--skip") == 0 || 
-					strcmp(currentParam, "--trie") == 0 || strcmp(currentParam, "--trieSwCopy") == 0|| 
-					strcmp(currentParam, "--skipTrie") == 0 || strcmp(currentParam, "--augTrie") == 0){
+					strcmp(currentParam, "--trie") == 0 || strcmp(currentParam, "--trieSwCopy") == 0||
+                    strcmp(currentParam, "--augTrie") == 0){
                     setType = &currentParam[2]; //Remove two dashes...
                 }
                 else{
@@ -507,7 +507,6 @@ int experimentProg(int argc, char **argv){
     Trie trie(keyRange);
     LinkedListSet listSet;
     SkipListSet<22> skipList;
-    SkipTrie<6> skipTrie(20);
     AS_Trie augmentedTrie(keyRange);
     debra.setActiveThreads(numProcs);
 
@@ -522,9 +521,6 @@ int experimentProg(int argc, char **argv){
     }
     else if(strcmp(setType, "augTrie") == 0){
         set = &augmentedTrie;
-    }
-    else if(strcmp(setType, "skipTrie") == 0){
-        set = &skipTrie;
     }
     else{
         assert(false);

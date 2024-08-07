@@ -8,7 +8,7 @@
 #include "DynamicSets/Trie/trie.h"
 #include "DynamicSets/FR_SkipList/FRSkipList.h"
 #include "DynamicSets/FR_List/FRList.h"
-#include "DynamicSets/SkipTrie/skiptrie.h"
+//#include "DynamicSets/SkipTrie/skiptrie.h"
 #include "DynamicSets/FR_Augmented_Trie/augmentedTrie.h"
 
 
@@ -79,7 +79,6 @@ int main(int argc, char **argv){
     Trie trieSet(keyRange);
     LinkedListSet listSet;
     SkipListSet<25> skipList;
-    SkipTrie<5> skipTrie(keyRange);
     AS_Trie augmentedTrie(keyRange);
     DynamicSet *set = &trieSet;
     trieDebra.setActiveThreads(numProcs);
@@ -100,9 +99,6 @@ int main(int argc, char **argv){
         }
         else if(strcmp(setType, "augTrie") == 0){
             set = &augmentedTrie;
-        }
-        else if(strcmp(setType, "skipTrie") == 0){
-            set = &skipTrie;
         }
         else{
             set = &trieSet;
