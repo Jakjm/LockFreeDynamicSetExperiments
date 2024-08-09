@@ -288,7 +288,6 @@ class SkipListSet : public DynamicSet{
                 debra.endOp();
                 return (level != 0);
             }
-            debra.amortizedFree();
             pool[threadID].node = new SkipNode(k);
             if((newRoot->succ & STATUS_MASK) == Marked){
                 //If newNode was inserted and this is not the bottom level, help remove newnode...

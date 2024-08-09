@@ -388,8 +388,7 @@ class alignas(128)PredecessorNode:  public ReclaimableBase{
         NotifyNode *curNode = notifyListHead;
         while(curNode){
             NotifyNode *next = curNode->next;
-            debra.reclaimAtWill(curNode);
-            //delete curNode;
+            delete curNode;
             curNode = next;
         }
         

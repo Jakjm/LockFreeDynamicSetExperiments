@@ -7,7 +7,6 @@ using std::stack;
 
 template <typename Type, int numBags>
 struct alignas(64) ThreadData{
-    stack<Type*> freelist; //Stack storing elements that should be (gracefully) freed.
     stack<Type*> limboBag[numBags];
     int checkNext;
     int currentBag;
@@ -25,15 +24,8 @@ struct alignas(64) ThreadData{
                 limboBag[b].pop();
                 delete ptr;
             }
-            stack<Type*>().swap(limboBag[b]);   
+            stack<Type*>().swap(limboBag[b]);   //Force limbo bag memory to be reclaimed.
         }
-        while(!freelist.empty()){
-            Type *ptr = freelist.top();
-            freelist.pop();
-            delete ptr;
-        }
-        //Force freelist memory to be reclaimed
-        stack<Type*>().swap(freelist);
     }
     ~ThreadData(){
         cleanup();
@@ -71,24 +63,10 @@ struct alignas(64) Debra{
             //Put the record into the freelist
             Type *ptr = threadData.limboBag[newBag].top();
             threadData.limboBag[newBag].pop();
-            threadData.freelist.push(ptr);
-        }
-    }
-    //Adds the given pointer to the freelist, to be reclaimed whenever the algorithm wants.
-    void reclaimAtWill(Type *ptr){
-        ThreadData<Type, numBags> &threadData = data[threadID];
-        threadData.freelist.push(ptr);
-    }
-    //If the freelist is not empty, free an element.
-    void amortizedFree(){
-        ThreadData<Type, numBags> &threadData = data[threadID];
-
-        if(!threadData.freelist.empty()){
-            Type *ptr = threadData.freelist.top();
-            threadData.freelist.pop();
             delete ptr;
         }
     }
+    //If the freelist is not empty, free an element.
     void startOp(){
         ThreadData<Type, numBags> &threadData = data[threadID];
         int64_t e = epoch;
@@ -114,8 +92,6 @@ struct alignas(64) Debra{
                 break;
             }
         }
-        amortizedFree();
-        amortizedFree();
         threadData.announcement = (e << 1); //Turn off quiescent bit.
     }
 
