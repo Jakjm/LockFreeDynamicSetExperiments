@@ -3,10 +3,10 @@
 This repository contains implementations of the 
 following published lock-free dynamic set data structures 
 which support predecessor operations:
-	- Ko's lock-free Binary Trie
-	- Fomitchev and Ruppert's lock-free Linked List
-	- Fomitchev and Ruppert's lock-free SkipList
-	- Fatourou and Ruppert's wait-free Augmented Static Trie
+ - Ko's lock-free Binary Trie
+ - Fomitchev and Ruppert's lock-free Linked List
+ - Fomitchev and Ruppert's lock-free SkipList
+ - Fatourou and Ruppert's wait-free Augmented Static Trie
 
 They support insert, remove, search and predecessor operations.
 Code for the implementations is in the DynamicSets 
