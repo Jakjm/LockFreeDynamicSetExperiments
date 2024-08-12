@@ -34,14 +34,14 @@ is feasible but outside the scope of this project.
 
 # Compiling the experimental program
 To compile the program, use the following command in the folder containing the repository:
-	
-		make
-
+```	
+make
+```
 # Running the experimental program
 To run the program, use the following command:
-
-		./dynamicSetTest
-
+```
+./dynamicSetTest
+```
 By default, the program will perform an experiment where 4 processes (threads) 
 perform an equal distribution of operations (equal chance of insert, remove, 
 search and predecessor) on Ko's lock-free Binary Trie.
@@ -49,18 +49,18 @@ By default, the data structure will store a subset of a universe containing 2^20
 keys and the experiment will last 5 seconds.
 
 To see the available options for the experiment, use the following command:
-
-		./dynamicSetTest --help
-
+```
+./dynamicSetTest --help
+```
 The output should appear like this:
 ![Command line options for test program](help.png)
 
 Suppose we want to run a test in which 64 processes perform an update heavy distribution of operation during 10 seconds on
 Fatourou and Ruppert's augmented static trie, with a universe containing 2^16 (65536) keys.
 The following command can be used:
-
-		./dynamicSetTest --augTrie -n 64 -t 10 -O 9 9 1 1 -k 16
-
+```
+./dynamicSetTest --augTrie -n 64 -t 10 -O 9 9 1 1 -k 16
+```
 In the experiment run by that command, there will be approximately 9 inserts and 9 removes performed for every 1 search and 1 predecessor operation.
 In particular, every time a process will perform an operation on the augmented static trie, 
 it will randomly choose to perform an insert with a 45% chance, a remove with a 45% chance, a search with a 5% chance and a predecessor operation
@@ -78,13 +78,14 @@ which was used when performing the experiments.
 If you wish to run an experiment with their memory allocation algorithm in use, 
 first compile their project using the two following commands in the mimalloc-2.1.7 folder:
 
-		cmake .
-		make
-
+```
+cmake .
+make
+```		
 Then, before running the dynamicSetTest program, use the following command:
-
-		export LD_PRLEOAD=mimalloc-2.1.7/libmimalloc.so
-
+```
+export LD_PRLEOAD=mimalloc-2.1.7/libmimalloc.so
+```
 This temporarily sets an environment variable in your current terminal instance.
 While the environment variable is set, all programs that you run from your terminal 
 will use mimalloc to allocate and reclaim memory.
@@ -93,13 +94,14 @@ persist if you close the terminal and open a new one.
 
 When performing experiments, we pinned processes(threads) to certain hardware threads on the CPUs of the system
 system. The following command allows you to pin processes(threads) running in a program to the first 4 hardware threads:
-
-		taskset -c 0-3 [program]
-
+```
+taskset -c 0-3 [program]
+```
 For example we could run dynamicSetTest with taskset like so:
-
-		taskset -c 0-3 ./dynamicSetTest 
-
+```
+taskset -c 0-3 ./dynamicSetTest 
+```
 Whereas, to pin to the first 4 even hardware threads, the following command could be used:
-
-		taskset -c 0,2,4,6 ./dynamicSetTest
+```
+taskset -c 0,2,4,6 ./dynamicSetTest
+```
