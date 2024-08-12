@@ -104,7 +104,7 @@ struct ResultData{
 
     void writeLabels(std::ofstream &stream){
         stream << "Expected Runtime(s),Num Processes,Universe Size,";
-        stream << "Insert Rate,Remove Rate,Pred Rate,Dynamic Set Type,";
+        stream << "Insert Rate,Remove Rate,Search Rate,Pred Rate,Dynamic Set Type,";
         stream << "Average Runtime(s),Start Time Variance(µs),End Time Variance(µs),";
         stream << "Total Throughput,Throughput Per Second,Average Throughput,Average Throughput Per Second,";
         stream << "Max Proc Throughput,Max Throughput Per Second,Max Exceeds Average by x%,";
@@ -118,7 +118,7 @@ struct ResultData{
     void writeValues(std::ofstream &stream){
         stream << std::setprecision(8);
         stream <<  type.time << "," << type.numProcs << "," << type.universeSize << ",";
-        stream << type.insertRate << "," << type.removeRate << "," << type.predRate << "," << type.dynamicSetType << ",";
+        stream << type.insertRate << "," << type.removeRate << "," << type.searchRate << "," << type.predRate << "," << type.dynamicSetType << ",";
         stream << averageTime << "," << startTimeVariance << "," << endTimeVariance << ",";
         stream << throughput << "," << throughputPerSecond << "," << averageThroughput << "," << averageThroughputPerSecond << ",";
         stream << maxOps << "," << maxOpsPerSecond << "," << maxPercentageDiff << ",";
@@ -450,7 +450,7 @@ int experimentProg(int argc, char **argv){
         cout << "\t--skip\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert skip list." << std::endl;
         cout << "\t--list\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert linked list." << std::endl;
         cout << "\t--aug\t\t\t\t\tPerform the experiment on the Fatourou-Ruppert augmented static trie." << std::endl;
-        cout << "\t--trie \t\t\t\t\tPerform the experiment on Jeremy's Binary Trie with swCopy implementation of RUALL." << std::endl;
+        cout << "\t--trie \t\t\t\t\tPerform the experiment on Jeremy Ko's Binary Trie." << std::endl;
         return 0;
     }
     else{ 
