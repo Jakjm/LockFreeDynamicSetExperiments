@@ -1,8 +1,10 @@
 #include <algorithm>
 #include <iostream>
-#include "trie.h"
+
 #include <vector>
+#include "../DynamicSet.h"
 #include "trieNodeTypes.h"
+#include "trie.h"
 using std::cout;
 
 void testOne(){
@@ -34,6 +36,8 @@ int main(){
     // t.insert(2);
     // int64_t x = t.predecessor(6);
     // assert(x == 2);
-    testOne();
+    //testOne();
+    DelNode x(0);    
+	cout << ((uintptr_t)&x.lower1Boundary - (uintptr_t)&x) << std::endl;
     return 0;
 }

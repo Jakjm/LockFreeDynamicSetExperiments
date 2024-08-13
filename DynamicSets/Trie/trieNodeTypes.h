@@ -207,20 +207,23 @@ class NotifyNode;
 
 
 
-class UpdateNode{
+class UpdateNode : public ReclaimableBase{
     public:
         const TYPE type;
         int64_t key;
+        std::atomic<STATUS> status; 
+        std::atomic<UpdateNode *> latestNext;
+        volatile char padding1[64 - 4*sizeof(int64_t) - sizeof(ReclaimableBase)];
         std::atomic<uintptr_t> succ; //Successor for the UALL
         std::atomic<UpdateNode*> backlink; //Backlink for the UALL
-        volatile char padding1[64 - 3*sizeof(uintptr_t) - sizeof(TYPE)];
+        volatile char padding2 [64 - 2*sizeof(uintptr_t)];
         std::atomic<uintptr_t> rSucc; //Successor for the RUALL
         std::atomic<UpdateNode*> rBacklink; //Backlink for the RUALL.
-        volatile char padding2[64 - 2*sizeof(uintptr_t)];
-        std::atomic<UpdateNode *> latestNext;
-        volatile char padding3[64 - sizeof(uintptr_t)];
-        std::atomic<STATUS> status; 
-        UpdateNode(int64_t k, TYPE t) :  type(t), key(k), succ(0), backlink(0), rSucc(0), rBacklink(0), latestNext(nullptr), status(INACTIVE){
+        //volatile char padding2[64 - 2*sizeof(uintptr_t)];
+        volatile char padding3 [64 - 2*sizeof(uintptr_t)];
+        //volatile char padding3[64 - sizeof(uintptr_t)];
+
+        UpdateNode(int64_t k, TYPE t) :  type(t), key(k), status(INACTIVE), latestNext(nullptr),  succ(0), backlink(0), rSucc(0), rBacklink(0){
         
         }
         UpdateNode(TYPE t): UpdateNode(-1, t){
@@ -400,11 +403,11 @@ class alignas(128)PredecessorNode:  public ReclaimableBase{
 //record_manager<reclaimer_debra<int>, allocator_new<int>, pool_none<int>, InsNode, DelNode, PredecessorNode> trieRecordManager(NUM_THREADS);
 
 
-class alignas(128) InsNode : public UpdateNode, public ReclaimableBase{
+class alignas(128) InsNode : public UpdateNode{
     public:
         std::atomic<DelNode *> target;
         std::atomic<int64_t> target_key;
-        //char padding[128 - 2*sizeof(uintptr_t) - sizeof(UpdateNode) - sizeof(ReclaimableBase)];
+        char padding[256 - 2*sizeof(uintptr_t) - sizeof(UpdateNode)];
         InsNode(int64_t key): UpdateNode(key, INS),  target(nullptr), target_key(-1){
             
         }
@@ -418,21 +421,17 @@ class alignas(128) InsNode : public UpdateNode, public ReclaimableBase{
 };
 
 
-class alignas(128) DelNode : public UpdateNode, public ReclaimableBase{
+class alignas(128) DelNode : public UpdateNode{
     public:
         PredecessorNode *delPredNode;
         int64_t delPred;
-        MinReg lower1Boundary; //A 65-bounded min register, which is sufficient for tries whose height is at most 63.
-        volatile char padding1[64-sizeof(delPredNode)-sizeof(int64_t)-sizeof(MinReg)];
         std::atomic<int64_t> delPred2;
         std::atomic<int> upper0Boundary;
-        std::atomic<int8_t> dNodeCount;
         std::atomic<bool> stop;
-        //volatile char padding2[64 - 2*sizeof(uintptr_t)];
-
-        DelNode(int trieHeight) : 
-            UpdateNode(-1, DEL), delPredNode(nullptr), delPred(-1), lower1Boundary(trieHeight+1),  
-              delPred2(-1), upper0Boundary(0), dNodeCount(2), stop(false){
+        MinReg lower1Boundary; //A 65-bounded min register, which is sufficient for tries whose height is at most 63.
+        std::atomic<int> dNodeCount;
+        DelNode(int trieHeight) : UpdateNode(-1, DEL), delPredNode(nullptr), delPred(-1), delPred2(-1),  
+               upper0Boundary(0),  stop(false), lower1Boundary(trieHeight+1), dNodeCount(2){
         }
         ~DelNode(){
              
@@ -442,7 +441,7 @@ class alignas(128) DelNode : public UpdateNode, public ReclaimableBase{
 
 //Pred nodes can be reclaimed as soon as they're removed from P_ALL....
 //Update nodes can be reclaimed upon removal from latest list...
-class alignas(64) TrieNode{
+class TrieNode{
     public:
         std::atomic<DelNode*> dNodePtr;
         //volatile char padding [64 - sizeof(UpdateNode*)];
