@@ -222,26 +222,24 @@ struct ResultData{
 
 
     //Write the experiment result data to a CSV file.
-    //TODO allow csv file to be specified or something?
-    void writeToCSV(){
-        string filename = OUTPUT_CSV_NAME;
-        std::ifstream stream(filename.c_str());
+    void writeToCSV(char *filename){
+        std::ifstream stream(filename);
         bool exists = stream.good();
         stream.close();
 
         std::ofstream os;
         //If file did not already exist, write labels to CSV.
         if(!exists){
-            os.open(filename.c_str());
+            os.open(filename);
             writeLabels(os);
         }
         else{
-            os.open(filename.c_str(), std::ofstream::app);
+            os.open(filename, std::ofstream::app);
         }
         writeValues(os);
         os.close();
         //Else....
-        cout << "Completed writing data to " << OUTPUT_CSV_NAME << "." << std::endl;
+        cout << "Completed writing data to " << filename << "." << std::endl;
     }
 };
 
@@ -339,7 +337,7 @@ void calcTime(int64_t millis, int &hours, int &minutes, int &seconds){
 //numProcs is the number of threads that will participate in the test.
 //trieHeight is the base-2 logarithm of the universe size.
 //prefill is the amount the data structure should be prefilled prior to testing.
-void multithreadTest(DynamicSet *set, ExperimentType exp, bool verbose){
+void multithreadTest(DynamicSet *set, ExperimentType exp, bool runPerf, char *outputFile){
     threadID=0;
     std::thread *th[MAX_THREADS];
     //Prefill the set to a certain amount full
@@ -368,7 +366,7 @@ void multithreadTest(DynamicSet *set, ExperimentType exp, bool verbose){
 
     int perfControlFD = -1;
     int perfAckFD = -1;
-    if(getenv("PERF_CTL_FD") != NULL && verbose){
+    if(getenv("PERF_CTL_FD") != NULL && runPerf){
         cout << "Starting perf when experiment starts (which is now)." << std::endl;
         perfControlFD = atoi(getenv("PERF_CTL_FD"));
         perfAckFD = atoi(getenv("PERF_CTL_ACK_FD"));
@@ -422,7 +420,7 @@ void multithreadTest(DynamicSet *set, ExperimentType exp, bool verbose){
     cout << "Experiment results:" << std::endl;
     ResultData results(exp, data);
     results.printResults();
-    results.writeToCSV();
+    results.writeToCSV(outputFile);
 
     // #ifdef COUNT_CONTENTION
     //     cout << std::endl;
@@ -435,8 +433,9 @@ int experimentProg(int argc, char **argv){
     double runtime = 5.0;
     int numProcs = 4;
     int keyRange = 20;
-    bool verbose = false;
+    bool runPerf = false;
     char *setType = NULL;
+    char *outputFile = nullptr;
     int insertRatio = 1, removeRatio = 1, predRatio = 1, searchRatio = 1;
 
     if(argc == 2 && ((strcmp(argv[1], "-h") == 0) || (strcmp(argv[1], "--help") == 0))){
@@ -446,6 +445,7 @@ int experimentProg(int argc, char **argv){
         cout << "\t-t, --time <T>\t\t\t\tRun the experiment for <T> seconds."<< std::endl;
         cout << "\t-n, --numProcs <N>\t\t\tRun the experiment with <N> processes (threads)."<< std::endl;
         cout << "\t-k, --keyRange <K>\t\t\tRun the experiment with a universe of 2^K keys." << std::endl;
+        cout << "\t--output <filename>\t\t\tOutput CSV file containing statistics about experiment to <filename>." << std::endl;
         cout << "\t-O, --opDist <I> <R> <P> <S>\t\tRun the experiment with ratio of <I> Inserts to <R> Removes to <P> Predecessors to <S> Searches." << std::endl;
         cout << "\t--skip\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert skip list." << std::endl;
         cout << "\t--list\t\t\t\t\tPerform the experiment on the Fomitchev-Ruppert linked list." << std::endl;
@@ -497,8 +497,16 @@ int experimentProg(int argc, char **argv){
                 }
                 curArg += 5;
             }
-            else if(!verbose && (strcmp(currentParam, "-v") == 0 || strcmp(currentParam, "--verbose") == 0)){
-                verbose = true;
+            else if(curArg + 1 < argc && outputFile == nullptr && strcmp(currentParam, "--output") == 0){
+                outputFile = paramSetting;
+                curArg += 2;
+                if(strcmp(outputFile,"") == 0){
+                    cout << "Invalid filename." << std::endl;
+                    exit(1);
+                }
+            }
+            else if(!runPerf && strcmp(currentParam, "--runPerf") == 0){
+                runPerf = true;
                 curArg += 1;
             }
             //If type of dynamic set has not been specified
@@ -519,6 +527,12 @@ int experimentProg(int argc, char **argv){
                 exit(1);
             }
         }
+    }
+
+    //Set output file to default if not set.
+    char defaultStr[64] = OUTPUT_CSV_NAME;
+    if(outputFile == nullptr){
+        outputFile = &defaultStr[0];
     }
 
     DynamicSet *set = nullptr;;
@@ -546,7 +560,7 @@ int experimentProg(int argc, char **argv){
 
 
     ExperimentType experimentType(runtime, numProcs, (1 << keyRange), insertRatio, removeRatio, predRatio, searchRatio, set->name());
-    multithreadTest(set, experimentType, verbose);
+    multithreadTest(set, experimentType, runPerf, outputFile);
     return 0;
 }
 
