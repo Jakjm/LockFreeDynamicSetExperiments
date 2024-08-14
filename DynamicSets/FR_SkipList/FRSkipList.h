@@ -41,13 +41,15 @@ struct SkipListPool{
 
 
 SkipListPool pool[MAX_THREADS];
+#define MAX_LEVELS 64
 
-template <int numLevels> 
 class SkipListSet : public DynamicSet{
     public:
-    std::array<SkipNode,numLevels> head;
+    SkipNode *head;
+    int numLevels;
     SkipNode tail;
-    SkipListSet() : tail(INT64_MAX) {
+    SkipListSet(int levels) : numLevels(levels), tail(INT64_MAX) {
+        head = new SkipNode[numLevels];
         for(int i = 0;i < numLevels;++i){
             head[i].succ = (uintptr_t)&tail;
             head[i].key = -1;
@@ -72,6 +74,7 @@ class SkipListSet : public DynamicSet{
                 cur = next;
             }
         }
+        delete[] head;
     }
 
 
@@ -200,7 +203,7 @@ class SkipListSet : public DynamicSet{
     // }
 
     //Storing nodes with key <= k for each level on the stack
-    SkipNode* searchToLevel(int64_t k, int level, SkipNode *&next, std::array<SkipNode*,numLevels> &levelStart){
+    SkipNode* searchToLevel(int64_t k, int level, SkipNode *&next, SkipNode** levelStart){
         int curLevel = numLevels - 1;
         SkipNode *curr = &head[curLevel];
         while(curLevel > level){
@@ -259,7 +262,7 @@ class SkipListSet : public DynamicSet{
     bool insert(int64_t k){
         debra.startOp();
         SkipNode *curr, *next;
-        std::array<SkipNode*,numLevels> startingPlaces;
+        SkipNode* startingPlaces[MAX_LEVELS];
         curr = searchToLevel(k, 0, next, startingPlaces);
         if(curr->key == k){
             debra.endOp();
@@ -320,7 +323,7 @@ class SkipListSet : public DynamicSet{
     bool remove(int64_t k){
         debra.startOp();
         SkipNode *curr, *delNode;
-        std::array<SkipNode*,numLevels> startingPlaces;
+        SkipNode* startingPlaces[MAX_LEVELS];
         curr = searchToLevel(k-1,0, delNode,startingPlaces);
         if(delNode->key != k){ //delNode does not have key k so we will not remove it.
             debra.endOp();

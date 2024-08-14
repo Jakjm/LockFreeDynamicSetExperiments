@@ -538,7 +538,7 @@ int experimentProg(int argc, char **argv){
     DynamicSet *set = nullptr;;
     Trie trie(keyRange);
     LinkedListSet listSet;
-    SkipListSet<22> skipList;
+    SkipListSet skipList(keyRange);
     AS_Trie augmentedTrie(keyRange);
     debra.setActiveThreads(numProcs);
 
