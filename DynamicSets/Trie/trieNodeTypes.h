@@ -425,7 +425,8 @@ class alignas(128) DelNode : public UpdateNode{
     public:
         PredecessorNode *delPredNode;
         int64_t delPred;
-        std::atomic<int64_t> delPred2;
+        int64_t delPred2;
+        //std::atomic<int64_t> delPred2;
         std::atomic<int> upper0Boundary;
         std::atomic<bool> stop;
         MinReg lower1Boundary; //A 65-bounded min register, which is sufficient for tries whose height is at most 63.
