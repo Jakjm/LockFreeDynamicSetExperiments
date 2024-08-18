@@ -215,10 +215,12 @@ class UpdateNode : public ReclaimableBase{
         std::atomic<UpdateNode *> latestNext;
         volatile char padding1[64 - 4*sizeof(int64_t) - sizeof(ReclaimableBase)];
         std::atomic<uintptr_t> succ; //Successor for the UALL
-        std::atomic<UpdateNode*> backlink; //Backlink for the UALL
+        UpdateNode *backlink;
+        //std::atomic<UpdateNode*> backlink; //Backlink for the UALL
         volatile char padding2 [64 - 2*sizeof(uintptr_t)];
         std::atomic<uintptr_t> rSucc; //Successor for the RUALL
-        std::atomic<UpdateNode*> rBacklink; //Backlink for the RUALL.
+        UpdateNode *rBacklink;
+        //std::atomic<UpdateNode*> rBacklink; //Backlink for the RUALL.
         //volatile char padding2[64 - 2*sizeof(uintptr_t)];
         volatile char padding3 [64 - 2*sizeof(uintptr_t)];
         //volatile char padding3[64 - sizeof(uintptr_t)];
@@ -234,8 +236,10 @@ class UpdateNode : public ReclaimableBase{
 
 //Definition of the Insert Descriptor Node object.
 struct alignas(128) InsertDescNode{
-    std::atomic<UpdateNode*> newNode;
-    std::atomic<UpdateNode*> next;
+    UpdateNode *newNode;
+    //std::atomic<UpdateNode*> newNode;
+    UpdateNode *next;
+    //std::atomic<UpdateNode*> next;
     std::atomic<uint64_t> seqNum; //Sequence number.
     volatile char padding[64 - 3 * sizeof(std::atomic<uintptr_t>)];
     InsertDescNode():  newNode(nullptr), next(nullptr), seqNum(0){
@@ -379,7 +383,7 @@ class alignas(128)PredecessorNode:  public ReclaimableBase{
     public:
     const int64_t key;
     std::atomic<uintptr_t> succ;
-    std::atomic<PredecessorNode*> backlink;
+    PredecessorNode* backlink;
     volatile char padding1[64 - 3*sizeof(PredecessorNode*)];
     std::atomic<NotifyNode*> notifyListHead;
     volatile char padding2[64 - (sizeof(NotifyNode*))];

@@ -19,9 +19,9 @@ using std::vector;
 struct SkipNode: public ReclaimableBase{
     int64_t key;
     std::atomic<uintptr_t> succ;
-    std::atomic<SkipNode*> backlink;
-    SkipNode * root;
-    SkipNode * down;
+    SkipNode *backlink;
+    SkipNode *root;
+    SkipNode *down;
 
     SkipNode(int64_t k = 0) : key(k), succ(0), backlink(nullptr), root(nullptr), down(nullptr){
 

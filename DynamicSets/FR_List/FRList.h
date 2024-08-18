@@ -16,10 +16,11 @@ using std::string;
 
 
 
-struct KeyNode : public ReclaimableBase{
+struct alignas(64) KeyNode : public ReclaimableBase{
     int64_t key;
     std::atomic<uintptr_t> successor; //Contains <next, state>. The state is contained within the lowest 3 bits of the pointer.
-    std::atomic<KeyNode*> backlink;  //A pointer to the ListNode preceeding this node before it is removed.
+    KeyNode *backlink;  //A pointer to the ListNode preceeding this node before it is removed.
+    volatile char padding[64 - 3*sizeof(uintptr_t)];
     KeyNode(int64_t k = 0) : key(k), successor(0), backlink(nullptr){
 
     }
