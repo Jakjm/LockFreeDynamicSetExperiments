@@ -188,7 +188,7 @@ class RUALL{
             #endif 
             while(1){
                 if(state == Normal){
-                    [[likely]];
+                    
                     if(((UpdateNode*)next)->key < node->key){
                         return;
                     }

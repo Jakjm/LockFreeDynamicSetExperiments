@@ -367,7 +367,8 @@ class alignas(64)NotifyNode: public ReclaimableBase {
     public:
     int64_t key;
     UpdateNode *updateNode;
-    InsNode *updateNodeMax;
+    int64_t updateNodeMax;
+    //InsNode *updateNodeMax;
     int64_t notifyThreshold;
     NotifyNode *next; //Pointer to the next node in the notify list....
     volatile char padding[64 - 5*sizeof(int64_t)];

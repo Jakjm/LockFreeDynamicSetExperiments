@@ -215,7 +215,6 @@ class Trie : public DynamicSet{
             uNode = findLatest(index); //Check the latest list for key = index.
         }
         else{
-            [[likely]];
             int depthOffset = (1 << depth) - 1;
             DelNode *dNode = trieNodes[depthOffset + index].dNodePtr;
             uNode = findLatest(dNode->key);
@@ -239,15 +238,12 @@ class Trie : public DynamicSet{
             //STATUS expectedStatus = INACTIVE;
             //uNode->status.compare_exchange_strong(expectedStatus, ACTIVE);
             uNode->status = ACTIVE;
-
-            //UpdateNode *latestNext = uNode->latestNext;
-            //if(latestNext){
                 
-                //Set uNode->latestNext to nullptr
+            //Set uNode->latestNext to nullptr
             UpdateNode *latestNext = uNode->latestNext.exchange(nullptr); 
             if(latestNext != nullptr){ //This operation unlinked latestNext from the latest list.
                 if(latestNext->type == INS){
-                    debra.reclaimLater((InsNode*)latestNext); //Put latestNext into a limbo bagif it's an insert node.
+                    debra.reclaimLater((InsNode*)latestNext); //Put latestNext into a limbo bag if it's an insert node.
                 }
                 else{
                     //Otherwise, decrement latestNext's dNodeCount, and put latestNext into a limbo bag if dNodeCount was reduced to 0.
@@ -257,9 +253,6 @@ class Trie : public DynamicSet{
                     }
                 }
             }
-            //The following code is not needed due to how we implemented the UALL/RUALL. 
-            //The UALL/RUALL do not allow reinsertions, which means this helper doesn't need to remove uNode if uNode is not the first activComparatorated node...
-            //if uNode is not the first activated node, then can removed uNode from UALL/RUALL
         }
     }
 
@@ -287,12 +280,13 @@ class Trie : public DynamicSet{
     }
     //Traverse through the Update Announcement Linked List
     //Returns a list of InsNodes that were the first active 
-    void traverseUALL(vector<InsNode*> &I){
+    void traverseUALL(vector<int64_t> &I){
         UpdateNode *uNode = (UpdateNode*)uall.first();   
         while(uNode){
             if(uNode->type == INS && uNode->status != INACTIVE){
-                if(I.empty() || I.back()->key != uNode->key){
-                    if(firstActivated(uNode))I.push_back((InsNode*)uNode);
+                int64_t key = uNode->key;
+                if(I.empty() || I.back() != key){ //If this key is not a duplicate key...
+                    if(firstActivated(uNode))I.push_back(key);
                 }
             }
             uNode = (UpdateNode*)uall.next(uNode);
@@ -324,11 +318,10 @@ class Trie : public DynamicSet{
     //Send notifications to predecessor operations.
     void notifyPredOps(UpdateNode * const uNode){
         if(!firstActivated(uNode))return;
-        vector<InsNode*> I; 
+        vector<int64_t> I; 
         traverseUALL(I);
 
         PredecessorNode *pNode = (PredecessorNode*)pall.first();
-        InsNode dummyNode;
         while(pNode){
             //if(!firstActivated(uNode)) return;
             NotifyNode *nNode = nodePool[threadID].notifNode;
@@ -338,11 +331,10 @@ class Trie : public DynamicSet{
             UpdateNode *notifyThres = pNode->ruallPosition.read();
             int64_t tau = notifyThres->key;
             nNode->notifyThreshold = tau;
-            dummyNode.key = pNode->key;
             //auto iter = std::adjacent_find(I.begin(), I.end(), UpdateNodeLess());
-            auto iter = std::upper_bound(I.rbegin(),I.rend(),&dummyNode, UpdateNodeGreater());
-            if(iter == I.rend())nNode->updateNodeMax = nullptr;            
-            else nNode->updateNodeMax = *iter;
+            auto iter = std::upper_bound(I.rbegin(),I.rend(), pNode->key, std::greater());
+            if(iter == I.rend())nNode->updateNodeMax = -1;            
+            else nNode->updateNodeMax = (*iter);
 
             if(!sendNotification(nNode, pNode)){
                 return;
@@ -461,7 +453,9 @@ class Trie : public DynamicSet{
         UpdateNode *expected = dNode;
         latest[x].compare_exchange_strong(expected, iNode);
         if (expected != dNode){
-            helpActivate(expected);
+            if(expected->type == INS && expected->latestNext == dNode){
+                helpActivate(expected);
+            }
             //trieRecordManager.endOp(threadID);
             debra.endOp();
             return false;
@@ -537,7 +531,9 @@ class Trie : public DynamicSet{
         if(expected != iNode){ //Failed to CAS dNode to head of latest list....
             //There was a different node, expected, instead of iNode at the head of the latest list prior to our CAS.
             //We will help activate it.
-            helpActivate(expected);
+            if(expected->type == DEL && expected->latestNext == iNode){
+                helpActivate(expected);
+            }
 
             //Remove pNode from pall.
             pall.remove(pNode);
@@ -698,8 +694,8 @@ class Trie : public DynamicSet{
                 if((nNode->notifyThreshold == -1) && 
                     ((nNode->updateNode->type == INS && (I_ruall.find((InsNode*)nNode->updateNode)) == I_ruall.end())) && 
                     ((nNode->updateNode->type == DEL && (D_ruall.find((DelNode*)nNode->updateNode)) == D_ruall.end()))){
-                    if(nNode->updateNodeMax && nNode->updateNodeMax->key > max_I_Notify){
-                        max_I_Notify = nNode->updateNodeMax->key;
+                    if(nNode->updateNodeMax > max_I_Notify){
+                        max_I_Notify = nNode->updateNodeMax;
                         //I_notify.push_back(nNode->updateNodeMax);
                     }
                 }
