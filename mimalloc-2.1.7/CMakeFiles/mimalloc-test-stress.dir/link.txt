@@ -1,0 +1,1 @@
+/usr/bin/gcc-13 -O3 -DNDEBUG "CMakeFiles/mimalloc-test-stress.dir/test/test-stress.c.o" -o mimalloc-test-stress  -Wl,-rpath,/home/jakj3m/LockFreeDynamicSetExperiments/mimalloc-2.1.7 libmimalloc.so.2.1 -lpthread -lrt -latomic
