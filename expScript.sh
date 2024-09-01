@@ -5,7 +5,7 @@ do
 	do
 		for t in {1..5}
 		do
-			taskset -c 0-$((numProcs-1)) ./dynamicSetTest -k 20 $s -n $numProcs --output results/updateHeavy.csv -O 4 4 1 1  
+			taskset -c 0-$((numProcs-1)) ./dynamicSetTest -k 20 $s -n $numProcs --output results/queryHeavy.csv -O 1 1 4 4  
 		done
 	done
 done
