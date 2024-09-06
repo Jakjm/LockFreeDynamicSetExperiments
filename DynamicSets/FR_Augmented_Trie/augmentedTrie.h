@@ -9,7 +9,7 @@ using std::cout;
 //An Implementation of Fatourou and Ruppert's Augmented Static Trie
 //Version objects which are pointed to by nodes of Augmented Static Trie
 //A Version only becomes immutable once inserted.
-struct Version : public ReclaimableBase{
+struct alignas(64) Version : public ReclaimableBase{
     int sum;
     Version *left, *right;
     Version *root; 
@@ -32,7 +32,7 @@ struct Version : public ReclaimableBase{
 #define space_nodes 5
 
 //Augmented Static Trie Nodes, which contain only a pointer to their version objects.
-struct AST_Node{
+struct alignas(64) AST_Node{
     std::atomic<Version*> version;
     //If the space_nodes constant is defined, 
     //we should avoid false sharing by putting padding in these nodes....
