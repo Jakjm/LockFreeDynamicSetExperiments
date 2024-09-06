@@ -12,8 +12,16 @@ using std::cout;
 struct Version : public ReclaimableBase{
     int sum;
     Version *left, *right;
-    Version(int s = 0, Version *l = nullptr, Version *r = nullptr) : sum(s), left(l), right(r){
+    Version *root; 
+    std::atomic<bool> completed;
+    Version(int s = 0, Version *l = nullptr, Version *r = nullptr, Version *rt = nullptr) : sum(s), left(l), right(r), root(rt), completed(false) {
 
+    }
+    void init(int s = 0, Version *l = nullptr, Version *r = nullptr, Version *rt = nullptr){
+        sum = s;
+        left = l;
+        right = r;
+        root = rt;
     }
     ~Version(){
 
@@ -31,8 +39,11 @@ struct AST_Node{
     #ifdef space_nodes 
         volatile char padding[64 - 8];
     #endif
-    AST_Node() : version(new Version()){
-
+    AST_Node(){
+        Version *v = new Version();
+        v->completed = true;
+        v->root = v;
+        version = v;
     }
 
     ~AST_Node(){
@@ -46,7 +57,6 @@ struct VersionPool{
     Version *v;
     volatile char padding[64-sizeof(Version*)];
     VersionPool(): v(new Version()){
-
     }
     ~VersionPool(){
         delete v;
@@ -119,7 +129,7 @@ struct AS_Trie : public DynamicSet{
 
     //Refreshes the version of an internal trie node.
     //i is the index of the AST_Node in array.
-    inline bool refresh(int64_t i){
+    inline bool refresh(int64_t i, Version *root){
         AST_Node &node = array[i];
         AST_Node &left = array[(2 * i) + 1];
         AST_Node &right = array[(2 * i) + 2];
@@ -132,12 +142,17 @@ struct AS_Trie : public DynamicSet{
 
         VersionPool &pool = versionPool[threadID];
         Version *v = pool.v;
-        *v = Version(newSum, leftV, rightV);
+        v->init(newSum, leftV, rightV, root);
 
         result = old;
         node.version.compare_exchange_strong(result, v);
         //If the CAS was successful
         if(result == old){
+            if(i == 0){
+                root->completed = true;
+                leftV->root->completed = true;
+                rightV->root->completed = true;
+            }
             debra.reclaimLater(old);
             pool.v = new Version(); //Allocate new version to be used...
             return true;
@@ -146,74 +161,90 @@ struct AS_Trie : public DynamicSet{
     }
     //Propogates the version objects up the trie.
     //start is the index of an internal AST_Node in the array.
-    inline void propogate(int64_t cur){
+    inline void propogate(int64_t cur, Version *root){
         //Try to update every internal node between array[cur] and array[0] (the root)
-        while(cur > 0){
-            if(!refresh(cur))refresh(cur);
+        while(root->completed == false){
+            if(!refresh(cur, root) && root->completed == false){
+                refresh(cur, root);
+            }
+            if(cur == 0){ // We have just updated the root...
+                root->completed = true;
+                return;
+            }
             cur = (cur - 1) / 2; //Go to cur's parent
         }
-        //Cur is now the root
-        //Try twice to update root
-        if(!refresh(cur))refresh(cur); 
     }
     bool insert(int64_t x){
         bool success = false;
         debra.startOp();
-        Version *old = leaf[x].version;
-
-        //If old->sum == 1, key was already in set 
-        if(old->sum == 0){
+        Version *cur = leaf[x].version;
+        Version *v = cur;
+        //If cur->sum == 1, key was already in set 
+        if(cur->sum == 0){
             VersionPool &pool = versionPool[threadID];
-            Version *v = pool.v;
-            *v = Version(1); //New version in which sum is 1
+            v = pool.v; //New version in which sum is 1
+            v->init(1);
 
-            Version *result = old;
+            Version *result = cur;
             leaf[x].version.compare_exchange_strong(result, v);
             //CAS was successful
-            if(result == old){
+            if(result == cur){
                 success = true;
                 //Will try to reclaim the version that was removed later....
-                debra.reclaimLater(old);
+                debra.reclaimLater(cur);
                 //Allocate a new version for the pool
                 pool.v = new Version();
             }
+            else{
+                v = result;
+            }
+        }
+        else if(cur->completed){
+            //No need to propogate....
+            return false;
         }
 
         //Calculate array index for parent of x.
         int64_t arrayIndex = (x + universeSize  - 1); //Array index of x
         int64_t parent = (arrayIndex - 1) / 2; 
-        propogate(parent);
+        propogate(parent, v);
         debra.endOp();
         return success;
     }
     bool remove(int64_t x){
         bool success = false;
         debra.startOp();
-        Version *old = leaf[x].version;
-
-        //If old->sum == 1, key was already in set 
-        if(old->sum == 1){
+        Version *cur = leaf[x].version;
+        Version *v = cur;
+        //If cur->sum == 1, key was already in set 
+        if(cur->sum == 1){
             VersionPool &pool = versionPool[threadID];
-            Version *v = pool.v;
-            *v = Version(0); //New version in which sum is 0
+            v = pool.v; //New version in which sum is 0
+            v->init(0);
 
-            Version *result = old;
+            Version *result = cur;
             leaf[x].version.compare_exchange_strong(result, v);
             //CAS was successful
-            if(result == old){
+            if(result == cur){
                 success = true;
                 //Will try to reclaim the version that was removed later....
-                debra.reclaimLater(old);
+                debra.reclaimLater(cur);
                 //Allocate a new version for the pool
                 pool.v = new Version();
             }
+            else {
+                v = result;
+            }
+        }
+        else if(cur->completed){
+            //No need to propogate....
+            return false;
         }
 
         //Calculate array index for parent of x.
         int64_t arrayIndex = (x + universeSize  - 1); //Array index of x
         int64_t parent = (arrayIndex - 1) / 2; 
-        propogate(parent);
-
+        propogate(parent, v);
         debra.endOp();
         return success;
     }
