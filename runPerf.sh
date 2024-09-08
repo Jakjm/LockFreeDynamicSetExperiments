@@ -6,7 +6,7 @@ exec {ack}<>ack.fifo
 #echo $ack
 export PERF_CTL_FD=$ctl
 export PERF_CTL_ACK_FD=$ack
-perf record -g --delay=-1 --control fd:${PERF_CTL_FD},${PERF_CTL_ACK_FD} taskset -c 0-3 ./dynamicSetTest --runPerf -t 2 -n 4
+perf record -g --delay=-1 --control fd:${PERF_CTL_FD},${PERF_CTL_ACK_FD} taskset -c 0-3 ./dynamicSetTest --runPerf -t 2 --augTrie
 export PERF_CTL_FD=
 export PERF_CTL_ACK_FD=
 exec {ctl}>&-

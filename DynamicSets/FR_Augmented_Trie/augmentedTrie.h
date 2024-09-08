@@ -150,8 +150,6 @@ struct AS_Trie : public DynamicSet{
         if(result == old){
             if(i == 0){
                 root->completed = true;
-                leftV->root->completed = true;
-                rightV->root->completed = true;
             }
             debra.reclaimLater(old);
             pool.v = new Version(); //Allocate new version to be used...
@@ -163,8 +161,8 @@ struct AS_Trie : public DynamicSet{
     //start is the index of an internal AST_Node in the array.
     inline void propogate(int64_t cur, Version *root){
         //Try to update every internal node between array[cur] and array[0] (the root)
-        while(root->completed == false){
-            if(!refresh(cur, root) && root->completed == false){
+        while(true){
+            if(!refresh(cur, root)){
                 refresh(cur, root);
             }
             if(cur == 0){ // We have just updated the root...
