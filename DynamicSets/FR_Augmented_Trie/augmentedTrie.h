@@ -250,62 +250,57 @@ struct AS_Trie : public DynamicSet{
         debra.startOp();
 
         Version *v = array[0].version; //Read the root version
-        std::vector<Version*> levels; //Internal nodes while traversing downwards.
+        //This variable stores a pointer to the left child of an ancestor of the leaf with key x in the dynamic trie
+        //whose sum is breater than or equal to 0.
+        Version *vPrime = nullptr;
+        int vPrimeHeight = -1;
         int height = trieHeight; //Height of v
 
         //Traverse down to the AS_Node for key x.
-        while(height > 0){
+        while(height > 0 && v->sum > 0){
             //Check the (height - 1)-th bit of x.
-            levels.push_back(v);
             int bit = (x >> (height - 1)) & 1; 
-            if(bit == 0)v = v->left;
-            else v = v->right;
+            if(bit == 0){
+                v = v->left;
+            }
+            else{
+                if(v->left->sum > 0){ //Ancestor of the leaf for key x has a left child whose bit is 1.
+                    vPrime = v->left;
+                    vPrimeHeight = height - 1;
+                }
+                v = v->right;
+            }
             --height;
         }
 
-        //v is currently AT_Node for x.
-        //Perform predecessor query starting from node for x...
-        int depth = trieHeight; //Depth of v
-
-        //x is now the index of v within its row.
-        //While either v is the left sibling or v.parent.left has a 0 sum
-        while((x & 1) == 0 || levels[depth - 1]->left->sum == 0){
-            //Go up to v.parent
-            x = x >> 1;
-            --depth;
-            if(depth == 0){
-                debra.endOp();
-                return -1;
-            }
-            v = levels[depth];
-        }
-
-        //v = v.parent.left
-        v = levels[depth - 1]->left;
-        x = x - (x & 1);
-        while(depth < trieHeight){
-            ++depth;
+        if(!vPrime)return -1;
+        v = vPrime;
+        int64_t k = 2 * (x >> (vPrimeHeight + 1));
+        height = vPrimeHeight;
+        while(height > 0){
             if(v->right->sum > 0){
-                x = 2 * x + 1;
+                k = 2 * k + 1;
                 v = v->right;
             }
             else if(v->left->sum > 0){
-                x = 2 * x;
+                k = 2 * k;
                 v = v->left;
             }
             else{
                 debra.endOp();
                 return -1;
             }
+            --height;
         }
         debra.endOp();
-        return x;
+        return k;
     }
     bool search(int64_t x){
         debra.startOp();
         Version *v = array[0].version; //Read the root version
         int height = trieHeight; //Height of v
         while(height > 0){
+            if(v->sum == 0)return false;
             //Check the (height - 1)-th bit of x.
             int bit = (x >> (height - 1)) & 1; 
             if(bit == 0)v = v->left;
