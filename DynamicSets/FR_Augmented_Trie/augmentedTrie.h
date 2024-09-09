@@ -138,6 +138,9 @@ struct AS_Trie : public DynamicSet{
         Version *result;
         Version *leftV = left.version;
         Version *rightV = right.version;
+        if(old->left == leftV && old->right == rightV){
+            return false;
+        }
         int64_t newSum = leftV->sum + rightV->sum;
 
         VersionPool &pool = versionPool[threadID];
@@ -148,9 +151,6 @@ struct AS_Trie : public DynamicSet{
         node.version.compare_exchange_strong(result, v);
         //If the CAS was successful
         if(result == old){
-            if(i == 0){
-                root->completed = true;
-            }
             debra.reclaimLater(old);
             pool.v = new Version(); //Allocate new version to be used...
             return true;
