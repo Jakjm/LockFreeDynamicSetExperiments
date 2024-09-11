@@ -139,7 +139,7 @@ struct AS_Trie : public DynamicSet{
         Version *leftV = left.version;
         Version *rightV = right.version;
         if(old->left == leftV && old->right == rightV){
-            return false;
+            return true;
         }
         int64_t newSum = leftV->sum + rightV->sum;
 
