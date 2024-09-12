@@ -297,7 +297,13 @@ struct AS_Trie : public DynamicSet{
     }
     bool search(int64_t x){
         debra.startOp();
-        Version *v = array[0].version; //Read the root version
+
+        Version *v = leaf[x].version;
+        if(v->completed){
+            return (v->sum == 1);
+        }
+
+        v = array[0].version; //Read the root version
         int height = trieHeight; //Height of v
         while(height > 0){
             if(v->sum == 0)return false;
