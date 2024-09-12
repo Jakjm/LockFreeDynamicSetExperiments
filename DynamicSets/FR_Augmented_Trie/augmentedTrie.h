@@ -198,7 +198,7 @@ struct AS_Trie : public DynamicSet{
             }
         }
         else if(cur->completed){
-            //No need to propogate....
+            debra.endOp();
             return false;
         }
 
@@ -235,7 +235,7 @@ struct AS_Trie : public DynamicSet{
             }
         }
         else if(cur->completed){
-            //No need to propogate....
+            debra.endOp();
             return false;
         }
 
@@ -273,7 +273,10 @@ struct AS_Trie : public DynamicSet{
             --height;
         }
 
-        if(!vPrime)return -1;
+        if(!vPrime){
+            debra.endOp();
+            return -1;
+        }
         v = vPrime;
         int64_t k = 2 * (x >> (vPrimeHeight + 1));
         height = vPrimeHeight;
@@ -300,13 +303,17 @@ struct AS_Trie : public DynamicSet{
 
         Version *v = leaf[x].version;
         if(v->completed){
+            debra.endOp();
             return (v->sum == 1);
         }
 
         v = array[0].version; //Read the root version
         int height = trieHeight; //Height of v
         while(height > 0){
-            if(v->sum == 0)return false;
+            if(v->sum == 0){
+                debra.endOp();
+                return false;
+            }
             //Check the (height - 1)-th bit of x.
             int bit = (x >> (height - 1)) & 1; 
             if(bit == 0)v = v->left;
