@@ -1,6 +1,5 @@
 #!/bin/bash
-for s in {--trie,--skip,--augTrie}
-do
+s=--augTrie	
 	for numProcs in {1,2,3,4,5,6,8,16,32,64,128}
 	do
 		for t in {1..5}
@@ -12,7 +11,6 @@ do
 				listStr="$listStr,$i"
 			done
 			listStr=${listStr:1} #Remove the first comma.
-			taskset -c "$listStr" ./dynamicSetTest $s -n $numProcs --output results/evenDist.csv
+			taskset -c "$listStr" ./dynamicSetTest $s -n $numProcs --output results/evenDist.csv 2> errors.txt
 		done
 	done
-done
