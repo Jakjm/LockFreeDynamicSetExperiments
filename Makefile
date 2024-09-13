@@ -14,7 +14,7 @@ testingFlags = -fdump-lang-class -fno-omit-frame-pointer -g
 optimizationFlags  = -O3
 
 dynamicSetTest : $(dataStructures) $(trie) $(common) dynamicSetTest.cpp  Makefile 
-	g++-13 $(sanitizer) $(compileFlags) $(optimizationFlags) $(testingFlags) $(countersFlags) -o dynamicSetTest dynamicSetTest.cpp
+	g++ $(sanitizer) $(compileFlags) $(optimizationFlags) $(testingFlags) $(countersFlags) -o dynamicSetTest dynamicSetTest.cpp
 
 seqTest : $(dataStructures) $(trie) $(common) sequentialTest.cpp Makefile
 	g++ $(sanitizer) $(compileFlags) -g $(countersFlags) -o seqTest sequentialTest.cpp
