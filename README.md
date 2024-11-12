@@ -23,6 +23,7 @@ Statistics about the results of the experiment (such as the total number of oper
 are stored in an output file called resultsData.csv.
 
 This program was used to perform experiments for my master's report at the University of Toronto.
+The report is available on [arxiv](https://arxiv.org/abs/2411.01090).
 
 The program is meant to be run on Linux or Unix-like machines with 
 make, the GNU C++ compiler and posix-threads support.
