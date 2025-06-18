@@ -50,12 +50,10 @@ class UALL {
                 newSucc = (uintptr_t)newNode; //Attempt to complete insertion of node.
             }
             prev->succ.compare_exchange_strong(result, (uintptr_t)newSucc);
-            if(result == expected){
+            if(result == expected)
                 return (uintptr_t)newSucc;
-            }
-            else{
+            else
                 return result;
-            }
         }
         
         //Precondition: prev.succ was <delNode, DelFlag> at an earlier point, and delNode is Marked.
@@ -144,7 +142,7 @@ class UALL {
                         #endif 
                     }
                 }
-                else  if(state == InsFlag){
+                else if(state == InsFlag){
                     uint64_t seq = (next & SEQ_MASK) >> 12;
                     uint64_t proc = (next & PROC_MASK) >> 4;
                     succ = helpInsert(curr, seq, proc);
