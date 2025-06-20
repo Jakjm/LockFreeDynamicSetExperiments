@@ -190,7 +190,6 @@ class UALL {
             #endif 
             while(1){
                 if(state == Normal){
-                   
                     if(((UpdateNode*)next)->key > node->key){
                         return;
                     }

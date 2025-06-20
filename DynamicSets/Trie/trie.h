@@ -228,10 +228,10 @@ class Trie : public DynamicSet{
                     debra.reclaimLater((InsNode*)latestNext); //Put latestNext into a limbo bag if it's an insert node.
                 }
                 else{
+                    DelNode *dNode = (DelNode*)latestNext;
                     //Otherwise, decrement latestNext's dNodeCount, and put latestNext into a limbo bag if dNodeCount was reduced to 0.
-                    int retire = ((DelNode*)latestNext)->dNodeCount.fetch_add(-1); 
-                    if(retire == 1){
-                        debra.reclaimLater((DelNode*)latestNext);
+                    if(int dCount = dNode->dNodeCount.fetch_add(-1); dCount == 1){
+                        debra.reclaimLater( dNode );
                     }
                 }
             }
@@ -396,14 +396,11 @@ class Trie : public DynamicSet{
                     return;
                 }
             }
-
             //dNode has successfully taken d's place as t->dNodePtr
             //Put d in a limbo bag if it is no longer in shared memory.
-            int count = d->dNodeCount.fetch_add(-1);
-            if(count == 1){
+            if(int dCount = d->dNodeCount.fetch_add(-1); dCount == 1){
                 debra.reclaimLater(d);
             }
-                //trieRecordManager.reclaimLater(threadID, d);
 
             if(interpretedBit(key * 2, depth + 1) || interpretedBit(key * 2 + 1, depth + 1))return;
             dNode->upper0Boundary = (trieHeight - depth);
@@ -425,12 +422,11 @@ class Trie : public DynamicSet{
         iNode->key = x;
         iNode->latestNext = dNode;
         
-        if( InsNode *latestNext = (InsNode*)d-Node->latestNext; latestNext ){
+        if( InsNode *latestNext = (InsNode*)dNode->latestNext.load(); latestNext ){
             DelNode *target = latestNext->target;
             if(target && firstActivated(target, latestNext->target_key))
                 target->stop = true;
 
-            //dNode->latestNext = nullptr
             //If dNode->latestNext is removed by this exchange operation, put it into a limbo bag.
             latestNext = (InsNode*)dNode->latestNext.exchange(nullptr); 
             if(latestNext)
@@ -442,7 +438,6 @@ class Trie : public DynamicSet{
         if (expected != dNode){
             if(expected->type == INS && expected->latestNext == dNode)
                 helpActivate(expected);
-            //trieRecordManager.endOp(threadID);
             debra.endOp();
             return false;
         }
@@ -451,14 +446,12 @@ class Trie : public DynamicSet{
         uall.insert(iNode);
         ruall.insert(iNode);
         iNode->status = ACTIVE;
-        //iNode->status.compare_exchange_strong( expectedStatus, ACTIVE);
         
         //Instead of iNode->latestNext = nullptr, use swap to determine if this swap removes 
-        UpdateNode *result = iNode->latestNext.exchange(nullptr); 
-        if(result == dNode){ //If this exchange removed dNode from the latest list....
+        if( DelNode *result = (DelNode*)iNode->latestNext.exchange(nullptr); result == (DelNode*)dNode){ //If this exchange removed dNode from the latest list....
             //Retire the delete node if it is no longer in the latest list or stored as a dNodePtr
-            int retire = ((DelNode*)dNode)->dNodeCount.fetch_add(-1);
-            if(retire == 1)debra.reclaimLater((DelNode*)dNode);
+            if(int dCount = result->dNodeCount.fetch_add(-1); dCount == 1)
+                debra.reclaimLater(result);
         }
         
         insertBinaryTrie(iNode);
@@ -481,7 +474,6 @@ class Trie : public DynamicSet{
         //iNode has type INS. If it has a child, its child has type DEL.
         
         PredecessorNode *pNode = new PredecessorNode(x, &ruall.head);
-        //trieRecordManager.allocate<PredecessorNode>(threadID, x);
         int64_t delPred = predHelper(pNode);
 
         //Initialize update node for this delete operation.
@@ -494,7 +486,7 @@ class Trie : public DynamicSet{
         DelNode *latestNext = (DelNode*)iNode->latestNext.exchange(nullptr); 
         //Swap iNode's latestNext with nullptr.
         if(latestNext != nullptr){ 
-            if( latestNext->dNodeCount.fetch_add(-1) == 1)
+            if(int count = latestNext->dNodeCount.fetch_add(-1); count == 1)
                 debra.reclaimLater(latestNext);
         }   
         
@@ -529,7 +521,8 @@ class Trie : public DynamicSet{
         dNode->status = ACTIVE;
 
         DelNode *target = ((InsNode*)iNode)->target;
-        if(target && firstActivated(target, ((InsNode*)iNode)->target_key))target->stop = true;
+        if(target && firstActivated(target, ((InsNode*)iNode)->target_key))
+            target->stop = true;
 
         //Swap dNode's latestNext with nullptr.
         UpdateNode *result = dNode->latestNext.exchange(nullptr);
@@ -556,8 +549,8 @@ class Trie : public DynamicSet{
         debra.reclaimLater(pNode);
         debra.reclaimLater(pNode2);
 
-        int retire = dNode->dNodeCount.fetch_add(-1);
-        if(retire == 1)debra.reclaimLater(dNode);
+        if(int count = dNode->dNodeCount.fetch_add(-1); count == 1)
+            debra.reclaimLater(dNode);
         debra.endOp();
         return true;
     }
