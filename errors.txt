@@ -1,0 +1,4 @@
+Performing an experiment in which 1 threads will perform ops on Jeremy's Trie during 5 seconds.
+Ratio of 1 insert ops to 1 remove ops to 1 predecessor ops to 1 search ops.
+Keys drawn uniformly from universe of 1048576 keys
+Prior to start, the structure was filled with exactly 524288 keys.

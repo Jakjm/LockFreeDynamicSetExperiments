@@ -1,1 +1,1 @@
-/usr/bin/gcc-13 -O3 -DNDEBUG "CMakeFiles/mimalloc-test-api.dir/test/test-api.c.o" -o mimalloc-test-api  -Wl,-rpath,/home/jakj3m/LockFreeDynamicSetExperiments/mimalloc-2.1.7 libmimalloc.so.2.1 -lpthread -lrt -latomic
+/usr/bin/gcc-13 -O3 -DNDEBUG "CMakeFiles/mimalloc-test-api.dir/test/test-api.c.o" -o mimalloc-test-api  -Wl,-rpath,/home/jakj3m/LockFreeDynamicSetExperiments/mimalloc-2.1.7 libmimalloc.so.2.1 -lpthread -lrt -latomic 
