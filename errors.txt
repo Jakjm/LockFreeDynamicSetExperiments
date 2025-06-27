@@ -1,4 +1,15 @@
-Performing an experiment in which 1 threads will perform ops on Jeremy's Trie during 5 seconds.
+Performing an experiment in which 256 threads will perform ops on Fatourou and Ruppert's Augmented Static Trie during 5 seconds.
 Ratio of 1 insert ops to 1 remove ops to 1 predecessor ops to 1 search ops.
-Keys drawn uniformly from universe of 1048576 keys
-Prior to start, the structure was filled with exactly 524288 keys.
+Keys drawn uniformly from universe of 4194304 keys
+Prior to start, the structure was filled with exactly 2097152 keys.
+Test starting at 17:03:10
+Test will finish at 17:03:15
+
+Key Checksum (initial + threads): 4395273854416 Actual set: 4395273854416
+Experiment results:
+Average actual time: 12.7737 s Start time variance: 10 µs End time variance: 15547381 µs.
+Total thread throughput: 48774600 ops (3818362 ops/s)
+Average thread throughput: 190525.8 (14915.48 ops/s).
+Maximum thread throughput: 402650 (31521.8 ops/s), 111.34% above average
+Minimum thread throughput: 750 (58.7144 ops/s), 99.606% below average
+Completed writing data to results/evenDistBig.csv.
