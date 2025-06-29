@@ -1,0 +1,44 @@
+1 Expected Runtime(s)
+2 Num Processes
+3 Universe Size
+4 Insert Rate
+5 Remove Rate
+6 Search Rate
+7 Pred Rate
+8 Dynamic Set Type
+9 Average Runtime(s)
+10 Start Time Variance(µs)
+11 End Time Variance(µs)
+12 Total Throughput
+13 Throughput Per Second
+14 Average Throughput
+15 Average Throughput Per Second
+16 Max Proc Throughput
+17 Max Throughput Per Second
+18 Max Exceeds Average by x%
+19 Min Proc Throughput
+20 Min Throughput Per Second
+21 Min Below Average by x%
+22 Total Preds
+23 Average Preds
+24 Min Preds
+25 Max Preds
+26 Total Searches
+27 Average Searches
+28 Min Searches
+29 Max Searches
+30 Total Inserts
+31 Total Successful Inserts
+32 Average Inserts
+33 Average Successful Inserts
+34 Min Inserts
+35 Max Inserts
+36 Min Successful Inserts
+37 Max Successful Inserts
+38 Total Removes
+39 Total Successful Removes
+40 Average Removes
+41 Average Successful Removes
+42 Min Removes
+43 Max Removes
+44 Min Successful Removes
